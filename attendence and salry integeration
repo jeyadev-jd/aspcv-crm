@@ -1,0 +1,623 @@
+# Graphify CRM - Enterprise CRM + HRMS + Payroll Platform
+
+## Vision
+
+Graphify is an all-in-one business operating system that combines:
+
+* CRM
+* Project Management
+* HRMS
+* Attendance Management
+* Payroll Management
+* Document Management
+* Microsoft 365 Integration
+* Internal Communication
+* Analytics & Reporting
+
+The goal is to provide a single dashboard while leveraging Microsoft 365 infrastructure behind the scenes.
+
+---
+
+# Core Modules
+
+## 1. CRM Module
+
+### Features
+
+* Lead Management
+* Contact Management
+* Opportunity Tracking
+* Sales Pipeline
+* Quotation Management
+* Customer Communication History
+* Customer Documents
+* Activity Tracking
+
+### Database
+
+```text
+leads
+contacts
+companies
+opportunities
+activities
+notes
+```
+
+---
+
+# 2. Project Management Module
+
+### Features
+
+* Create Projects
+* Assign Team Members
+* Project Timeline
+* Milestones
+* Tasks
+* Budget Tracking
+* Resource Allocation
+* Project Documents
+
+### Database
+
+```text
+projects
+project_members
+tasks
+milestones
+budgets
+```
+
+---
+
+# 3. Document Management Module
+
+## Storage Strategy
+
+DO NOT store files inside CRM storage.
+
+Store files inside Microsoft SharePoint.
+
+### Workflow
+
+```text
+User Uploads File
+        ↓
+Graphify CRM
+        ↓
+Microsoft Graph API
+        ↓
+SharePoint
+        ↓
+File URL Stored in CRM
+```
+
+### Features
+
+* Upload Files
+* Version History
+* File Preview
+* Folder Permissions
+* File Sharing
+* Document Search
+* Approval Workflow
+
+### Project Structure
+
+```text
+Projects
+ ├── Project A
+ │    ├── Contracts
+ │    ├── Designs
+ │    ├── Reports
+ │    └── Invoices
+ │
+ └── Project B
+```
+
+---
+
+# Microsoft 365 Integration
+
+## Microsoft Graph API
+
+Acts as the bridge between Graphify and Microsoft services.
+
+---
+
+# 1. SharePoint Integration
+
+### Purpose
+
+Enterprise File Storage
+
+### Features
+
+* Project Folders
+* Department Folders
+* File Uploads
+* Versioning
+* Permissions
+* Backup
+
+### APIs
+
+```text
+Create Folder
+Upload File
+Move File
+Delete File
+Read File Metadata
+```
+
+---
+
+# 2. OneDrive Integration
+
+### Purpose
+
+Personal Employee Storage
+
+### Use Cases
+
+* Personal Notes
+* Draft Documents
+* Employee Files
+
+### Not Recommended For
+
+* Project Documents
+* Company Assets
+
+Reason:
+
+Employees may leave the company.
+
+---
+
+# 3. Outlook Integration
+
+### Features
+
+* Send Email
+* Receive Email
+* Calendar Sync
+* Meeting Scheduling
+* Reminder Management
+
+### CRM Workflow
+
+```text
+Customer Follow-up
+      ↓
+Send Email
+      ↓
+Outlook
+      ↓
+Email Logged in CRM
+```
+
+### Project Workflow
+
+```text
+Project Deadline
+      ↓
+Calendar Event
+      ↓
+Outlook Reminder
+```
+
+---
+
+# 4. Microsoft Teams Integration
+
+### Features
+
+* Teams Notifications
+* Meeting Creation
+* Project Channels
+* Team Collaboration
+
+### Example
+
+```text
+Project Created
+      ↓
+Create Teams Channel
+      ↓
+Add Members
+      ↓
+Notify Team
+```
+
+### CRM Actions
+
+```text
+New Lead
+Project Updated
+File Uploaded
+Task Assigned
+Leave Approved
+Payroll Released
+```
+
+---
+
+# Human Resource Management System (HRMS)
+
+## Employee Management
+
+### Features
+
+* Employee Profiles
+* Departments
+* Designations
+* Documents
+* Emergency Contacts
+* Skills Tracking
+
+### Database
+
+```text
+employees
+departments
+designations
+documents
+```
+
+---
+
+# Attendance Management
+
+## Features
+
+* Clock In
+* Clock Out
+* Break Tracking
+* Shift Management
+* Overtime Tracking
+* Leave Requests
+* Holiday Management
+
+## Methods
+
+### Option 1
+
+GPS Attendance with hr asined the place bcs some days ppl can visit any sitess or any oter place where compnay sends
+
+
+
+
+---
+
+## Attendance Workflow
+
+```text
+Employee Check-in
+       ↓
+Attendance Recorded
+       ↓
+Working Hours Calculated
+       ↓
+Payroll Updated
+```
+
+---
+
+# Leave Management
+
+### Features
+
+* Casual Leave
+* Sick Leave
+* Earned Leave
+* Work From Home
+* Half Day
+
+### Approval Flow
+
+```text
+Employee Request
+       ↓
+Manager Approval
+       ↓
+HR Approval
+       ↓
+Attendance Updated
+```
+
+---
+
+# Payroll Management
+
+## Salary Structure
+
+### Components
+
+```text
+Basic Salary
+HRA
+Travel Allowance
+Medical Allowance
+Performance Bonus
+Other Allowances
+```
+
+---
+
+## Deductions
+
+```text
+Loss of Pay
+PF
+ESI
+Professional Tax
+TDS
+Advance Recovery
+Other Deductions
+```
+
+---
+
+## Salary Engine
+
+### Formula
+
+```text
+Gross Salary
++ Bonuses
+- Deductions
+= Net Salary
+```
+
+---
+
+## Payroll Workflow
+
+```text
+Attendance Data
+        ↓
+Leave Data
+        ↓
+Salary Engine
+        ↓
+Generate Payslip
+        ↓
+Manager Approval
+        ↓
+Salary Transfer
+```
+
+---
+
+# Automated Payslip System
+
+## Features
+
+* PDF Generation
+* Digital Signature
+* Email Delivery
+* Employee Portal Download
+
+### Workflow
+
+```text
+Payroll Generated
+       ↓
+Payslip PDF
+       ↓
+Stored in SharePoint
+       ↓
+Sent via Outlook
+```
+
+---
+
+# RazorpayX Integration
+
+## Purpose
+
+Salary Disbursement
+
+### Workflow
+
+```text
+Payroll Approved
+       ↓
+RazorpayX API
+       ↓
+Bank Transfer
+       ↓
+Employee Account Credited
+```
+
+### Important Rule
+
+Never transfer salary automatically.
+
+Use:
+
+```text
+Payroll Generated
+       ↓
+HR Approval
+       ↓
+Finance Approval
+       ↓
+RazorpayX Transfer
+```
+
+---
+
+# Reporting & Analytics
+
+## Dashboards
+
+### CRM
+
+* Lead Conversion
+* Sales Pipeline
+* Revenue
+
+### HR
+
+* Attendance Rate
+* Leave Statistics
+* Employee Performance
+
+### Payroll
+
+* Monthly Salary Cost
+* Department Cost
+* Overtime Cost
+
+### Projects
+
+* Budget Utilization
+* Resource Usage
+* Progress Tracking
+
+---
+
+# AI Features (Future)
+
+## AI Assistant
+
+### Features
+
+* Meeting Summaries
+* Email Drafting
+* Payroll Insights
+* Attendance Anomaly Detection
+* Employee Performance Analysis
+
+---
+
+# Recommended Tech Stack
+
+## Frontend
+
+```text
+React
+TypeScript
+TailwindCSS
+```
+
+## Backend
+
+```text
+Node.js
+Express.js
+```
+
+## Database
+
+```text
+PostgreSQL
+Redis
+```
+
+## Authentication
+
+```text
+Microsoft Entra ID
+JWT
+RBAC
+```
+
+## Storage
+
+```text
+Microsoft SharePoint
+```
+
+## Communication
+
+```text
+Microsoft Teams
+Microsoft Outlook
+```
+
+## Payroll
+
+```text
+RazorpayX
+```
+
+## Hosting
+
+```text
+AWS
+```
+
+## Monitoring
+
+```text
+Grafana
+Prometheus
+```
+
+---
+
+# Development Roadmap
+
+## Phase 1
+
+* Authentication
+* CRM
+* Projects
+* SharePoint Integration
+
+## Phase 2
+
+* Teams Integration
+* Outlook Integration
+* Document Management
+
+## Phase 3
+
+* HRMS
+* Attendance
+* Leave Management
+
+## Phase 4
+
+* Payroll Engine
+* Payslip Generation
+
+## Phase 5
+
+* RazorpayX Integration
+* Payroll Automation
+
+## Phase 6
+
+* AI Features
+* Analytics
+* Mobile App
+
+---
+
+# Final Architecture
+
+```text
+Graphify CRM
+│
+├── CRM
+├── Projects
+├── Documents
+│      └── SharePoint
+│
+├── Outlook Integration
+├── Teams Integration
+├── HRMS
+├── Attendance
+├── Leave Management
+├── Payroll
+│      └── RazorpayX
+│
+├── Analytics
+└── AI Assistant
+```
+

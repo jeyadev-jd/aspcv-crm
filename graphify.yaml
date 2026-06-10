@@ -1,0 +1,15 @@
+backend:
+  name: "ollama"
+  model: "qwen3:4b"
+  base_url: "http://127.0.0.1:11434/v1"
+  api_key: "ollama"
+
+extraction:
+  max_workers: 4
+  token_budget: 4096
+  max_concurrency: 1
+
+parameters:
+  temperature: 0.3
+  seed: 42
+  num_ctx: 8192

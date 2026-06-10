@@ -1,0 +1,775 @@
+{
+  "communities": {
+    "0": [
+      "lib_currencycontext",
+      "lib_currencycontext_ctx",
+      "lib_currencycontext_currency",
+      "lib_currencycontext_currencyctx",
+      "lib_currencycontext_currencyprovider",
+      "lib_currencycontext_usecurrency",
+      "pages_reports",
+      "pages_reports_accuracycolor",
+      "pages_reports_attaincolor",
+      "pages_reports_card",
+      "pages_reports_cohortcolor",
+      "pages_reports_cohortdata",
+      "pages_reports_date_ranges",
+      "pages_reports_dealstrend",
+      "pages_reports_findingcard",
+      "pages_reports_fmt",
+      "pages_reports_forecastdata",
+      "pages_reports_funneldata",
+      "pages_reports_geodata",
+      "pages_reports_heatcolor",
+      "pages_reports_heatmapdays",
+      "pages_reports_heatmaphours",
+      "pages_reports_heatmapraw",
+      "pages_reports_initmonthlyrevenue",
+      "pages_reports_initpipelinedata",
+      "pages_reports_initproductperf",
+      "pages_reports_invoicetrend",
+      "pages_reports_kpicard",
+      "pages_reports_leadstrend",
+      "pages_reports_minipanel",
+      "pages_reports_productaccuracy",
+      "pages_reports_radardata",
+      "pages_reports_repleaderboard",
+      "pages_reports_reports",
+      "pages_reports_sectionheader",
+      "pages_reports_ticketstrend",
+      "pages_reports_velocitydata"
+    ],
+    "1": [
+      "backend_package",
+      "backend_package_author",
+      "backend_package_dependencies",
+      "backend_package_dependencies_cors",
+      "backend_package_dependencies_dotenv",
+      "backend_package_dependencies_express",
+      "backend_package_dependencies_prisma_client",
+      "backend_package_description",
+      "backend_package_devdependencies",
+      "backend_package_devdependencies_prisma",
+      "backend_package_devdependencies_ts_node_dev",
+      "backend_package_devdependencies_types_cors",
+      "backend_package_devdependencies_types_express",
+      "backend_package_devdependencies_types_node",
+      "backend_package_devdependencies_typescript",
+      "backend_package_keywords",
+      "backend_package_license",
+      "backend_package_main",
+      "backend_package_name",
+      "backend_package_scripts",
+      "backend_package_scripts_build",
+      "backend_package_scripts_db_generate",
+      "backend_package_scripts_db_migrate",
+      "backend_package_scripts_db_seed",
+      "backend_package_scripts_dev",
+      "backend_package_scripts_start",
+      "backend_package_type",
+      "backend_package_version"
+    ],
+    "2": [
+      "frontend_package",
+      "frontend_package_devdependencies",
+      "frontend_package_devdependencies_eslint",
+      "frontend_package_devdependencies_eslint_js",
+      "frontend_package_devdependencies_eslint_plugin_react_hooks",
+      "frontend_package_devdependencies_eslint_plugin_react_refresh",
+      "frontend_package_devdependencies_globals",
+      "frontend_package_devdependencies_tailwindcss",
+      "frontend_package_devdependencies_tailwindcss_vite",
+      "frontend_package_devdependencies_types_node",
+      "frontend_package_devdependencies_types_react",
+      "frontend_package_devdependencies_types_react_dom",
+      "frontend_package_devdependencies_typescript",
+      "frontend_package_devdependencies_typescript_eslint",
+      "frontend_package_devdependencies_vite",
+      "frontend_package_devdependencies_vitejs_plugin_react",
+      "frontend_package_name",
+      "frontend_package_private",
+      "frontend_package_scripts",
+      "frontend_package_scripts_build",
+      "frontend_package_scripts_dev",
+      "frontend_package_scripts_lint",
+      "frontend_package_scripts_preview",
+      "frontend_package_type",
+      "frontend_package_version"
+    ],
+    "3": [
+      "layout_applayout",
+      "layout_applayout_applayout",
+      "layout_sidebar",
+      "layout_sidebar_navgroups",
+      "layout_sidebar_sidebar",
+      "layout_sidebar_sidebarprops",
+      "layout_topbar",
+      "layout_topbar_initnotifs",
+      "layout_topbar_notif",
+      "layout_topbar_titles",
+      "layout_topbar_topbar",
+      "layout_topbar_topbarprops",
+      "layout_topbar_typeicon",
+      "lib_useismobile",
+      "lib_useismobile_useismobile",
+      "pages_calendar",
+      "pages_calendar_bardata",
+      "pages_calendar_blankform",
+      "pages_calendar_calendarpage",
+      "pages_calendar_calevent",
+      "pages_calendar_color_options",
+      "pages_calendar_hours",
+      "pages_calendar_initevents",
+      "pages_calendar_weekdays",
+      "pages_kanban_kanban"
+    ],
+    "4": [
+      "frontend_tsconfig_app",
+      "frontend_tsconfig_app_compileroptions",
+      "frontend_tsconfig_app_compileroptions_allowimportingtsextensions",
+      "frontend_tsconfig_app_compileroptions_baseurl",
+      "frontend_tsconfig_app_compileroptions_erasablesyntaxonly",
+      "frontend_tsconfig_app_compileroptions_ignoredeprecations",
+      "frontend_tsconfig_app_compileroptions_jsx",
+      "frontend_tsconfig_app_compileroptions_lib",
+      "frontend_tsconfig_app_compileroptions_module",
+      "frontend_tsconfig_app_compileroptions_moduledetection",
+      "frontend_tsconfig_app_compileroptions_moduleresolution",
+      "frontend_tsconfig_app_compileroptions_noemit",
+      "frontend_tsconfig_app_compileroptions_nofallthroughcasesinswitch",
+      "frontend_tsconfig_app_compileroptions_nounusedlocals",
+      "frontend_tsconfig_app_compileroptions_nounusedparameters",
+      "frontend_tsconfig_app_compileroptions_paths",
+      "frontend_tsconfig_app_compileroptions_skiplibcheck",
+      "frontend_tsconfig_app_compileroptions_target",
+      "frontend_tsconfig_app_compileroptions_tsbuildinfofile",
+      "frontend_tsconfig_app_compileroptions_types",
+      "frontend_tsconfig_app_compileroptions_verbatimmodulesyntax",
+      "frontend_tsconfig_app_include",
+      "frontend_tsconfig_app_paths"
+    ],
+    "5": [
+      "frontend_package_dependencies",
+      "frontend_package_dependencies_class_variance_authority",
+      "frontend_package_dependencies_clsx",
+      "frontend_package_dependencies_date_fns",
+      "frontend_package_dependencies_hello_pangea_dnd",
+      "frontend_package_dependencies_lucide_react",
+      "frontend_package_dependencies_radix_ui_react_avatar",
+      "frontend_package_dependencies_radix_ui_react_checkbox",
+      "frontend_package_dependencies_radix_ui_react_dialog",
+      "frontend_package_dependencies_radix_ui_react_dropdown_menu",
+      "frontend_package_dependencies_radix_ui_react_progress",
+      "frontend_package_dependencies_radix_ui_react_scroll_area",
+      "frontend_package_dependencies_radix_ui_react_select",
+      "frontend_package_dependencies_radix_ui_react_separator",
+      "frontend_package_dependencies_radix_ui_react_slot",
+      "frontend_package_dependencies_radix_ui_react_tabs",
+      "frontend_package_dependencies_react",
+      "frontend_package_dependencies_react_dom",
+      "frontend_package_dependencies_react_router_dom",
+      "frontend_package_dependencies_recharts",
+      "frontend_package_dependencies_tailwind_merge"
+    ],
+    "6": [
+      "frontend_tsconfig_node",
+      "frontend_tsconfig_node_compileroptions",
+      "frontend_tsconfig_node_compileroptions_allowimportingtsextensions",
+      "frontend_tsconfig_node_compileroptions_erasablesyntaxonly",
+      "frontend_tsconfig_node_compileroptions_lib",
+      "frontend_tsconfig_node_compileroptions_module",
+      "frontend_tsconfig_node_compileroptions_moduledetection",
+      "frontend_tsconfig_node_compileroptions_moduleresolution",
+      "frontend_tsconfig_node_compileroptions_noemit",
+      "frontend_tsconfig_node_compileroptions_nofallthroughcasesinswitch",
+      "frontend_tsconfig_node_compileroptions_nounusedlocals",
+      "frontend_tsconfig_node_compileroptions_nounusedparameters",
+      "frontend_tsconfig_node_compileroptions_skiplibcheck",
+      "frontend_tsconfig_node_compileroptions_target",
+      "frontend_tsconfig_node_compileroptions_tsbuildinfofile",
+      "frontend_tsconfig_node_compileroptions_types",
+      "frontend_tsconfig_node_compileroptions_verbatimmodulesyntax",
+      "frontend_tsconfig_node_include"
+    ],
+    "7": [
+      "lib_crmdatacontext",
+      "lib_crmdatacontext_account",
+      "lib_crmdatacontext_contact",
+      "lib_crmdatacontext_crmdatacontext",
+      "lib_crmdatacontext_crmdatacontextvalue",
+      "lib_crmdatacontext_crmdataprovider",
+      "lib_crmdatacontext_initaccounts",
+      "lib_crmdatacontext_initcontacts",
+      "lib_crmdatacontext_usecrmdata",
+      "pages_contacts",
+      "pages_contacts_avatarcolors",
+      "pages_contacts_blankform",
+      "pages_contacts_contacts",
+      "pages_contacts_dropdownstyle",
+      "pages_contacts_field",
+      "pages_contacts_inp",
+      "pages_contacts_menuitem",
+      "pages_contacts_statusstyle"
+    ],
+    "8": [
+      "pages_support",
+      "pages_support_assignees",
+      "pages_support_blankform",
+      "pages_support_clients",
+      "pages_support_dropdownstyle",
+      "pages_support_field",
+      "pages_support_inittickets",
+      "pages_support_inp",
+      "pages_support_menuitem",
+      "pages_support_priorities",
+      "pages_support_prioritystyle",
+      "pages_support_statuses",
+      "pages_support_statusstyle",
+      "pages_support_support",
+      "pages_support_ticket"
+    ],
+    "9": [
+      "backend_tsconfig",
+      "backend_tsconfig_compileroptions",
+      "backend_tsconfig_compileroptions_esmoduleinterop",
+      "backend_tsconfig_compileroptions_forceconsistentcasinginfilenames",
+      "backend_tsconfig_compileroptions_lib",
+      "backend_tsconfig_compileroptions_module",
+      "backend_tsconfig_compileroptions_outdir",
+      "backend_tsconfig_compileroptions_resolvejsonmodule",
+      "backend_tsconfig_compileroptions_rootdir",
+      "backend_tsconfig_compileroptions_skiplibcheck",
+      "backend_tsconfig_compileroptions_strict",
+      "backend_tsconfig_compileroptions_target",
+      "backend_tsconfig_exclude",
+      "backend_tsconfig_include"
+    ],
+    "10": [
+      "lib_prisma",
+      "lib_prisma_prisma",
+      "routes_calendar",
+      "routes_calendar_router",
+      "routes_invoices",
+      "routes_invoices_router",
+      "routes_kanban",
+      "routes_kanban_router",
+      "routes_products",
+      "routes_products_router",
+      "routes_tasks",
+      "routes_tasks_router",
+      "src_index",
+      "src_index_app"
+    ],
+    "11": [
+      "pages_dashboard",
+      "pages_dashboard_card",
+      "pages_dashboard_dashboard",
+      "pages_dashboard_events",
+      "pages_dashboard_fmtinr",
+      "pages_dashboard_installdata",
+      "pages_dashboard_istclock",
+      "pages_dashboard_minidata",
+      "pages_dashboard_minispark",
+      "pages_dashboard_pipelinedata",
+      "pages_dashboard_recentdeals",
+      "pages_dashboard_statusstyle",
+      "pages_dashboard_updates"
+    ],
+    "12": [
+      "pages_deals",
+      "pages_deals_accounts",
+      "pages_deals_blankform",
+      "pages_deals_deal",
+      "pages_deals_deals",
+      "pages_deals_dropdownstyle",
+      "pages_deals_field",
+      "pages_deals_initdeals",
+      "pages_deals_inp",
+      "pages_deals_menuitem",
+      "pages_deals_products",
+      "pages_deals_stages",
+      "pages_deals_stagestyle"
+    ],
+    "13": [
+      "pages_products",
+      "pages_products_blankform",
+      "pages_products_categoriesmeta",
+      "pages_products_caticonmap",
+      "pages_products_dropdownstyle",
+      "pages_products_field",
+      "pages_products_initproducts",
+      "pages_products_inp",
+      "pages_products_menuitem",
+      "pages_products_piedata",
+      "pages_products_product",
+      "pages_products_products",
+      "pages_products_producttypes"
+    ],
+    "14": [
+      "pages_projects",
+      "pages_projects_blankform",
+      "pages_projects_clients",
+      "pages_projects_dropdownstyle",
+      "pages_projects_field",
+      "pages_projects_initprojects",
+      "pages_projects_inp",
+      "pages_projects_managers",
+      "pages_projects_menuitem",
+      "pages_projects_project",
+      "pages_projects_projects",
+      "pages_projects_statuses",
+      "pages_projects_statusstyle"
+    ],
+    "15": [
+      "pages_settings",
+      "pages_settings_blankform",
+      "pages_settings_field",
+      "pages_settings_initnotifications",
+      "pages_settings_initusers",
+      "pages_settings_inp",
+      "pages_settings_roles",
+      "pages_settings_rolestyle",
+      "pages_settings_settings",
+      "pages_settings_statusstyle",
+      "pages_settings_tab",
+      "pages_settings_tabs",
+      "pages_settings_user"
+    ],
+    "16": [
+      "package",
+      "package_name",
+      "package_private",
+      "package_scripts",
+      "package_scripts_build_backend",
+      "package_scripts_build_frontend",
+      "package_scripts_db_generate",
+      "package_scripts_db_migrate",
+      "package_scripts_dev_backend",
+      "package_scripts_dev_frontend",
+      "package_version"
+    ],
+    "17": [
+      "pages_leads",
+      "pages_leads_blankform",
+      "pages_leads_dropdownstyle",
+      "pages_leads_field",
+      "pages_leads_initleads",
+      "pages_leads_inp",
+      "pages_leads_lead",
+      "pages_leads_leads",
+      "pages_leads_menuitem",
+      "pages_leads_productoptions",
+      "pages_leads_statusstyle"
+    ],
+    "18": [
+      "pages_tasks",
+      "pages_tasks_avatarcolors",
+      "pages_tasks_bardata",
+      "pages_tasks_inittasks",
+      "pages_tasks_sort_opts",
+      "pages_tasks_sortkey",
+      "pages_tasks_sorttasks",
+      "pages_tasks_statusstyle",
+      "pages_tasks_task",
+      "pages_tasks_tasks"
+    ],
+    "19": [
+      "pages_accounts",
+      "pages_accounts_accounts",
+      "pages_accounts_blankform",
+      "pages_accounts_dropdownstyle",
+      "pages_accounts_field",
+      "pages_accounts_industries",
+      "pages_accounts_inp",
+      "pages_accounts_menuitem",
+      "pages_accounts_statusstyle"
+    ],
+    "20": [
+      "pages_kanban",
+      "pages_kanban_avatarcolors",
+      "pages_kanban_avatars",
+      "pages_kanban_bardata",
+      "pages_kanban_column",
+      "pages_kanban_initialcolumns",
+      "pages_kanban_kanbancard",
+      "pages_kanban_overviewstats",
+      "pages_kanban_sparkdata"
+    ],
+    "21": [
+      "pages_invoices",
+      "pages_invoices_avatarcolors",
+      "pages_invoices_blankform",
+      "pages_invoices_fmtamt",
+      "pages_invoices_initinvoices",
+      "pages_invoices_invoice",
+      "pages_invoices_invoices",
+      "pages_invoices_statusstyle"
+    ],
+    "22": [
+      "types_index",
+      "types_index_calendarevent",
+      "types_index_invoice",
+      "types_index_kanbancard",
+      "types_index_kanbancolumn",
+      "types_index_product",
+      "types_index_task"
+    ],
+    "23": [
+      "lib_searchdata",
+      "lib_searchdata_searchindex",
+      "lib_searchdata_searchrecords",
+      "lib_searchdata_searchresult",
+      "lib_searchdata_typecolor"
+    ],
+    "24": [
+      "claude_settings_local",
+      "claude_settings_local_permissions",
+      "claude_settings_local_permissions_allow"
+    ],
+    "25": [
+      "frontend_tsconfig",
+      "frontend_tsconfig_files",
+      "frontend_tsconfig_references"
+    ],
+    "26": [
+      "pages_stub",
+      "pages_stub_stub",
+      "pages_stub_stubprops"
+    ],
+    "27": [
+      "src_app",
+      "src_app_app",
+      "src_main"
+    ],
+    "28": [
+      "src_seed",
+      "src_seed_main",
+      "src_seed_prisma"
+    ],
+    "29": [
+      "lib_utils",
+      "lib_utils_cn"
+    ],
+    "30": [
+      "aspcv_crm_report"
+    ],
+    "31": [
+      "backend_prisma_config"
+    ],
+    "32": [
+      "frontend_eslint_config"
+    ],
+    "33": [
+      "frontend_vite_config"
+    ],
+    "34": [
+      "image1"
+    ],
+    "35": [
+      "image10"
+    ],
+    "36": [
+      "image11"
+    ],
+    "37": [
+      "image12"
+    ],
+    "38": [
+      "image13"
+    ],
+    "39": [
+      "image14"
+    ],
+    "40": [
+      "image15"
+    ],
+    "41": [
+      "image16"
+    ],
+    "42": [
+      "image17"
+    ],
+    "43": [
+      "image18"
+    ],
+    "44": [
+      "image19"
+    ],
+    "45": [
+      "image2"
+    ],
+    "46": [
+      "image20"
+    ],
+    "47": [
+      "image3"
+    ],
+    "48": [
+      "image4"
+    ],
+    "49": [
+      "image5"
+    ],
+    "50": [
+      "image6"
+    ],
+    "51": [
+      "image7"
+    ],
+    "52": [
+      "image8"
+    ],
+    "53": [
+      "image9"
+    ],
+    "54": [
+      "image_01"
+    ],
+    "55": [
+      "image_02"
+    ],
+    "56": [
+      "image_03"
+    ],
+    "57": [
+      "image_04"
+    ],
+    "58": [
+      "image_05"
+    ],
+    "59": [
+      "image_06"
+    ],
+    "60": [
+      "image_07"
+    ],
+    "61": [
+      "image_08"
+    ],
+    "62": [
+      "image_09"
+    ],
+    "63": [
+      "image_10"
+    ],
+    "64": [
+      "image_11"
+    ],
+    "65": [
+      "image_12"
+    ],
+    "66": [
+      "image_13"
+    ],
+    "67": [
+      "image_14"
+    ],
+    "68": [
+      "image_15"
+    ],
+    "69": [
+      "image_16"
+    ],
+    "70": [
+      "image_17"
+    ],
+    "71": [
+      "image_18"
+    ],
+    "72": [
+      "image_19"
+    ],
+    "73": [
+      "image_20"
+    ]
+  },
+  "cohesion": {
+    "0": 0.05555555555555555,
+    "1": 0.07142857142857142,
+    "2": 0.08,
+    "3": 0.08333333333333333,
+    "4": 0.08695652173913043,
+    "5": 0.09523809523809523,
+    "6": 0.1111111111111111,
+    "7": 0.11764705882352941,
+    "8": 0.14285714285714285,
+    "9": 0.14285714285714285,
+    "10": 0.18681318681318682,
+    "11": 0.16666666666666666,
+    "12": 0.16666666666666666,
+    "13": 0.16666666666666666,
+    "14": 0.16666666666666666,
+    "15": 0.16666666666666666,
+    "16": 0.18181818181818182,
+    "17": 0.2,
+    "18": 0.2222222222222222,
+    "19": 0.25,
+    "20": 0.2222222222222222,
+    "21": 0.2857142857142857,
+    "22": 0.2857142857142857,
+    "23": 0.4,
+    "24": 0.6666666666666666,
+    "25": 0.6666666666666666,
+    "26": 0.6666666666666666,
+    "27": 0.6666666666666666,
+    "28": 0.6666666666666666,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0,
+    "35": 1.0,
+    "36": 1.0,
+    "37": 1.0,
+    "38": 1.0,
+    "39": 1.0,
+    "40": 1.0,
+    "41": 1.0,
+    "42": 1.0,
+    "43": 1.0,
+    "44": 1.0,
+    "45": 1.0,
+    "46": 1.0,
+    "47": 1.0,
+    "48": 1.0,
+    "49": 1.0,
+    "50": 1.0,
+    "51": 1.0,
+    "52": 1.0,
+    "53": 1.0,
+    "54": 1.0,
+    "55": 1.0,
+    "56": 1.0,
+    "57": 1.0,
+    "58": 1.0,
+    "59": 1.0,
+    "60": 1.0,
+    "61": 1.0,
+    "62": 1.0,
+    "63": 1.0,
+    "64": 1.0,
+    "65": 1.0,
+    "66": 1.0,
+    "67": 1.0,
+    "68": 1.0,
+    "69": 1.0,
+    "70": 1.0,
+    "71": 1.0,
+    "72": 1.0,
+    "73": 1.0
+  },
+  "gods": [
+    {
+      "id": "frontend_tsconfig_app_compileroptions",
+      "label": "compilerOptions",
+      "degree": 20
+    },
+    {
+      "id": "lib_useismobile_useismobile",
+      "label": "useIsMobile()",
+      "degree": 16
+    },
+    {
+      "id": "frontend_tsconfig_node_compileroptions",
+      "label": "compilerOptions",
+      "degree": 16
+    },
+    {
+      "id": "backend_tsconfig_compileroptions",
+      "label": "compilerOptions",
+      "degree": 11
+    },
+    {
+      "id": "lib_currencycontext_usecurrency",
+      "label": "useCurrency()",
+      "degree": 10
+    },
+    {
+      "id": "backend_package_scripts",
+      "label": "scripts",
+      "degree": 7
+    },
+    {
+      "id": "package_scripts",
+      "label": "scripts",
+      "degree": 7
+    },
+    {
+      "id": "frontend_package_scripts",
+      "label": "scripts",
+      "degree": 5
+    },
+    {
+      "id": "pages_accounts_accounts",
+      "label": "Accounts()",
+      "degree": 5
+    },
+    {
+      "id": "pages_leads_leads",
+      "label": "Leads()",
+      "degree": 5
+    }
+  ],
+  "surprises": [
+    {
+      "source": "AppLayout()",
+      "target": "useIsMobile()",
+      "source_files": [
+        "frontend/src/components/layout/AppLayout.tsx",
+        "frontend/src/lib/useIsMobile.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; peripheral node `AppLayout()` unexpectedly reaches hub `useIsMobile()`"
+    },
+    {
+      "source": "Topbar()",
+      "target": "useIsMobile()",
+      "source_files": [
+        "frontend/src/components/layout/Topbar.tsx",
+        "frontend/src/lib/useIsMobile.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; peripheral node `Topbar()` unexpectedly reaches hub `useIsMobile()`"
+    },
+    {
+      "source": "Accounts()",
+      "target": "useCrmData()",
+      "source_files": [
+        "frontend/src/pages/Accounts.tsx",
+        "frontend/src/lib/crmDataContext.tsx"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "Leads()",
+      "target": "useCrmData()",
+      "source_files": [
+        "frontend/src/pages/Leads.tsx",
+        "frontend/src/lib/crmDataContext.tsx"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "Accounts()",
+      "target": "useCurrency()",
+      "source_files": [
+        "frontend/src/pages/Accounts.tsx",
+        "frontend/src/lib/currencyContext.tsx"
+      ],
+      "confidence": "INFERRED",
+      "relation": "calls",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    }
+  ],
+  "tokens": {
+    "input": 2835,
+    "output": 10729
+  }
+}

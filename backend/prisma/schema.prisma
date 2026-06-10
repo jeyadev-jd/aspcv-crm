@@ -1,0 +1,485 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Existing models (unchanged) ────────────────────────────────────────────
+
+model Product {
+  id        String   @id @default(cuid())
+  name      String
+  sku       String   @unique
+  price     Float
+  quantity  Int      @default(0)
+  category  String
+  rating    Float    @default(0)
+  sales     Int      @default(0)
+  image     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Invoice {
+  id         String        @id @default(cuid())
+  number     String        @unique
+  date       DateTime
+  customer   String
+  status     InvoiceStatus @default(Unpaid)
+  amount     Float
+  fromName   String?
+  fromAddr   String?
+  toName     String?
+  toAddr     String?
+  items      InvoiceItem[]
+  activities Activity[]
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId String
+  item      String
+  hours     Float?
+  rate      Float?
+  amount    Float
+}
+
+model Activity {
+  id        String   @id @default(cuid())
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId String
+  text      String
+  createdAt DateTime @default(now())
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  status      TaskStatus @default(Pending)
+  subtasks    Int        @default(0)
+  completed   Int        @default(0)
+  comments    Int        @default(0)
+  attachments Int        @default(0)
+  checked     Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model KanbanCard {
+  id          String   @id @default(cuid())
+  title       String
+  category    String
+  progress    Int      @default(0)
+  total       Int      @default(1)
+  date        String
+  comments    Int      @default(0)
+  attachments Int      @default(0)
+  columnId    String
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model CalendarEvent {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  date        DateTime
+  startTime   String
+  endTime     String
+  color       String   @default("blue")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── New enterprise models ───────────────────────────────────────────────────
+
+model Designation {
+  id       String  @id @default(cuid())
+  name     String  @unique
+  isActive Boolean @default(true)
+  users    User[]
+}
+
+model Industry {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id              String       @id @default(cuid())
+  name            String
+  email           String       @unique
+  passwordHash    String
+  role            Role         @default(Viewer)
+  designation     Designation? @relation(fields: [designationId], references: [id])
+  designationId   String?
+  isActive        Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  leadOwners      LeadOwner[]
+  dealOwners      DealOwner[]
+  discussionParticipants DiscussionParticipant[]
+  attachments     Attachment[]
+}
+
+
+model Company {
+  id           String       @id @default(cuid())
+  name         String
+  nickname     String?      // short account name for ref number (e.g. HMML)
+  industry     String?
+  customerType CustomerType @default(Indian)
+  // India: region + state + city + area; International: country + city + area
+  region       String?      // North/West/South/East (India only)
+  country      String?      // manual entry (International)
+  state        String?      // dropdown list (India) or null
+  city         String?      // manual entry
+  area         String?      // manual entry
+  stateCode    String?      // 2-letter state code override for ref number
+  areaCode     String?      // area nickname for ref number (e.g. SR)
+  cityCode     String?      // city nickname for ref number (e.g. CH)
+  website      String?
+  phone        String?
+  email        String?
+  gstNumber    String?
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  contacts     Contact[]
+  leads        Lead[]
+  deals        Deal[]
+  projects     Project[]
+  installations Installation[]
+  supportTickets SupportTicket[]
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  company     Company  @relation(fields: [companyId], references: [id])
+  companyId   String
+  name        String
+  designation String?
+  email       String?
+  phone       String?
+  whatsapp    String?
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  discussionParticipants DiscussionParticipant[]
+  supportTickets SupportTicket[]
+}
+
+model Lead {
+  id              String         @id @default(cuid())
+  company         Company        @relation(fields: [companyId], references: [id])
+  companyId       String
+  title           String
+  source          String         // kept for backward compat; new leads use LeadSource[]
+  region          String
+  commercialType  String
+  productId       String?
+  estimatedValue  Float?
+  closeDate       DateTime?
+  stage           LifecycleStage @default(Lead)
+  status          LeadStatus     @default(Enquiry)
+  notes           String?
+  leadDate        DateTime       @default(now())
+  serialNo        Int?
+  refNumber       String?        @unique
+  monthlyRemarks  String?
+  isActive        Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  owners          LeadOwner[]
+  contacts        LeadContact[]
+  sources         LeadSource[]
+  deals           Deal[]
+}
+
+model LeadSource {
+  id         String   @id @default(cuid())
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId     String
+  source     String
+  sourceName String?
+  createdAt  DateTime @default(now())
+}
+
+model LeadContact {
+  id           String   @id @default(cuid())
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId       String
+  name         String
+  designation  String?
+  email        String?
+  phone        String?
+  whatsapp     String?
+  isPrimary    Boolean  @default(false)
+  createdAt    DateTime @default(now())
+}
+
+model LeadOwner {
+  id      String @id @default(cuid())
+  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId  String
+  user    User   @relation(fields: [userId], references: [id])
+  userId  String
+  role    String @default("primary")
+
+  @@unique([leadId, userId])
+}
+
+// ─── Polymorphic Discussion (entityType + entityId attaches to ANY module) ──
+
+model Discussion {
+  id           String       @id @default(cuid())
+  entityType   String
+  entityId     String
+  type         DiscussionType
+  category     String?      // General | Enquiry | ProspectiveLead | ProjectHold | Hibernated | OrderWon | OrderLost
+  title        String
+  scheduledAt  DateTime?
+  summary      String?
+  decisions    String?
+  nextActions  String?
+  followUpAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  participants DiscussionParticipant[]
+  attachments  Attachment[]
+
+  @@index([entityType, entityId])
+}
+
+model DiscussionParticipant {
+  id           String      @id @default(cuid())
+  discussion   Discussion  @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  discussionId String
+  user         User?       @relation(fields: [userId], references: [id])
+  userId       String?
+  contact      Contact?    @relation(fields: [contactId], references: [id])
+  contactId    String?
+}
+
+// ─── Polymorphic Attachment (attaches to Discussion OR any entity) ───────────
+
+model Attachment {
+  id           String      @id @default(cuid())
+  entityType   String?
+  entityId     String?
+  discussion   Discussion? @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  discussionId String?
+  fileName     String
+  mimeType     String
+  storageKey   String      @unique
+  sizeBytes    Int?
+  uploadedBy   User        @relation(fields: [uploadedById], references: [id])
+  uploadedById String
+  createdAt    DateTime    @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// ─── Immutable Timeline (append-only, no updatedAt) ──────────────────────────
+
+model TimelineEvent {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  actorId     String?
+  eventType   String
+  description String
+  meta        Json?
+  createdAt   DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum InvoiceStatus {
+  Paid
+  Unpaid
+  Scheduled
+  Processing
+}
+
+enum TaskStatus {
+  Done
+  Pending
+  OnHold
+}
+
+enum Role {
+  Admin
+  Sales
+  Project
+  Installation
+  Support
+  Finance
+  HR
+  Viewer
+}
+
+enum LeadStatus {
+  Enquiry
+  ProspectiveLead
+  ProjectHold
+  Hibernated
+  OrderWon
+  OrderLost
+}
+
+enum CustomerType {
+  Indian
+  International
+}
+
+enum LifecycleStage {
+  Lead
+  QualifiedLead
+  Deal
+  Project
+  Installation
+  Support
+}
+
+enum DiscussionType {
+  VoiceCall
+  VideoCall
+  Meeting
+  WhatsApp
+  Email
+  SiteVisit
+  ManualDiscussion
+}
+
+// ─── Phase 2: Lifecycle modules ──────────────────────────────────────────────
+
+enum DealStage {
+  LeadIn
+  Proposal
+  Negotiation
+  OrderWon
+  OrderLost
+}
+
+enum ProjectStatus {
+  Planning
+  Active
+  OnHold
+  Completed
+}
+
+enum InstallationStatus {
+  Scheduled
+  InProgress
+  Completed
+  OnHold
+}
+
+enum TicketPriority {
+  Low
+  Medium
+  High
+  Critical
+}
+
+enum TicketStatus {
+  Open
+  InProgress
+  Resolved
+  Closed
+}
+
+model Deal {
+  id          String    @id @default(cuid())
+  lead        Lead?     @relation(fields: [leadId], references: [id])
+  leadId      String?
+  company     Company   @relation(fields: [companyId], references: [id])
+  companyId   String
+  title       String
+  stage       DealStage @default(Proposal)
+  value       Float?
+  probability Int?      @default(50)
+  closeDate   DateTime?
+  productId   String?
+  notes       String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  owners      DealOwner[]
+  projects    Project[]
+}
+
+model DealOwner {
+  id      String @id @default(cuid())
+  deal    Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  dealId  String
+  user    User   @relation(fields: [userId], references: [id])
+  userId  String
+  role    String @default("primary")
+
+  @@unique([dealId, userId])
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  deal        Deal?         @relation(fields: [dealId], references: [id])
+  dealId      String?
+  company     Company       @relation(fields: [companyId], references: [id])
+  companyId   String
+  title       String
+  status      ProjectStatus @default(Planning)
+  startDate   DateTime?
+  endDate     DateTime?
+  budget      Float?
+  notes       String?
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  installations Installation[]
+}
+
+model Installation {
+  id            String             @id @default(cuid())
+  project       Project?           @relation(fields: [projectId], references: [id])
+  projectId     String?
+  company       Company            @relation(fields: [companyId], references: [id])
+  companyId     String
+  title         String
+  status        InstallationStatus @default(Scheduled)
+  scheduledDate DateTime?
+  completedDate DateTime?
+  notes         String?
+  isActive      Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model SupportTicket {
+  id          String         @id @default(cuid())
+  company     Company        @relation(fields: [companyId], references: [id])
+  companyId   String
+  contact     Contact?       @relation(fields: [contactId], references: [id])
+  contactId   String?
+  title       String
+  description String?
+  priority    TicketPriority @default(Medium)
+  status      TicketStatus   @default(Open)
+  resolvedAt  DateTime?
+  notes       String?
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
