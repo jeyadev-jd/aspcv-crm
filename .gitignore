@@ -5,3 +5,12 @@ dist/
 uploads/
 graphify-out/*.html
 prisma/migrations/
+# awesome-claude-skills (external)
+skills/lead-research-assistant/
+skills/document-skills/
+skills/file-organizer/
+skills/invoice-organizer/
+skills/googledrive-automation/
+skills/slackbot-automation/
+skills/mcp-builder/
+skills/skill-creator/
