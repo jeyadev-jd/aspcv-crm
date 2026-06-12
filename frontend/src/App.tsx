@@ -20,6 +20,15 @@ import Support from '@/pages/Support'
 import Installations from '@/pages/Installations'
 import Reports from '@/pages/Reports'
 import Settings from '@/pages/Settings'
+import HR from '@/pages/HR'
+import Attendance from '@/pages/Attendance'
+import Payroll from '@/pages/Payroll'
+import MyProfile from '@/pages/MyProfile'
+import MaterialRequests from '@/pages/MaterialRequests'
+import Inventory from '@/pages/Inventory'
+import Financials from '@/pages/Financials'
+import Roles from '@/pages/Roles'
+import Approvals from '@/pages/Approvals'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -50,6 +59,15 @@ export default function App() {
             <Route path="/installations"  element={<Installations />} />
             <Route path="/reports"   element={<Reports />} />
             <Route path="/settings"  element={<Settings />} />
+            <Route path="/hr"               element={<HR />} />
+            <Route path="/attendance"       element={<Attendance />} />
+            <Route path="/payroll"          element={<Payroll />} />
+            <Route path="/profile"          element={<MyProfile />} />
+            <Route path="/material-requests" element={<MaterialRequests />} />
+            <Route path="/inventory"        element={<Inventory />} />
+            <Route path="/financials"       element={<Financials />} />
+            <Route path="/roles"            element={<Roles />} />
+            <Route path="/approvals"        element={<Approvals />} />
           </Route>
         </Route>
       </Routes>
