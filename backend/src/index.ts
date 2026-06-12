@@ -21,6 +21,16 @@ import installationsRouter from './routes/installations'
 import supportRouter from './routes/support'
 import designationsRouter from './routes/designations'
 import industriesRouter from './routes/industries'
+import contactEventsRouter from './routes/contact-events'
+import attendanceRouter from './routes/attendance'
+import salaryRouter from './routes/salary'
+import materialRequestsRouter from './routes/material-requests'
+import componentsRouter from './routes/components'
+import expensesRouter from './routes/expenses'
+import financialsRouter from './routes/financials'
+import approvalRequestsRouter from './routes/approval-requests'
+import roleDefinitionsRouter from './routes/role-definitions'
+import userPermissionsRouter from './routes/user-permissions'
 import { errorHandler } from './middleware/errorHandler'
 
 const app = express()
@@ -52,6 +62,16 @@ app.use('/api/installations', installationsRouter)
 app.use('/api/support', supportRouter)
 app.use('/api/designations', designationsRouter)
 app.use('/api/industries', industriesRouter)
+app.use('/api/contact-events', contactEventsRouter)
+app.use('/api/attendance', attendanceRouter)
+app.use('/api/salary', salaryRouter)
+app.use('/api/material-requests', materialRequestsRouter)
+app.use('/api/components', componentsRouter)
+app.use('/api/expenses', expensesRouter)
+app.use('/api/financials', financialsRouter)
+app.use('/api/approval-requests', approvalRequestsRouter)
+app.use('/api/role-definitions', roleDefinitionsRouter)
+app.use('/api/user-permissions', userPermissionsRouter)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
