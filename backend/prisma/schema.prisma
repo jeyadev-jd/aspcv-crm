@@ -120,15 +120,38 @@ model User {
   email           String       @unique
   passwordHash    String
   role            Role         @default(Viewer)
+  roleName        String       @default("Viewer")
   designation     Designation? @relation(fields: [designationId], references: [id])
   designationId   String?
   isActive        Boolean      @default(true)
+  createdById     String?
+  // HR fields
+  dateOfBirth     DateTime?
+  joiningDate     DateTime?
+  department      String?
+  baseSalary      Float?
+  hra             Float?       @default(0)
+  allowances      Float?       @default(0)
+  pfApplicable    Boolean      @default(true)
+  esiApplicable   Boolean      @default(true)
+  pan             String?
+  bankAccount     String?
+  ifsc            String?
+  bankName        String?
+  emergencyContact String?
   createdAt       DateTime     @default(now())
   updatedAt       DateTime     @updatedAt
   leadOwners      LeadOwner[]
   dealOwners      DealOwner[]
   discussionParticipants DiscussionParticipant[]
   attachments     Attachment[]
+  attendanceRecords AttendanceRecord[]
+  salaryRecords   SalaryRecord[]
+  materialRequestsRaised MaterialRequest[] @relation("MRRequested")
+  permissionOverrides    UserPermissionOverride[] @relation("UserOverrides")
+  grantedOverrides       UserPermissionOverride[] @relation("GrantedByUser")
+  approvalRequestsMade   ApprovalRequest[]        @relation("ARRequested")
+  approvalRequestsReviewed ApprovalRequest[]      @relation("ARReviewed")
 }
 
 
@@ -173,10 +196,26 @@ model Contact {
   whatsapp    String?
   notes       String?
   isActive    Boolean  @default(true)
+  createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   discussionParticipants DiscussionParticipant[]
   supportTickets SupportTicket[]
+  events      ContactEvent[]
+
+  @@unique([companyId, email])
+}
+
+model ContactEvent {
+  id        String   @id @default(cuid())
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  type      String   // 'birthday' | 'anniversary' | 'custom'
+  title     String
+  eventDate DateTime
+  recurring Boolean  @default(true)
+  notes     String?
+  createdAt DateTime @default(now())
 }
 
 model Lead {
@@ -198,6 +237,7 @@ model Lead {
   refNumber       String?        @unique
   monthlyRemarks  String?
   isActive        Boolean        @default(true)
+  createdById     String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   owners          LeadOwner[]
@@ -321,12 +361,15 @@ enum TaskStatus {
 }
 
 enum Role {
-  Admin
-  Sales
-  Project
-  Installation
-  Support
-  Finance
+  SuperAdmin
+  BusinessHead
+  ProjectHead
+  SalesHead
+  Manager
+  SeniorEngineer
+  Engineer
+  Technician
+  Accountant
   HR
   Viewer
 }
@@ -416,6 +459,7 @@ model Deal {
   productId   String?
   notes       String?
   isActive    Boolean   @default(true)
+  createdById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   owners      DealOwner[]
@@ -449,6 +493,7 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   installations Installation[]
+  materialRequests MaterialRequest[]
 }
 
 model Installation {
@@ -465,6 +510,217 @@ model Installation {
   isActive      Boolean            @default(true)
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+}
+
+// ─── HR / Attendance / Payroll ───────────────────────────────────────────────
+
+model AttendanceRecord {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
+  date         DateTime
+  checkIn      DateTime?
+  checkOut     DateTime?
+  lat          Float?
+  lng          Float?
+  locationName String?
+  status       String   @default("present") // present | late | absent | half_day | leave
+  minutesLate  Int      @default(0)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, date])
+}
+
+model AttendanceLocation {
+  id        String   @id @default(cuid())
+  name      String
+  lat       Float
+  lng       Float
+  radiusM   Int      @default(100)
+  isDefault Boolean  @default(false)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model SalaryRecord {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id])
+  month          Int
+  year           Int
+  baseSalary     Float
+  hra            Float    @default(0)
+  allowances     Float    @default(0)
+  grossSalary    Float
+  pfEmployee     Float    @default(0)
+  pfEmployer     Float    @default(0)
+  esiEmployee    Float    @default(0)
+  esiEmployer    Float    @default(0)
+  tds            Float    @default(0)
+  lateDeduction  Float    @default(0)
+  otherDeduction Float    @default(0)
+  netSalary      Float
+  daysPresent    Int      @default(0)
+  daysAbsent     Int      @default(0)
+  lateDays       Int      @default(0)
+  halfDayCuts    Int      @default(0)
+  fullDayCuts    Int      @default(0)
+  status         String   @default("draft")
+  paidAt         DateTime?
+  createdAt      DateTime @default(now())
+
+  @@unique([userId, month, year])
+}
+
+// ─── Material Requests ───────────────────────────────────────────────────────
+
+model MaterialRequest {
+  id                     String                @id @default(cuid())
+  refNumber              String                @unique
+  requestedById          String
+  requestedBy            User                  @relation("MRRequested", fields: [requestedById], references: [id])
+  projectId              String?
+  project                Project?              @relation(fields: [projectId], references: [id])
+  items                  MaterialRequestItem[]
+  status                 String                @default("pending")
+  managerApprovedById    String?
+  managerApprovedAt      DateTime?
+  bizHeadApprovedById    String?
+  bizHeadApprovedAt      DateTime?
+  accountantApprovedById String?
+  accountantApprovedAt   DateTime?
+  rejectedById           String?
+  rejectedAt             DateTime?
+  rejectionReason        String?
+  totalEstimated         Float?
+  notes                  String?
+  createdAt              DateTime              @default(now())
+}
+
+model MaterialRequestItem {
+  id             String          @id @default(cuid())
+  requestId      String
+  request        MaterialRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  componentRefNo String?
+  name           String
+  description    String?
+  quantity       Int
+  unit           String?
+  estimatedPrice Float?
+}
+
+// ─── Raw Components Inventory ────────────────────────────────────────────────
+
+model RawComponent {
+  id             String              @id @default(cuid())
+  refNumber      String              @unique
+  name           String
+  category       String?
+  warrantyMonths Int?
+  receivedAt     DateTime            @default(now())
+  status         String              @default("in_stock")
+  assignedToType String?
+  assignedToId   String?
+  assignedAt     DateTime?
+  customFields   Json?
+  notes          String?
+  movements      ComponentMovement[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+}
+
+model ComponentMovement {
+  id            String       @id @default(cuid())
+  componentId   String
+  component     RawComponent @relation(fields: [componentId], references: [id])
+  type          String       // received | assigned | returned | disposed
+  toEntityType  String?
+  toEntityId    String?
+  toEntityName  String?
+  performedById String?
+  notes         String?
+  createdAt     DateTime     @default(now())
+}
+
+// ─── Financial / Expenses ────────────────────────────────────────────────────
+
+model Expense {
+  id         String   @id @default(cuid())
+  title      String
+  amount     Float
+  category   String   // travel | utilities | salary | materials | other
+  entityType String?
+  entityId   String?
+  date       DateTime
+  notes      String?
+  createdAt  DateTime @default(now())
+}
+
+model FinancialEntry {
+  id        String   @id @default(cuid())
+  type      String   // 'asset' | 'liability'
+  name      String
+  amount    Float
+  category  String?
+  asOf      DateTime @default(now())
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+// ─── Dynamic RBAC ────────────────────────────────────────────────────────────
+
+model RoleDefinition {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  displayName String
+  isSystem    Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(99)
+  permissions RolePermission[]
+  createdAt   DateTime @default(now())
+}
+
+model RolePermission {
+  id               String         @id @default(cuid())
+  roleDefinitionId String
+  roleDefinition   RoleDefinition @relation(fields: [roleDefinitionId], references: [id], onDelete: Cascade)
+  resource         String
+  action           String
+  allowed          Boolean        @default(true)
+  @@unique([roleDefinitionId, resource, action])
+}
+
+model UserPermissionOverride {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("UserOverrides", fields: [userId], references: [id], onDelete: Cascade)
+  resource    String
+  action      String
+  allowed     Boolean
+  grantedById String
+  grantedBy   User     @relation("GrantedByUser", fields: [grantedById], references: [id])
+  reason      String?
+  createdAt   DateTime @default(now())
+  @@unique([userId, resource, action])
+}
+
+model ApprovalRequest {
+  id             String    @id @default(cuid())
+  requestedById  String
+  requestedBy    User      @relation("ARRequested", fields: [requestedById], references: [id])
+  entityType     String
+  entityId       String
+  action         String
+  payload        Json?
+  status         String    @default("pending")
+  reviewedById   String?
+  reviewedBy     User?     @relation("ARReviewed", fields: [reviewedById], references: [id])
+  reviewedAt     DateTime?
+  expiresAt      DateTime?
+  reason         String?
+  rejectReason   String?
+  createdAt      DateTime  @default(now())
 }
 
 model SupportTicket {
