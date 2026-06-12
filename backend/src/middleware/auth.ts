@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express'
 import { verifyToken } from '../lib/jwt'
 
 export interface AuthRequest extends Request {
-  user?: { id: string; role: string }
+  user?: { id: string; role: string; roleName: string }
 }
 
 export function authenticate(req: AuthRequest, res: Response, next: NextFunction) {

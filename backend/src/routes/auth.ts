@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt'
 import prisma from '../lib/prisma'
 import { signToken } from '../lib/jwt'
 import { loginSchema } from '../lib/zod-schemas'
+import { authenticate, AuthRequest } from '../middleware/auth'
 
 const router = Router()
 
@@ -18,10 +19,10 @@ router.post('/login', async (req, res) => {
     res.status(401).json({ error: 'Invalid credentials' })
     return
   }
-  const token = signToken({ id: user.id, role: user.role })
+  const token = signToken({ id: user.id, role: user.role, roleName: user.roleName })
   res.json({
     token,
-    user: { id: user.id, name: user.name, email: user.email, role: user.role, designation: user.designation?.name }
+    user: { id: user.id, name: user.name, email: user.email, role: user.role, roleName: user.roleName, designation: user.designation?.name }
   })
 })
 
@@ -33,10 +34,38 @@ router.post('/refresh', async (req, res) => {
     const payload = verifyToken(token)
     const user = await prisma.user.findUnique({ where: { id: payload.id } })
     if (!user || !user.isActive) { res.status(401).json({ error: 'User not found' }); return }
-    res.json({ token: signToken({ id: user.id, role: user.role }) })
+    res.json({ token: signToken({ id: user.id, role: user.role, roleName: user.roleName }) })
   } catch {
     res.status(401).json({ error: 'Invalid token' })
   }
+})
+
+// GET /api/auth/my-permissions — flat permission map for frontend
+router.get('/my-permissions', authenticate, async (req: AuthRequest, res) => {
+  const { id: userId, roleName } = req.user!
+
+  const map: Record<string, boolean> = {}
+
+  if (roleName === 'SuperAdmin') {
+    map['*'] = true
+  } else {
+    const rolePerms = await prisma.rolePermission.findMany({
+      where: { roleDefinition: { name: roleName }, allowed: true },
+      select: { resource: true, action: true },
+    })
+    for (const p of rolePerms) {
+      map[`${p.resource}:${p.action}`] = true
+    }
+    const overrides = await prisma.userPermissionOverride.findMany({
+      where: { userId },
+      select: { resource: true, action: true, allowed: true },
+    })
+    for (const o of overrides) {
+      map[`${o.resource}:${o.action}`] = o.allowed
+    }
+  }
+
+  res.json(map)
 })
 
 export default router
