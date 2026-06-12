@@ -3,14 +3,18 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { dealSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
+import { requirePermission, checkApprovalToken, consumeApprovalToken } from '../middleware/permissions'
+import { getScopeFilter } from '../middleware/scoping'
 
 const router = Router()
 router.use(authenticate)
 
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('deal', 'read_own'), async (req: AuthRequest, res) => {
   const { stage, companyId, leadId, assigneeId } = req.query as Record<string, string>
+  const scope = await getScopeFilter(req.user!.id, req.user!.roleName, 'deal')
   const deals = await prisma.deal.findMany({
     where: {
+      ...scope,
       isActive: true,
       ...(stage && { stage: stage as any }),
       ...(companyId && { companyId }),
@@ -41,12 +45,13 @@ router.get('/:id', async (req, res) => {
   res.json(deal)
 })
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('deal', 'create'), async (req: AuthRequest, res) => {
   const data = dealSchema.parse(req.body)
   const { ownerIds, ...dealData } = data as typeof data & { ownerIds?: string[] }
   const deal = await prisma.deal.create({
     data: {
       ...dealData,
+      createdById: req.user!.id,
       closeDate: dealData.closeDate ? new Date(dealData.closeDate) : undefined,
       owners: req.user
         ? { create: [{ userId: req.user.id, role: 'primary' }] }
@@ -68,6 +73,11 @@ router.post('/', async (req: AuthRequest, res) => {
 })
 
 router.put('/:id', async (req: AuthRequest, res) => {
+  const { allowed, approvalId } = await checkApprovalToken(req.user!.id, req.user!.roleName, 'deal', req.params.id as string, 'edit')
+  if (!allowed) {
+    res.status(403).json({ error: 'approval_required', entityType: 'deal', entityId: req.params.id, action: 'edit' })
+    return
+  }
   const data = dealSchema.partial().parse(req.body)
   const deal = await prisma.deal.update({
     where: { id: req.params.id as string },
@@ -77,6 +87,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     },
     include: { company: { select: { id: true, name: true } } },
   })
+  if (approvalId) await consumeApprovalToken(approvalId)
   await appendEvent('Deal', deal.id, 'UPDATED', `Deal "${deal.title}" updated`, req.user?.id)
   res.json(deal)
 })
@@ -125,10 +136,16 @@ router.patch('/:id/stage', async (req: AuthRequest, res) => {
 })
 
 router.delete('/:id', async (req: AuthRequest, res) => {
+  const { allowed, approvalId } = await checkApprovalToken(req.user!.id, req.user!.roleName, 'deal', req.params.id as string, 'delete')
+  if (!allowed) {
+    res.status(403).json({ error: 'approval_required', entityType: 'deal', entityId: req.params.id, action: 'delete' })
+    return
+  }
   const deal = await prisma.deal.update({
     where: { id: req.params.id as string },
     data: { isActive: false },
   })
+  if (approvalId) await consumeApprovalToken(approvalId)
   await appendEvent('Deal', deal.id, 'DELETED', `Deal "${deal.title}" archived`, req.user?.id)
   res.json({ success: true })
 })

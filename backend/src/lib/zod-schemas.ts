@@ -81,8 +81,21 @@ export const userSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
   password: z.string().min(8),
-  role: z.enum(['Admin', 'Sales', 'Project', 'Installation', 'Support', 'Finance', 'HR', 'Viewer']),
+  role: z.enum(['SuperAdmin', 'BusinessHead', 'ProjectHead', 'SalesHead', 'Manager', 'SeniorEngineer', 'Engineer', 'Technician', 'Accountant', 'HR', 'Viewer']),
   designationId: z.string().optional(),
+  dateOfBirth: z.string().optional(),
+  joiningDate: z.string().optional(),
+  department: z.string().optional(),
+  baseSalary: z.number().optional(),
+  hra: z.number().optional(),
+  allowances: z.number().optional(),
+  pfApplicable: z.boolean().optional(),
+  esiApplicable: z.boolean().optional(),
+  pan: z.string().optional(),
+  bankAccount: z.string().optional(),
+  ifsc: z.string().optional(),
+  bankName: z.string().optional(),
+  emergencyContact: z.string().optional(),
 })
 
 export const dealSchema = z.object({

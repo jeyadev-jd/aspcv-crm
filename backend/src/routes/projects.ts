@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { projectSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
+import { requirePermission } from '../middleware/permissions'
 
 const router = Router()
 router.use(authenticate)
@@ -39,7 +40,7 @@ router.get('/:id', async (req, res) => {
   res.json(project)
 })
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('project', 'create'), async (req: AuthRequest, res) => {
   const data = projectSchema.parse(req.body)
   const project = await prisma.project.create({
     data: {
@@ -53,7 +54,7 @@ router.post('/', async (req: AuthRequest, res) => {
   res.status(201).json(project)
 })
 
-router.put('/:id', async (req: AuthRequest, res) => {
+router.put('/:id', requirePermission('project', 'edit'), async (req: AuthRequest, res) => {
   const data = projectSchema.partial().parse(req.body)
   const project = await prisma.project.update({
     where: { id: req.params.id as string },
@@ -68,7 +69,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
   res.json(project)
 })
 
-router.patch('/:id/status', async (req: AuthRequest, res) => {
+router.patch('/:id/status', requirePermission('project', 'edit'), async (req: AuthRequest, res) => {
   const { status } = req.body as { status: string }
   const project = await prisma.project.update({
     where: { id: req.params.id as string },
@@ -78,7 +79,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   res.json(project)
 })
 
-router.delete('/:id', async (req: AuthRequest, res) => {
+router.delete('/:id', requirePermission('project', 'delete'), async (req: AuthRequest, res) => {
   const project = await prisma.project.update({
     where: { id: req.params.id as string },
     data: { isActive: false },

@@ -3,6 +3,8 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { leadSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
+import { requirePermission, checkApprovalToken, consumeApprovalToken } from '../middleware/permissions'
+import { getScopeFilter } from '../middleware/scoping'
 import { z } from 'zod'
 
 const router = Router()
@@ -34,10 +36,12 @@ function buildRefNumber(company: any, serialNo: number): string {
   return `ASPCV ${nick}-${sc}-${ac} ${cc}-${serialNo}`
 }
 
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('lead', 'read_own'), async (req: AuthRequest, res) => {
   const { status, region, source, companyId, ownerId, stage } = req.query as Record<string, string>
+  const scope = await getScopeFilter(req.user!.id, req.user!.roleName, 'lead')
   const leads = await prisma.lead.findMany({
     where: {
+      ...scope,
       isActive: true,
       ...(status && { status: status as any }),
       ...(region && { region }),
@@ -67,12 +71,34 @@ router.get('/:id', async (req, res) => {
   res.json(lead)
 })
 
-async function upsertContacts(leadId: string, contacts: any[]) {
+async function upsertContacts(leadId: string, contacts: any[], companyId?: string) {
   for (const c of contacts) {
     if (c.id) {
       await prisma.leadContact.update({ where: { id: c.id }, data: { name: c.name, designation: c.designation, email: c.email, phone: c.phone, whatsapp: c.whatsapp, isPrimary: c.isPrimary ?? false } })
     } else {
       await prisma.leadContact.create({ data: { leadId, name: c.name, designation: c.designation, email: c.email, phone: c.phone, whatsapp: c.whatsapp, isPrimary: c.isPrimary ?? false } })
+    }
+    // Sync to global Contact table
+    if (companyId && c.name?.trim()) {
+      const where = c.email
+        ? { companyId_email: { companyId, email: c.email } }
+        : undefined
+      const data = { name: c.name, designation: c.designation ?? undefined, phone: c.phone ?? undefined, whatsapp: c.whatsapp ?? undefined }
+      if (where) {
+        await prisma.contact.upsert({
+          where,
+          update: data,
+          create: { companyId, email: c.email, ...data },
+        })
+      } else {
+        // no email — upsert by name
+        const existing = await prisma.contact.findFirst({ where: { companyId, name: c.name } })
+        if (existing) {
+          await prisma.contact.update({ where: { id: existing.id }, data })
+        } else {
+          await prisma.contact.create({ data: { companyId, ...data } })
+        }
+      }
     }
   }
 }
@@ -84,7 +110,7 @@ async function upsertSources(leadId: string, sources: { source: string; sourceNa
   }
 }
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('lead', 'create'), async (req: AuthRequest, res) => {
   const { contacts, sources, ...rest } = leadSchema.parse(req.body)
 
   const { _max } = await prisma.lead.aggregate({ _max: { serialNo: true } })
@@ -96,6 +122,7 @@ router.post('/', async (req: AuthRequest, res) => {
     data: {
       ...rest,
       serialNo,
+      createdById: req.user!.id,
       closeDate: rest.closeDate ? new Date(rest.closeDate) : undefined,
       leadDate: rest.leadDate ? new Date(rest.leadDate) : new Date(),
       owners: req.user ? { create: { userId: req.user.id, role: 'primary' } } : undefined,
@@ -106,7 +133,7 @@ router.post('/', async (req: AuthRequest, res) => {
   const refNumber = buildRefNumber(company || {}, serialNo)
   await prisma.lead.update({ where: { id: lead.id }, data: { refNumber } })
 
-  if (contacts?.length) await upsertContacts(lead.id, contacts)
+  if (contacts?.length) await upsertContacts(lead.id, contacts, rest.companyId)
   if (sources?.length) await upsertSources(lead.id, sources)
 
   await appendEvent('Lead', lead.id, 'CREATED', `Lead "${lead.title}" created`, req.user?.id)
@@ -115,6 +142,11 @@ router.post('/', async (req: AuthRequest, res) => {
 })
 
 router.patch('/:id', async (req: AuthRequest, res) => {
+  const { allowed, approvalId } = await checkApprovalToken(req.user!.id, req.user!.roleName, 'lead', req.params.id as string, 'edit')
+  if (!allowed) {
+    res.status(403).json({ error: 'approval_required', entityType: 'lead', entityId: req.params.id, action: 'edit' })
+    return
+  }
   const { contacts, sources, ...rest } = leadSchema.partial().parse(req.body)
   const lead = await prisma.lead.update({
     where: { id: req.params.id as string },
@@ -125,15 +157,35 @@ router.patch('/:id', async (req: AuthRequest, res) => {
     },
     include: INCLUDE_FULL,
   })
-  if (contacts?.length) await upsertContacts(lead.id, contacts)
+  if (contacts?.length) await upsertContacts(lead.id, contacts, lead.companyId)
   if (sources !== undefined) await upsertSources(lead.id, sources ?? [])
+
+  // Re-generate refNumber (assign serialNo first if missing)
+  let serialNo = lead.serialNo
+  if (!serialNo) {
+    const { _max } = await prisma.lead.aggregate({ _max: { serialNo: true } })
+    serialNo = (_max.serialNo ?? 0) + 1
+  }
+  const company = await prisma.company.findUnique({ where: { id: lead.companyId } })
+  if (company) {
+    const refNumber = buildRefNumber(company, serialNo)
+    await prisma.lead.update({ where: { id: lead.id }, data: { refNumber, serialNo } })
+  }
+
+  if (approvalId) await consumeApprovalToken(approvalId)
   await appendEvent('Lead', lead.id, 'UPDATED', `Lead updated`, req.user?.id)
   const full = await prisma.lead.findUnique({ where: { id: lead.id }, include: INCLUDE_FULL })
   res.json(full)
 })
 
 router.delete('/:id', async (req: AuthRequest, res) => {
+  const { allowed, approvalId } = await checkApprovalToken(req.user!.id, req.user!.roleName, 'lead', req.params.id as string, 'delete')
+  if (!allowed) {
+    res.status(403).json({ error: 'approval_required', entityType: 'lead', entityId: req.params.id, action: 'delete' })
+    return
+  }
   await prisma.lead.update({ where: { id: req.params.id as string }, data: { isActive: false } })
+  if (approvalId) await consumeApprovalToken(approvalId)
   res.status(204).end()
 })
 

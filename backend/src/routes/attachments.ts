@@ -3,13 +3,14 @@ import multer from 'multer'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fileStorage } from '../services/fileStorage'
+import { requirePermission } from '../middleware/permissions'
 
 const router = Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } })
 
 router.use(authenticate)
 
-router.post('/', upload.single('file'), async (req: AuthRequest, res) => {
+router.post('/', upload.single('file'), requirePermission('attachment', 'create'), async (req: AuthRequest, res) => {
   if (!req.file) { res.status(400).json({ error: 'No file uploaded' }); return }
   const { entityType, entityId, discussionId } = req.body as { entityType?: string; entityId?: string; discussionId?: string }
   const storageKey = await fileStorage.upload(req.file.buffer, req.file.originalname, req.file.mimetype)
@@ -50,7 +51,7 @@ router.get('/:storageKey/download', async (req, res) => {
   res.send(buffer)
 })
 
-router.delete('/:id', async (req: AuthRequest, res) => {
+router.delete('/:id', requirePermission('attachment', 'delete'), async (req: AuthRequest, res) => {
   const attachment = await prisma.attachment.findUnique({ where: { id: req.params.id as string } })
   if (!attachment) { res.status(404).json({ error: 'Not found' }); return }
   await fileStorage.delete(attachment.storageKey)

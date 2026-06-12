@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { discussionSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
+import { requirePermission } from '../middleware/permissions'
 
 const router = Router()
 router.use(authenticate)
@@ -42,7 +43,7 @@ router.get('/:id', async (req, res) => {
   res.json(d)
 })
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('discussion', 'create'), async (req: AuthRequest, res) => {
   const data = discussionSchema.parse(req.body)
   const { participantUserIds, participantContactIds, entityType, entityId, ...rest } = data
   const discussion = await prisma.discussion.create({
@@ -67,7 +68,7 @@ router.post('/', async (req: AuthRequest, res) => {
   res.status(201).json(discussion)
 })
 
-router.patch('/:id', async (req: AuthRequest, res) => {
+router.patch('/:id', requirePermission('discussion', 'edit'), async (req: AuthRequest, res) => {
   const data = discussionSchema.partial().parse(req.body)
   const { participantUserIds, participantContactIds, entityType, entityId, ...rest } = data
   const discussion = await prisma.discussion.update({
@@ -82,7 +83,7 @@ router.patch('/:id', async (req: AuthRequest, res) => {
   res.json(discussion)
 })
 
-router.delete('/:id', async (_req, res) => {
+router.delete('/:id', requirePermission('discussion', 'delete'), async (_req, res) => {
   await prisma.discussion.delete({ where: { id: _req.params.id as string } })
   res.status(204).end()
 })

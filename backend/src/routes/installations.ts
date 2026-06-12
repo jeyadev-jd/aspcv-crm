@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { installationSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
+import { requirePermission } from '../middleware/permissions'
 
 const router = Router()
 router.use(authenticate)
@@ -37,7 +38,7 @@ router.get('/:id', async (req, res) => {
   res.json(installation)
 })
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('installation', 'create'), async (req: AuthRequest, res) => {
   const data = installationSchema.parse(req.body)
   const installation = await prisma.installation.create({
     data: {
@@ -51,7 +52,7 @@ router.post('/', async (req: AuthRequest, res) => {
   res.status(201).json(installation)
 })
 
-router.put('/:id', async (req: AuthRequest, res) => {
+router.put('/:id', requirePermission('installation', 'edit'), async (req: AuthRequest, res) => {
   const data = installationSchema.partial().parse(req.body)
   const installation = await prisma.installation.update({
     where: { id: req.params.id as string },
@@ -66,7 +67,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
   res.json(installation)
 })
 
-router.patch('/:id/status', async (req: AuthRequest, res) => {
+router.patch('/:id/status', requirePermission('installation', 'edit'), async (req: AuthRequest, res) => {
   const { status } = req.body as { status: string }
   const installation = await prisma.installation.update({
     where: { id: req.params.id as string },
@@ -76,7 +77,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   res.json(installation)
 })
 
-router.delete('/:id', async (req: AuthRequest, res) => {
+router.delete('/:id', requirePermission('installation', 'delete'), async (req: AuthRequest, res) => {
   const installation = await prisma.installation.update({
     where: { id: req.params.id as string },
     data: { isActive: false },

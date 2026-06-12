@@ -3,6 +3,7 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { ticketSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
+import { requirePermission } from '../middleware/permissions'
 
 const router = Router()
 router.use(authenticate)
@@ -37,7 +38,7 @@ router.get('/:id', async (req, res) => {
   res.json(ticket)
 })
 
-router.post('/', async (req: AuthRequest, res) => {
+router.post('/', requirePermission('support', 'create'), async (req: AuthRequest, res) => {
   const data = ticketSchema.parse(req.body)
   const ticket = await prisma.supportTicket.create({
     data,
@@ -50,7 +51,7 @@ router.post('/', async (req: AuthRequest, res) => {
   res.status(201).json(ticket)
 })
 
-router.put('/:id', async (req: AuthRequest, res) => {
+router.put('/:id', requirePermission('support', 'edit'), async (req: AuthRequest, res) => {
   const data = ticketSchema.partial().parse(req.body)
   const ticket = await prisma.supportTicket.update({
     where: { id: req.params.id as string },
@@ -64,7 +65,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
   res.json(ticket)
 })
 
-router.patch('/:id/status', async (req: AuthRequest, res) => {
+router.patch('/:id/status', requirePermission('support', 'edit'), async (req: AuthRequest, res) => {
   const { status } = req.body as { status: string }
   const resolvedAt = status === 'Resolved' || status === 'Closed' ? new Date() : undefined
   const ticket = await prisma.supportTicket.update({
@@ -75,7 +76,7 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   res.json(ticket)
 })
 
-router.delete('/:id', async (req: AuthRequest, res) => {
+router.delete('/:id', requirePermission('support', 'delete'), async (req: AuthRequest, res) => {
   const ticket = await prisma.supportTicket.update({
     where: { id: req.params.id as string },
     data: { isActive: false },
