@@ -1,0 +1,39 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - img "ASPCV" [ref=e9]
+      - generic [ref=e10]:
+        - paragraph [ref=e11]: ASPCV
+        - paragraph [ref=e12]: Aspiration Cleantech Pvt. Ltd.
+    - generic [ref=e13]:
+      - heading "Clean Energy. Smart Business." [level=1] [ref=e14]:
+        - text: Clean Energy.
+        - text: Smart Business.
+      - paragraph [ref=e15]: Manage your full customer lifecycle — from first enquiry to AMC — in one place.
+      - generic [ref=e16]:
+        - generic [ref=e17]:
+          - generic [ref=e18]: ⚡
+          - generic [ref=e19]: Heat Pumps & Chillers
+        - generic [ref=e20]:
+          - generic [ref=e21]: 🔆
+          - generic [ref=e22]: ORC & Waste Heat Recovery
+        - generic [ref=e23]:
+          - generic [ref=e24]: 💡
+          - generic [ref=e25]: LED Lights & BLDC Fans
+    - paragraph [ref=e26]: © 2026 Aspiration Cleantech Pvt. Ltd.
+  - generic [ref=e28]:
+    - generic [ref=e29]:
+      - heading "Welcome back" [level=2] [ref=e30]
+      - paragraph [ref=e31]: Sign in to your CRM account
+    - generic [ref=e32]:
+      - generic [ref=e33]:
+        - generic [ref=e34]: Email address
+        - textbox "you@aspcv.com" [active] [ref=e35]
+      - generic [ref=e36]:
+        - generic [ref=e37]: Password
+        - generic [ref=e38]:
+          - textbox "••••••••" [ref=e39]
+          - button [ref=e40] [cursor=pointer]:
+            - img [ref=e41]
+      - button "Sign in" [ref=e44] [cursor=pointer]
+    - paragraph [ref=e45]: Contact your admin to reset your password

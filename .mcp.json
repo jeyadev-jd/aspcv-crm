@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "crm-local-agent": {
+      "command": "node",
+      "args": ["/home/jeyadev/crm-rag/mcp/index.js"],
+      "env": {}
+    }
+  }
+}

@@ -4,7 +4,7 @@ import { useCurrency } from '@/lib/currencyContext'
 import { useIsMobile } from '@/lib/useIsMobile'
 import {
   MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, UserCheck,
-  Trash2, Edit2, CheckCircle2, Phone, Loader2, Users, MessageSquare, Globe, MapPin,
+  Trash2, Edit2, Loader2, Globe, MapPin,
   SlidersHorizontal, ChevronDown,
 } from 'lucide-react'
 import { useCrmData } from '@/lib/crmDataContext'
@@ -12,7 +12,8 @@ import { api } from '@/lib/api'
 import { useLeads, useCreateLead, useUpdateLead, useDeleteLead, useChangeLeadStatus } from '@/hooks/useLeads'
 import DesignationInput from '@/components/shared/DesignationInput'
 import IndustryInput from '@/components/shared/IndustryInput'
-import DiscussionPanel from '@/components/shared/DiscussionPanel'
+import { useUsers } from '@/hooks/useUsers'
+import LeadDetailPanel from '@/components/shared/LeadDetailPanel'
 import type React from 'react'
 
 const productOptions = [
@@ -73,20 +74,26 @@ export default function Leads() {
   const { accounts } = useCrmData()
 
   const { data: leads = [], isLoading } = useLeads()
+  const { data: allUsers = [] } = useUsers()
   const createLead = useCreateLead()
   const updateLead = useUpdateLead()
   const deleteLead = useDeleteLead()
   const changeStatus = useChangeLeadStatus()
 
-  const [filters, setFilters] = useState({ status: '', source: '', region: '', commercialType: '', salesPerson: '', clientType: '' })
+  const [filters, setFilters] = useState<{ status: string[]; source: string[]; region: string[]; commercialType: string[]; salesPerson: string[]; clientType: string[]; stage: string[]; state: string[]; closeDate: string[] }>({ status: [], source: [], region: [], commercialType: [], salesPerson: [], clientType: [], stage: [], state: [], closeDate: [] })
+  const [valueMin, setValueMin] = useState('')
+  const [valueMax, setValueMax] = useState('')
+  const [openFilter, setOpenFilter] = useState<string | null>(null)
   const [sort, setSort] = useState('')
   const [sources, setSources] = useState<SourceRow[]>([blankSource()])
   const [showModal, setShowModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState(blankForm)
   const [contacts, setContacts] = useState<ContactRow[]>([blankContact()])
+  const [formOwners, setFormOwners] = useState<{ id: string; name: string }[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
   const [page, setPage] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [detailLead, setDetailLead] = useState<typeof leads[0] | null>(null)
@@ -108,15 +115,33 @@ export default function Leads() {
 
   // Filters
   const filtered = leads.filter(l => {
-    if (filters.status && STATUS_LABEL[l.status] !== filters.status) return false
-    if (filters.source && !l.sources?.some(s => s.source === filters.source) && l.source !== filters.source) return false
-    if (filters.region && l.region !== filters.region) return false
-    if (filters.commercialType && l.commercialType !== filters.commercialType) return false
-    if (filters.salesPerson && !l.owners?.some(o => o.user?.name?.toLowerCase().includes(filters.salesPerson.toLowerCase()))) return false
-    if (filters.clientType) {
+    if (filters.status.length && !filters.status.includes(STATUS_LABEL[l.status])) return false
+    if (filters.source.length && !l.sources?.some(s => filters.source.includes(s.source)) && !filters.source.includes(l.source ?? '')) return false
+    if (filters.region.length && !filters.region.includes(l.region ?? '')) return false
+    if (filters.commercialType.length && !filters.commercialType.includes(l.commercialType ?? '')) return false
+    if (filters.salesPerson.length && !l.owners?.some(o => filters.salesPerson.includes(o.user?.name ?? ''))) return false
+    if (filters.clientType.length) {
       const ct = l.company?.customerType
-      // 'India' maps to DB value 'Indian', 'International' stays same
-      const match = filters.clientType === 'India' ? (ct === 'Indian' || ct === 'India') : ct === filters.clientType
+      const match = filters.clientType.includes('India') ? (ct === 'Indian' || ct === 'India') : filters.clientType.includes(ct ?? '')
+      if (!match) return false
+    }
+    if (filters.stage.length && !filters.stage.includes(l.stage)) return false
+    if (filters.state.length && !filters.state.includes(l.company?.state ?? '')) return false
+    const minN = valueMin.trim() !== '' ? Number(valueMin) : null
+    const maxN = valueMax.trim() !== '' ? Number(valueMax) : null
+    if (minN !== null && !isNaN(minN) && (l.estimatedValue ?? 0) < minN) return false
+    if (maxN !== null && !isNaN(maxN) && (l.estimatedValue ?? 0) > maxN) return false
+    if (filters.closeDate.length) {
+      const now = new Date(); now.setHours(0,0,0,0)
+      const cd = l.closeDate ? new Date(l.closeDate) : null
+      const match = filters.closeDate.some(p => {
+        if (p === 'Overdue') return cd ? cd < now : false
+        if (p === 'This Month') return cd ? cd.getFullYear() === now.getFullYear() && cd.getMonth() === now.getMonth() : false
+        if (p === 'Next Month') { const nm = new Date(now.getFullYear(), now.getMonth() + 1, 1); return cd ? cd.getFullYear() === nm.getFullYear() && cd.getMonth() === nm.getMonth() : false }
+        if (p === 'This Quarter') { const q = Math.floor(now.getMonth() / 3); return cd ? Math.floor(cd.getMonth() / 3) === q && cd.getFullYear() === now.getFullYear() : false }
+        if (p === 'No Close Date') return !cd
+        return false
+      })
       if (!match) return false
     }
     return true
@@ -134,10 +159,10 @@ export default function Leads() {
   const pipeline = leads.filter(l => l.status !== 'OrderLost' && l.status !== 'Hibernated').reduce((s, l) => s + (l.estimatedValue ?? 0), 0)
   const counts = Object.fromEntries(UI_STATUSES.map(s => [s, leads.filter(l => STATUS_LABEL[l.status] === s).length])) as Record<UIStatus, number>
   const salesPersonNames = Array.from(new Set(leads.flatMap(l => l.owners?.map(o => o.user?.name).filter(Boolean) ?? []))) as string[]
-  const activeFilterCount = Object.values(filters).filter(Boolean).length + (sort ? 1 : 0)
+  const activeFilterCount = Object.values(filters).reduce((n, arr) => n + arr.length, 0) + (sort ? 1 : 0) + (valueMin ? 1 : 0) + (valueMax ? 1 : 0)
 
   function openCreate() {
-    setEditId(null); setForm(blankForm); setCompanyName(''); setContacts([blankContact()]); setSources([blankSource()]); setErrors({}); setShowModal(true)
+    setEditId(null); setForm(blankForm); setCompanyName(''); setContacts([blankContact()]); setSources([blankSource()]); setFormOwners([]); setErrors({}); setShowModal(true)
   }
 
   function openEdit(lead: typeof leads[0]) {
@@ -167,10 +192,11 @@ export default function Leads() {
       ? lead.sources.map(s => ({ source: s.source, sourceName: s.sourceName ?? '' }))
       : [blankSource()]
     )
+    setFormOwners(lead.owners?.map(o => ({ id: o.userId, name: o.user?.name ?? '' })) ?? [])
     setErrors({}); setShowModal(true)
   }
 
-  function closeModal() { setShowModal(false); setEditId(null); setForm(blankForm); setContacts([blankContact()]); setSources([blankSource()]); setErrors({}) }
+  function closeModal() { setShowModal(false); setEditId(null); setForm(blankForm); setContacts([blankContact()]); setSources([blankSource()]); setFormOwners([]); setErrors({}) }
 
   function validate() {
     const e: Record<string, string> = {}
@@ -214,8 +240,25 @@ export default function Leads() {
     if (companyId && Object.keys(companyUpdates).length) {
       await api.patch(`/companies/${companyId}`, companyUpdates)
     }
-    if (editId) await updateLead.mutateAsync({ id: editId, ...payload })
-    else await createLead.mutateAsync(payload)
+    let savedId = editId
+    if (editId) {
+      await updateLead.mutateAsync({ id: editId, ...payload })
+    } else {
+      const created = await createLead.mutateAsync(payload) as { id: string }
+      savedId = created.id
+    }
+    // Sync owners
+    if (savedId) {
+      const existing = leads.find(l => l.id === savedId)?.owners ?? []
+      const existingIds = existing.map(o => o.userId)
+      const newIds = formOwners.map(o => o.id)
+      for (const id of existingIds.filter(id => !newIds.includes(id))) {
+        await api.delete(`/leads/${savedId}/owners/${id}`)
+      }
+      for (const o of formOwners.filter(o => !existingIds.includes(o.id))) {
+        await api.post(`/leads/${savedId}/owners`, { userId: o.id, role: 'primary' })
+      }
+    }
     closeModal()
   }
 
@@ -224,10 +267,15 @@ export default function Leads() {
     setMenuOpen(null); setDeleteConfirm(null); setPage(1)
   }
 
-  function changeFilter(f: string) { setFilters(prev => ({ ...prev, status: f === 'All' ? '' : f })); setPage(1) }
-  function setFilter(key: keyof typeof filters, val: string) { setFilters(prev => ({ ...prev, [key]: val })); setPage(1) }
-  function clearFilter(key: keyof typeof filters) { setFilters(prev => ({ ...prev, [key]: '' })); setPage(1) }
-  function clearAll() { setFilters({ status: '', source: '', region: '', commercialType: '', salesPerson: '', clientType: '' }); setSort(''); setPage(1) }
+  function toggleFilter(key: keyof typeof filters, val: string) {
+    setFilters(prev => {
+      const arr = prev[key]
+      return { ...prev, [key]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val] }
+    })
+    setPage(1)
+  }
+  function clearFilterKey(key: keyof typeof filters) { setFilters(prev => ({ ...prev, [key]: [] })); setPage(1) }
+  function clearAll() { setFilters({ status: [], source: [], region: [], commercialType: [], salesPerson: [], clientType: [], stage: [], state: [], closeDate: [] }); setSort(''); setValueMin(''); setValueMax(''); setPage(1) }
 
   const st = (status: string) => statusStyle[status] ?? statusStyle.Enquiry
 
@@ -239,7 +287,7 @@ export default function Leads() {
 
   return (
     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 20, alignItems: 'flex-start', minHeight: 'calc(100vh - 120px)', flex: 1 }}>
-      {menuOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 39 }} onClick={() => setMenuOpen(null)} />}
+      {menuOpen && <div style={{ position: 'fixed', inset: 0, zIndex: 199 }} onClick={() => setMenuOpen(null)} />}
 
       {/* Left panel */}
       {!isMobile && (
@@ -258,9 +306,9 @@ export default function Leads() {
                 { label: 'Order Won',        value: counts['Order Won'],        color: '#2BC155', f: 'Order Won' },
                 { label: 'Order Lost',       value: counts['Order Lost'],       color: '#FF5353', f: 'Order Lost' },
               ]).map(s => {
-                const active = s.f === 'All' ? !filters.status : filters.status === s.f
+                const active = s.f === 'All' ? filters.status.length === 0 : filters.status.includes(s.f)
                 return (
-                <div key={s.label} onClick={() => changeFilter(s.f)}
+                <div key={s.label} onClick={() => s.f === 'All' ? clearFilterKey('status') : toggleFilter('status', s.f)}
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', borderRadius: 6, padding: '4px 6px', background: active ? '#F0F4FF' : 'transparent', transition: 'background 0.1s' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <div style={{ width: 8, height: 8, borderRadius: '50%', background: s.color }} />
@@ -303,85 +351,212 @@ export default function Leads() {
       {/* Main */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         {/* Toolbar */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, background: '#F4F5F9', fontSize: 11, color: '#8C8C8C', fontWeight: 500 }}>
-                <SlidersHorizontal size={12} /> Filters {activeFilterCount > 0 && <span style={{ background: '#5D78FF', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{activeFilterCount}</span>}
-              </div>
-              {([
-                { key: 'source' as const, label: 'Source', opts: ['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner'] },
-                { key: 'region' as const, label: 'Region', opts: ['North', 'West', 'South', 'East'] },
-                { key: 'commercialType' as const, label: 'Type', opts: ['Capex', 'Opex', 'Deferred', 'Esco', 'Rental'] },
-                { key: 'salesPerson' as const, label: 'Sales Person', opts: salesPersonNames },
-                { key: 'clientType' as const, label: 'Client Type', opts: ['India', 'International'] },
-              ]).map(({ key, label, opts }) => (
-                <div key={key} style={{ position: 'relative' }}>
-                  <select
-                    value={filters[key]}
-                    onChange={e => setFilter(key, e.target.value)}
-                    style={{ appearance: 'none', WebkitAppearance: 'none', padding: '6px 28px 6px 10px', borderRadius: 8, fontSize: 11, border: `1px solid ${filters[key] ? '#5D78FF' : '#F0F1F5'}`, background: filters[key] ? '#F0F4FF' : '#fff', color: filters[key] ? '#5D78FF' : '#8C8C8C', fontWeight: filters[key] ? 600 : 400, cursor: 'pointer', outline: 'none' }}>
-                    <option value="">{label}</option>
-                    {opts.map(o => <option key={o} value={o}>{o}</option>)}
-                  </select>
-                  <ChevronDown size={10} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: filters[key] ? '#5D78FF' : '#8C8C8C' }} />
-                </div>
-              ))}
-              <div style={{ position: 'relative' }}>
-                <select value={sort} onChange={e => { setSort(e.target.value); setPage(1) }}
-                  style={{ appearance: 'none', WebkitAppearance: 'none', padding: '6px 28px 6px 10px', borderRadius: 8, fontSize: 11, border: `1px solid ${sort ? '#5D78FF' : '#F0F1F5'}`, background: sort ? '#F0F4FF' : '#fff', color: sort ? '#5D78FF' : '#8C8C8C', fontWeight: sort ? 600 : 400, cursor: 'pointer', outline: 'none' }}>
-                  <option value="">Sort by</option>
-                  <option value="value_asc">Value: Low → High</option>
-                  <option value="value_desc">Value: High → Low</option>
-                  <option value="newest">Newest First</option>
-                  <option value="oldest">Oldest First</option>
-                  <option value="close_near">Close Date: Nearest</option>
-                  <option value="close_far">Close Date: Farthest</option>
-                </select>
-                <ChevronDown size={10} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: sort ? '#5D78FF' : '#8C8C8C' }} />
-              </div>
+        <div style={{ marginBottom: 14 }} onClick={e => { if (!(e.target as HTMLElement).closest('[data-filter-dropdown]')) setOpenFilter(null) }}>
+          {/* Row 1: status pills + New Lead */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              <button onClick={() => { clearFilterKey('status'); setPage(1) }}
+                style={{ padding: '6px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, border: `2px solid ${filters.status.length === 0 ? '#5D78FF' : '#E8EAED'}`, cursor: 'pointer', background: filters.status.length === 0 ? '#5D78FF' : '#fff', color: filters.status.length === 0 ? '#fff' : '#6B7280', transition: 'all 0.15s' }}>
+                All <span style={{ fontSize: 10, opacity: 0.7 }}>({leads.length})</span>
+              </button>
+              {UI_STATUSES.map(s => {
+                const active = filters.status.includes(s)
+                const st = statusStyle[STATUS_TO_API[s]] ?? { bg: '#F4F5F9', color: '#8C8C8C' }
+                return (
+                  <button key={s} onClick={() => toggleFilter('status', s)}
+                    style={{ padding: '6px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, border: `2px solid ${active ? st.color : '#E8EAED'}`, cursor: 'pointer', background: active ? st.bg : '#fff', color: active ? st.color : '#6B7280', transition: 'all 0.15s' }}>
+                    {s} <span style={{ fontSize: 10, opacity: 0.7 }}>({counts[s] ?? 0})</span>
+                  </button>
+                )
+              })}
             </div>
-            <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
+            <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <Plus size={14} /> New Lead
             </button>
           </div>
-          {/* Status pill buttons */}
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-            {(['All', ...UI_STATUSES] as const).map(f => {
-              const active = f === 'All' ? !filters.status : filters.status === f
+
+          {/* Row 2: filter dropdowns + sort */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, background: '#F4F5F9', fontSize: 11, color: '#6B7280', fontWeight: 500 }}>
+              <SlidersHorizontal size={12} />
+              {activeFilterCount > 0 && <span style={{ background: '#5D78FF', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{activeFilterCount}</span>}
+            </div>
+            {([
+              { key: 'source' as const, label: 'Source', opts: ['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner'] },
+              { key: 'region' as const, label: 'Region', opts: ['North', 'West', 'South', 'East'] },
+              { key: 'commercialType' as const, label: 'Type', opts: ['Capex', 'Opex', 'Deferred', 'Esco', 'Rental'] },
+              { key: 'salesPerson' as const, label: 'Sales Person', opts: salesPersonNames },
+              { key: 'clientType' as const, label: 'Client Type', opts: ['India', 'International'] },
+              { key: 'stage' as const, label: 'Stage', opts: ['Lead', 'QualifiedLead', 'Deal', 'Project', 'Installation', 'Support'] },
+              { key: 'state' as const, label: 'State', opts: INDIA_STATES.filter(s => s !== 'None') },
+            ]).map(({ key, label, opts }) => {
+              const sel = filters[key]
+              const active = sel.length > 0
+              const isOpen = openFilter === key
               return (
-                <button key={f} onClick={() => changeFilter(f)}
-                  style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: active ? '#5D78FF' : '#F4F5F9', color: active ? '#fff' : '#8C8C8C', transition: 'all 0.15s' }}>
-                  {f}
-                </button>
+                <div key={key} data-filter-dropdown style={{ position: 'relative' }}>
+                  <button
+                    onClick={e => { e.stopPropagation(); setOpenFilter(isOpen ? null : key) }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: active ? 600 : 400, border: `1px solid ${active ? '#5D78FF' : '#E8EAED'}`, background: active ? '#EEF2FF' : '#fff', color: active ? '#5D78FF' : '#6B7280', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                    {active ? `${label}: ${sel.length > 1 ? `${sel.length} selected` : sel[0]}` : label}
+                    {active && <span onClick={e => { e.stopPropagation(); clearFilterKey(key) }} style={{ marginLeft: 2, display: 'flex', alignItems: 'center', color: '#5D78FF' }}><X size={9} /></span>}
+                    {!active && <ChevronDown size={10} style={{ marginLeft: 2, color: '#9CA3AF' }} />}
+                  </button>
+                  {isOpen && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: '#fff', border: '1px solid #E8EAED', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '6px 0', minWidth: 200, maxHeight: 320, display: 'flex', flexDirection: 'column' }}>
+                      <div style={{ padding: '6px 14px 8px', borderBottom: '1px solid #F4F5F9', fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, flexShrink: 0 }}>{label}</div>
+                      <div style={{ overflowY: 'auto', flex: 1 }}>
+                      {opts.length === 0 && <div style={{ padding: '10px 14px', fontSize: 12, color: '#9CA3AF' }}>No options</div>}
+                      {opts.map(opt => {
+                        const checked = sel.includes(opt)
+                        const optCount = leads.filter(l => {
+                          if (key === 'source') return l.sources?.some(s => s.source === opt) || l.source === opt
+                          if (key === 'region') return l.region === opt
+                          if (key === 'commercialType') return l.commercialType === opt
+                          if (key === 'salesPerson') return l.owners?.some(o => o.user?.name === opt)
+                          if (key === 'clientType') return opt === 'India' ? (l.company?.customerType === 'India' || l.company?.customerType === 'Indian') : l.company?.customerType === opt
+                          if (key === 'stage') return l.stage === opt
+                          if (key === 'state') return l.company?.state === opt
+                          return false
+                        }).length
+                        return (
+                          <label key={opt} onClick={() => toggleFilter(key, opt)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', background: checked ? '#F5F7FF' : 'transparent', fontSize: 12, color: checked ? '#374557' : '#6B7280', fontWeight: checked ? 600 : 400 }}>
+                            <span style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${checked ? '#5D78FF' : '#D1D5DB'}`, background: checked ? '#5D78FF' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.1s' }}>
+                              {checked && <span style={{ color: '#fff', fontSize: 9, lineHeight: 1, fontWeight: 900 }}>✓</span>}
+                            </span>
+                            <span style={{ flex: 1 }}>{key === 'stage' ? ({ QualifiedLead: 'Qualified Lead', Lead: 'Lead', Deal: 'Deal', Project: 'Project', Installation: 'Installation', Support: 'Support' }[opt] ?? opt) : opt}</span>
+                            <span style={{ fontSize: 10, color: '#B1B1BE', fontWeight: 400 }}>{optCount}</span>
+                          </label>
+                        )
+                      })}
+                      </div>{/* end scroll */}
+                      {sel.length > 0 && (
+                        <div style={{ padding: '6px 14px', borderTop: '1px solid #F4F5F9', flexShrink: 0 }}>
+                          <button onClick={() => clearFilterKey(key)} style={{ fontSize: 10, color: '#FF5353', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Clear</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               )
             })}
+
+            {/* Value Range */}
+            <div data-filter-dropdown style={{ position: 'relative' }}>
+              <button
+                onClick={e => { e.stopPropagation(); setOpenFilter(openFilter === 'value' ? null : 'value') }}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: (valueMin || valueMax) ? 600 : 400, border: `1px solid ${(valueMin || valueMax) ? '#5D78FF' : '#E8EAED'}`, background: (valueMin || valueMax) ? '#EEF2FF' : '#fff', color: (valueMin || valueMax) ? '#5D78FF' : '#6B7280', cursor: 'pointer' }}>
+                {valueMin || valueMax ? `₹${valueMin ? Number(valueMin).toLocaleString() : '0'} – ₹${valueMax ? Number(valueMax).toLocaleString() : '∞'}` : 'Value'}
+                {(valueMin || valueMax) ? <span onClick={e => { e.stopPropagation(); setValueMin(''); setValueMax(''); setPage(1) }} style={{ display: 'flex', alignItems: 'center' }}><X size={9} /></span> : <ChevronDown size={10} style={{ color: '#9CA3AF' }} />}
+              </button>
+              {openFilter === 'value' && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: '#fff', border: '1px solid #E8EAED', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px', minWidth: 220 }}>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600, marginBottom: 10 }}>Estimated Value (₹)</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input type="number" placeholder="Min" value={valueMin} onChange={e => { setValueMin(e.target.value); setPage(1) }}
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: '1px solid #E8EAED', fontSize: 12, outline: 'none', color: '#374557' }} />
+                    <span style={{ color: '#9CA3AF', fontSize: 11 }}>to</span>
+                    <input type="number" placeholder="Max" value={valueMax} onChange={e => { setValueMax(e.target.value); setPage(1) }}
+                      style={{ flex: 1, padding: '6px 8px', borderRadius: 6, border: '1px solid #E8EAED', fontSize: 12, outline: 'none', color: '#374557' }} />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
+                    <span style={{ fontSize: 10, color: '#9CA3AF' }}>{valueMin && valueMax ? `${filtered.length} result${filtered.length !== 1 ? 's' : ''}` : ''}</span>
+                    {(valueMin || valueMax) && <button onClick={() => { setValueMin(''); setValueMax(''); setPage(1) }} style={{ fontSize: 10, color: '#FF5353', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>Clear</button>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Close Date */}
+            <div data-filter-dropdown style={{ position: 'relative' }}>
+              {(() => {
+                const sel = filters.closeDate; const active = sel.length > 0
+                return <>
+                  <button onClick={e => { e.stopPropagation(); setOpenFilter(openFilter === 'closeDate' ? null : 'closeDate') }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: active ? 600 : 400, border: `1px solid ${active ? '#5D78FF' : '#E8EAED'}`, background: active ? '#EEF2FF' : '#fff', color: active ? '#5D78FF' : '#6B7280', cursor: 'pointer' }}>
+                    {active ? (sel.length > 1 ? `Close: ${sel.length} selected` : `Close: ${sel[0]}`) : 'Close Date'}
+                    {active ? <span onClick={e => { e.stopPropagation(); clearFilterKey('closeDate') }} style={{ display: 'flex', alignItems: 'center' }}><X size={9} /></span> : <ChevronDown size={10} style={{ color: '#9CA3AF' }} />}
+                  </button>
+                  {openFilter === 'closeDate' && (
+                    <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, zIndex: 200, background: '#fff', border: '1px solid #E8EAED', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '6px 0', minWidth: 190 }}>
+                      <div style={{ padding: '6px 14px 8px', borderBottom: '1px solid #F4F5F9', fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Close Date</div>
+                      {['Overdue', 'This Month', 'Next Month', 'This Quarter', 'No Close Date'].map(opt => {
+                        const checked = sel.includes(opt)
+                        return (
+                          <label key={opt} onClick={() => toggleFilter('closeDate', opt)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 14px', cursor: 'pointer', background: checked ? '#F5F7FF' : 'transparent', fontSize: 12, color: checked ? '#374557' : '#6B7280', fontWeight: checked ? 600 : 400 }}>
+                            <span style={{ width: 14, height: 14, borderRadius: 3, border: `2px solid ${checked ? '#5D78FF' : '#D1D5DB'}`, background: checked ? '#5D78FF' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              {checked && <span style={{ color: '#fff', fontSize: 9, fontWeight: 900 }}>✓</span>}
+                            </span>
+                            {opt}
+                          </label>
+                        )
+                      })}
+                      {sel.length > 0 && <div style={{ padding: '6px 14px', borderTop: '1px solid #F4F5F9', marginTop: 2 }}><button onClick={() => clearFilterKey('closeDate')} style={{ fontSize: 10, color: '#FF5353', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Clear</button></div>}
+                    </div>
+                  )}
+                </>
+              })()}
+            </div>
+
+            {/* Sort */}
+            <div data-filter-dropdown style={{ position: 'relative', marginLeft: 'auto' }}>
+              <button
+                onClick={e => { e.stopPropagation(); setOpenFilter(openFilter === 'sort' ? null : 'sort') }}
+                style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: sort ? 600 : 400, border: `1px solid ${sort ? '#5D78FF' : '#E8EAED'}`, background: sort ? '#EEF2FF' : '#fff', color: sort ? '#5D78FF' : '#6B7280', cursor: 'pointer' }}>
+                {sort ? (sort === 'value_asc' ? 'Value ↑' : sort === 'value_desc' ? 'Value ↓' : sort === 'newest' ? 'Newest' : sort === 'oldest' ? 'Oldest' : sort === 'close_near' ? 'Close ↑' : 'Close ↓') : 'Sort'}
+                {sort ? <span onClick={e => { e.stopPropagation(); setSort('') }} style={{ display: 'flex', alignItems: 'center' }}><X size={9} /></span> : <ChevronDown size={10} style={{ color: '#9CA3AF' }} />}
+              </button>
+              {openFilter === 'sort' && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, zIndex: 200, background: '#fff', border: '1px solid #E8EAED', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '6px 0', minWidth: 180 }}>
+                  <div style={{ padding: '6px 14px 8px', borderBottom: '1px solid #F4F5F9', fontSize: 10, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Sort by</div>
+                  {[
+                    { v: 'newest', label: 'Newest First' }, { v: 'oldest', label: 'Oldest First' },
+                    { v: 'value_desc', label: 'Value: High → Low' }, { v: 'value_asc', label: 'Value: Low → High' },
+                    { v: 'close_near', label: 'Close Date: Nearest' }, { v: 'close_far', label: 'Close Date: Farthest' },
+                  ].map(({ v, label }) => (
+                    <button key={v} onClick={() => { setSort(v); setPage(1); setOpenFilter(null) }}
+                      style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '7px 14px', fontSize: 12, background: sort === v ? '#F5F7FF' : 'transparent', color: sort === v ? '#5D78FF' : '#374557', fontWeight: sort === v ? 600 : 400, border: 'none', cursor: 'pointer', textAlign: 'left', gap: 8 }}>
+                      {sort === v && <span style={{ color: '#5D78FF', fontSize: 9, fontWeight: 900 }}>✓</span>}
+                      {sort !== v && <span style={{ width: 11 }} />}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Active filter chips */}
           {activeFilterCount > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
-              {(Object.entries(filters) as [keyof typeof filters, string][]).filter(([, v]) => v).map(([k, v]) => (
-                <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, background: '#E8EDFF', color: '#5D78FF', fontSize: 10, fontWeight: 600 }}>
-                  {v}
-                  <button onClick={() => clearFilter(k)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#5D78FF', padding: 0, display: 'flex', alignItems: 'center' }}><X size={10} /></button>
-                </span>
-              ))}
-              {sort && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, background: '#FFF5EE', color: '#FF9B52', fontSize: 10, fontWeight: 600 }}>
-                  {sort === 'value_asc' ? 'Value ↑' : sort === 'value_desc' ? 'Value ↓' : sort === 'newest' ? 'Newest' : sort === 'oldest' ? 'Oldest' : sort === 'close_near' ? 'Close ↑' : 'Close ↓'}
-                  <button onClick={() => setSort('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FF9B52', padding: 0, display: 'flex', alignItems: 'center' }}><X size={10} /></button>
-                </span>
+              {(Object.entries(filters) as [keyof typeof filters, string[]][]).map(([k, vals]) =>
+                vals.map(v => {
+                  const stageLabels: Record<string, string> = { QualifiedLead: 'Qualified Lead', Lead: 'Lead', Deal: 'Deal', Project: 'Project', Installation: 'Installation', Support: 'Support' }
+                  const keyLabel: Record<string, string> = { source: 'Source', region: 'Region', commercialType: 'Type', salesPerson: 'Person', clientType: 'Client', status: 'Status', stage: 'Stage', state: 'State', closeDate: 'Close' }
+                  const displayVal = k === 'stage' ? (stageLabels[v] ?? v) : v
+                  return (
+                    <span key={`${k}-${v}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px 3px 10px', borderRadius: 20, background: '#EEF2FF', color: '#5D78FF', fontSize: 10, fontWeight: 600, border: '1px solid #C7D2FE' }}>
+                      <span style={{ color: '#818CF8', fontWeight: 400, marginRight: 1 }}>{keyLabel[k]}:</span>{displayVal}
+                      <button onClick={() => toggleFilter(k, v)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#818CF8', padding: 0, display: 'flex', alignItems: 'center', marginLeft: 2 }}><X size={9} /></button>
+                    </span>
+                  )
+                })
               )}
-              <button onClick={clearAll} style={{ fontSize: 10, color: '#FF5353', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline' }}>Clear all</button>
+              {valueMin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px 3px 10px', borderRadius: 20, background: '#EEF2FF', color: '#5D78FF', fontSize: 10, fontWeight: 600, border: '1px solid #C7D2FE' }}><span style={{ color: '#818CF8', fontWeight: 400, marginRight: 1 }}>Min:</span>₹{Number(valueMin).toLocaleString()}<button onClick={() => { setValueMin(''); setPage(1) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#818CF8', padding: 0, display: 'flex', alignItems: 'center', marginLeft: 2 }}><X size={9} /></button></span>}
+              {valueMax && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px 3px 10px', borderRadius: 20, background: '#EEF2FF', color: '#5D78FF', fontSize: 10, fontWeight: 600, border: '1px solid #C7D2FE' }}><span style={{ color: '#818CF8', fontWeight: 400, marginRight: 1 }}>Max:</span>₹{Number(valueMax).toLocaleString()}<button onClick={() => { setValueMax(''); setPage(1) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#818CF8', padding: 0, display: 'flex', alignItems: 'center', marginLeft: 2 }}><X size={9} /></button></span>}
+              <button onClick={clearAll} style={{ fontSize: 10, color: '#FF5353', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Clear all</button>
             </div>
           )}
         </div>
 
+        <p style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>{filtered.length} lead{filtered.length !== 1 ? 's' : ''}</p>
+
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #F4F5F9' }}>
+              <tr style={{ borderBottom: '1px solid #F4F5F9', background: '#FAFBFF' }}>
                 {['Lead / Contacts', 'Company', 'Source', 'Region', 'Status', 'Est. Value', 'Owner', ''].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 500, color: '#B1B1BE' }}>{h}</th>
+                  <th key={h} style={{ textAlign: h === 'Est. Value' ? 'center' : 'left', padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -393,7 +568,7 @@ export default function Leads() {
                   <tr key={lead.id} onClick={() => setDetailLead(lead)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer', transition: 'background 0.1s' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                    <td style={{ padding: '12px 16px' }}>
+                    <td style={{ padding: '11px 14px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 34, height: 34, borderRadius: '50%', flexShrink: 0, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                           <UserCheck size={14} style={{ color: s.color }} />
@@ -405,42 +580,54 @@ export default function Leads() {
                         </div>
                       </div>
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>{lead.company?.name ?? '—'}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#F4F5F9', color: '#374557' }}>{lead.source}</span>
+                    <td style={{ padding: '11px 14px', fontSize: 11, color: '#374557' }}>{lead.company?.name ?? '—'}</td>
+                    <td style={{ padding: '11px 14px' }}>
+                      <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 20, background: '#F4F5F9', color: '#374557', fontWeight: 500 }}>{lead.sources?.[0]?.source ?? lead.source}</span>
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>{lead.region}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: s.bg, color: s.color }}>
+                    <td style={{ padding: '11px 14px', fontSize: 11, color: '#374557' }}>{lead.region}</td>
+                    <td style={{ padding: '11px 14px' }}>
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: s.bg, color: s.color }}>
                         {STATUS_LABEL[lead.status] ?? lead.status}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: '#374557' }}>
-                      {lead.estimatedValue ? `${symbol}${lead.estimatedValue.toLocaleString()}` : '—'}
+                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      {lead.estimatedValue
+                        ? <span style={{ fontSize: 12, fontWeight: 700, color: '#2BC155' }}>{symbol}{lead.estimatedValue.toLocaleString()}</span>
+                        : <span style={{ color: '#D1D5DB', fontSize: 11 }}>—</span>}
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>
+                    <td style={{ padding: '11px 14px', fontSize: 11, color: '#374557' }}>
                       {lead.owners?.map(o => o.user?.name).join(', ') || '—'}
                     </td>
-                    <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
+                    <td style={{ padding: '11px 14px' }} onClick={e => e.stopPropagation()}>
                       <div style={{ position: 'relative' }}>
-                        <button onClick={e => { e.stopPropagation(); setMenuOpen(menuOpen === lead.id ? null : lead.id) }}
+                        <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right, y: r.bottom + 4 }); setMenuOpen(menuOpen === lead.id ? null : lead.id) }}
                           style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4 }}>
                           <MoreHorizontal size={15} />
                         </button>
                         {menuOpen === lead.id && (
-                          <div style={dropdownStyle}>
+                          <div style={{ ...dropdownStyle, position: 'fixed', top: menuPos.y, right: 'auto', left: menuPos.x - 170, zIndex: 200 }}>
                             <button onClick={() => { openEdit(lead); setMenuOpen(null) }} style={menuItemStyle}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
                             <button onClick={() => { setDeleteConfirm(lead.id); setMenuOpen(null) }} style={{ ...menuItemStyle, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
                             <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
-                            <button onClick={() => {
-                              setMenuOpen(null)
-                              changeStatus.mutate({ id: lead.id, status: 'OrderWon' }, {
-                                onSuccess: (data) => { if (data?.promotedDeal) navigate('/deals') },
-                              })
-                            }} style={menuItemStyle}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Order Won</button>
-                            <button onClick={() => { setMenuOpen(null); changeStatus.mutate({ id: lead.id, status: 'ProspectiveLead' }) }} style={menuItemStyle}>
-                              <Phone size={12} style={{ marginRight: 6 }} />Mark Prospective Lead
-                            </button>
+                            <div style={{ padding: '4px 14px 2px', fontSize: 9, color: '#B1B1BE', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 600 }}>Change Status</div>
+                            {([
+                              { api: 'Enquiry', label: 'Enquiry', color: '#5D78FF' },
+                              { api: 'ProspectiveLead', label: 'Prospective Lead', color: '#FF9B52' },
+                              { api: 'ProjectHold', label: 'Project Hold', color: '#8B5CF6' },
+                              { api: 'Hibernated', label: 'Hibernated', color: '#8C8C8C' },
+                              { api: 'OrderWon', label: 'Order Won', color: '#2BC155' },
+                              { api: 'OrderLost', label: 'Order Lost', color: '#FF5353' },
+                            ]).filter(s => s.api !== lead.status).map(s => (
+                              <button key={s.api} onClick={() => {
+                                setMenuOpen(null)
+                                changeStatus.mutate({ id: lead.id, status: s.api }, {
+                                  onSuccess: (data: any) => { if (s.api === 'OrderWon' && data?.promotedDeal) navigate('/deals') },
+                                })
+                              }} style={{ ...menuItemStyle, color: s.color }}>
+                                <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, marginRight: 8, flexShrink: 0, display: 'inline-block' }} />
+                                {s.label}
+                              </button>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -454,15 +641,13 @@ export default function Leads() {
             </tbody>
           </table>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #F4F5F9' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px 20px', borderTop: '1px solid #F4F5F9', gap: 4 }}>
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ ...pagBtn, color: page === 1 ? '#D5D5D5' : '#374557', cursor: page === 1 ? 'default' : 'pointer' }}>
               <ChevronLeft size={13} /> Prev
             </button>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pg => (
-                <button key={pg} onClick={() => setPage(pg)} style={{ width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: page === pg ? '#5D78FF' : 'transparent', color: page === pg ? '#fff' : '#B1B1BE' }}>{pg}</button>
-              ))}
-            </div>
+            {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => i + 1).map(pg => (
+              <button key={pg} onClick={() => setPage(pg)} style={{ width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: page === pg ? '#5D78FF' : 'transparent', color: page === pg ? '#fff' : '#B1B1BE' }}>{pg}</button>
+            ))}
             <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ ...pagBtn, color: page === totalPages ? '#D5D5D5' : '#374557', cursor: page === totalPages ? 'default' : 'pointer' }}>
               Next <ChevronRight size={13} />
             </button>
@@ -472,154 +657,11 @@ export default function Leads() {
 
       {/* Detail slide-in panel */}
       {detailLead && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 55, display: 'flex' }}>
-          <div style={{ flex: 1, background: 'rgba(0,0,0,0.3)' }} onClick={() => setDetailLead(null)} />
-          <div style={{ width: 480, maxWidth: '100vw', background: '#fff', overflowY: 'auto', boxShadow: '-4px 0 32px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #F0F1F5', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', position: 'sticky', top: 0, background: '#fff', zIndex: 1 }}>
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>{detailLead.title}</p>
-                <p style={{ fontSize: 11, color: '#B1B1BE' }}>{detailLead.company?.name}</p>
-              </div>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <button onClick={() => { openEdit(detailLead); setDetailLead(null) }}
-                  style={{ padding: '6px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid #F0F1F5', background: '#fff', color: '#374557', cursor: 'pointer' }}>
-                  <Edit2 size={12} style={{ marginRight: 4 }} />Edit
-                </button>
-                <button onClick={() => setDetailLead(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE' }}><X size={16} /></button>
-              </div>
-            </div>
-            <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {/* Ref number */}
-              {detailLead.refNumber && (
-                <div style={{ background: '#F8F9FF', borderRadius: 8, padding: '8px 14px', border: '1px solid #E8EDFF' }}>
-                  <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Reference Number</p>
-                  <p style={{ fontSize: 13, fontWeight: 700, color: '#5D78FF', fontFamily: 'monospace', letterSpacing: 0.5 }}>{detailLead.refNumber}</p>
-                </div>
-              )}
-              {/* Status + meta */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 20, background: st(detailLead.status).bg, color: st(detailLead.status).color }}>
-                  {STATUS_LABEL[detailLead.status] ?? detailLead.status}
-                </span>
-                <span style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>{detailLead.region}</span>
-                <span style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>{detailLead.commercialType}</span>
-                {detailLead.leadDate && (
-                  <span style={{ fontSize: 10, color: '#B1B1BE' }}>
-                    Age: <strong style={{ color: '#374557' }}>{Math.floor((Date.now() - new Date(detailLead.leadDate).getTime()) / 86400000)} days</strong>
-                  </span>
-                )}
-              </div>
-              {/* Sources */}
-              {(detailLead.sources?.length > 0 || detailLead.source) && (
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 6 }}>Sources</p>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {detailLead.sources?.length > 0
-                      ? detailLead.sources.map(s => (
-                        <span key={s.id} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>
-                          {s.source}{s.sourceName ? ` · ${s.sourceName}` : ''}
-                        </span>
-                      ))
-                      : <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>{detailLead.source}</span>
-                    }
-                  </div>
-                </div>
-              )}
-              {detailLead.estimatedValue && (
-                <div>
-                  <p style={{ fontSize: 10, color: '#B1B1BE' }}>Estimated Value</p>
-                  <p style={{ fontSize: 18, fontWeight: 700, color: '#2BC155' }}>{symbol}{detailLead.estimatedValue.toLocaleString()}</p>
-                </div>
-              )}
-
-              {/* Contacts */}
-              <div>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <Users size={14} style={{ color: '#5D78FF' }} /> People ({detailLead.contacts?.length ?? 0})
-                </p>
-                {detailLead.contacts?.length === 0 && <p style={{ fontSize: 11, color: '#B1B1BE' }}>No contacts added.</p>}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {detailLead.contacts?.map(c => (
-                    <div key={c.id} style={{ background: '#F8F9FF', borderRadius: 10, padding: '10px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#E8EDFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#5D78FF' }}>
-                          {c.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{c.name} {c.isPrimary && <span style={{ fontSize: 9, background: '#E8EDFF', color: '#5D78FF', borderRadius: 6, padding: '1px 6px' }}>Primary</span>}</p>
-                          {c.designation && <p style={{ fontSize: 10, color: '#B1B1BE' }}>{c.designation}</p>}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 12, marginLeft: 36 }}>
-                        {c.email && <p style={{ fontSize: 10, color: '#374557' }}>✉ {c.email}</p>}
-                        {c.phone && <p style={{ fontSize: 10, color: '#374557' }}>📞 {c.phone}</p>}
-                        {c.whatsapp && <p style={{ fontSize: 10, color: '#2BC155' }}>💬 {c.whatsapp}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Owners */}
-              {detailLead.owners?.length > 0 && (
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Handling</p>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {detailLead.owners.map(o => (
-                      <span key={o.userId} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>{o.user?.name}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Company address */}
-              <div>
-                <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <MapPin size={13} style={{ color: '#5D78FF' }} /> Company Address
-                </p>
-                <div style={{ background: '#F8F9FF', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {detailLead.company?.customerType && (
-                    <span style={{ fontSize: 10, padding: '1px 8px', borderRadius: 10, background: (detailLead.company.customerType === 'Indian' || detailLead.company.customerType === 'India') ? '#E7FAF0' : '#E8EDFF', color: (detailLead.company.customerType === 'Indian' || detailLead.company.customerType === 'India') ? '#2BC155' : '#5D78FF', fontWeight: 600, alignSelf: 'flex-start' }}>{detailLead.company.customerType === 'Indian' ? 'India' : detailLead.company.customerType}</span>
-                  )}
-                  {[
-                    detailLead.company?.region,
-                    detailLead.company?.state !== 'None' ? detailLead.company?.state : null,
-                    detailLead.company?.city,
-                    detailLead.company?.area,
-                  ].filter(Boolean).length > 0 ? (
-                    <p style={{ fontSize: 11, color: '#374557' }}>
-                      {[detailLead.company?.region, detailLead.company?.state !== 'None' ? detailLead.company?.state : null, detailLead.company?.city, detailLead.company?.area].filter(Boolean).join(', ')}
-                    </p>
-                  ) : <p style={{ fontSize: 11, color: '#B1B1BE' }}>No address on file</p>}
-                </div>
-              </div>
-
-              {/* Description */}
-              {detailLead.notes && (
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 4 }}>Description</p>
-                  <p style={{ fontSize: 11, color: '#374557', lineHeight: 1.6 }}>{detailLead.notes}</p>
-                </div>
-              )}
-              {/* Monthly remarks */}
-              {detailLead.monthlyRemarks && (
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 4 }}>Month-on-Month Remarks</p>
-                  <p style={{ fontSize: 11, color: '#374557', lineHeight: 1.6 }}>{detailLead.monthlyRemarks}</p>
-                </div>
-              )}
-
-              {/* Discussions */}
-              <div style={{ borderTop: '1px solid #F0F1F5', paddingTop: 16 }}>
-                <DiscussionPanel
-                  entityType="Lead"
-                  entityId={detailLead.id}
-                  contacts={detailLead.contacts?.map(c => ({ id: c.id, name: c.name, designation: c.designation }))}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <LeadDetailPanel
+          lead={detailLead}
+          onClose={() => setDetailLead(null)}
+          onEdit={lead => { openEdit(lead); setDetailLead(null) }}
+        />
       )}
 
       {/* Delete confirmation */}
@@ -638,14 +680,20 @@ export default function Leads() {
 
       {/* Create / Edit Modal */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 580, maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>{editId ? 'Edit Lead' : 'New Lead'}</p>
-              <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: '12px' }}>
+          <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 1100, height: 'calc(100vh - 24px)', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.25)' }}>
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
+              <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>{editId ? 'Edit Lead' : 'New Lead'}</p>
+              <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={18} /></button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Body — 2 columns, no scroll */}
+            <div style={{ flex: 1, overflow: 'hidden', padding: '16px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+
+            {/* ── LEFT COLUMN ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, overflowY: 'auto', minHeight: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {/* Lead title */}
               <Field label="Lead Title *" error={errors.title}>
                 <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. Heat Pump Installation — Acme Corp" style={inp(!!errors.title)} />
@@ -688,7 +736,7 @@ export default function Leads() {
 
               {/* Location fields */}
               {form.customerType === 'Indian' ? (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <Field label="Region">
                     <select value={form.companyRegion} onChange={e => setForm(f => ({ ...f, companyRegion: e.target.value }))} style={inp(false)}>
                       {['North', 'West', 'South', 'East'].map(r => <option key={r}>{r}</option>)}
@@ -699,15 +747,15 @@ export default function Leads() {
                       {INDIA_STATES.map(s => <option key={s}>{s}</option>)}
                     </select>
                   </Field>
-                  <Field label="City (manual)">
+                  <Field label="City">
                     <input value={form.city} onChange={e => setForm(f => ({ ...f, city: e.target.value }))} placeholder="City name" style={inp(false)} />
                   </Field>
-                  <Field label="Area (manual)">
+                  <Field label="Area">
                     <input value={form.area} onChange={e => setForm(f => ({ ...f, area: e.target.value }))} placeholder="Area / locality" style={inp(false)} />
                   </Field>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <Field label="Country *">
                     <input value={form.country} onChange={e => setForm(f => ({ ...f, country: e.target.value }))} placeholder="e.g. UAE, UK, USA" style={inp(false)} />
                   </Field>
@@ -720,76 +768,19 @@ export default function Leads() {
                 </div>
               )}
 
-              {/* Sources section */}
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>Sources</label>
-                  <button type="button" onClick={() => setSources(s => [...s, blankSource()])}
-                    style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '4px 10px', borderRadius: 8, background: '#F0F4FF', color: '#5D78FF', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
-                    <Plus size={11} /> Add Source
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {sources.map((s, idx) => (
-                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                      <select value={s.source} onChange={e => setSources(ss => ss.map((x, i) => i === idx ? { ...x, source: e.target.value } : x))} style={inp(false)}>
-                        {['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner'].map(o => <option key={o}>{o}</option>)}
-                      </select>
-                      <input value={s.sourceName} onChange={e => setSources(ss => ss.map((x, i) => i === idx ? { ...x, sourceName: e.target.value } : x))} placeholder="Source name / referrer" style={inp(false)} />
-                      {sources.length > 1 && (
-                        <button type="button" onClick={() => setSources(ss => ss.filter((_, i) => i !== idx))}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FF5353' }}><X size={12} /></button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Lead details */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <Field label="Status">
-                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={inp(false)}>
-                    {UI_STATUSES.map(s => <option key={s}>{s}</option>)}
-                  </select>
-                </Field>
-                <Field label="Lead Date">
-                  <input type="date" value={form.leadDate} onChange={e => setForm({ ...form, leadDate: e.target.value })} style={inp(false)} />
-                </Field>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <Field label="Region (Lead)">
-                  <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })} style={inp(false)}>
-                    {['North', 'West', 'South', 'East'].map(r => <option key={r}>{r}</option>)}
-                  </select>
-                </Field>
-                <Field label="Commercial Type">
-                  <select value={form.commercialType} onChange={e => setForm({ ...form, commercialType: e.target.value })} style={inp(false)}>
-                    {['Capex', 'Opex', 'Deferred', 'Esco', 'Rental'].map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </Field>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <Field label={`Est. Value (${symbol})`}>
-                  <input value={form.estimatedValue} onChange={e => setForm({ ...form, estimatedValue: e.target.value })} placeholder="0" type="number" min="0" style={inp(false)} />
-                </Field>
-                <Field label="Est. Close Date">
-                  <input type="date" value={form.closeDate} onChange={e => setForm({ ...form, closeDate: e.target.value })} style={inp(false)} />
-                </Field>
-              </div>
-
               {/* Contacts section */}
               <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <label style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>People / Contacts {errors.contacts && <span style={{ color: '#FF5353', fontWeight: 400 }}> — {errors.contacts}</span>}</label>
                   <button type="button" onClick={() => setContacts(c => [...c, blankContact()])}
                     style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '4px 10px', borderRadius: 8, background: '#F0F4FF', color: '#5D78FF', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
                     <Plus size={11} /> Add person
                   </button>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {contacts.map((c, idx) => (
-                    <div key={idx} style={{ background: '#F8F9FF', borderRadius: 10, padding: 12, border: '1px solid #E8EDFF' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div key={idx} style={{ background: '#F8F9FF', borderRadius: 8, padding: '8px 10px', border: '1px solid #E8EDFF' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>Person {idx + 1}</span>
                           <button type="button" onClick={() => setContacts(cs => cs.map((x, i) => i === idx ? { ...x, isPrimary: true } : { ...x, isPrimary: false }))}
@@ -814,11 +805,99 @@ export default function Leads() {
                 </div>
               </div>
 
+            </div></div>{/* end left column inner + outer */}
+
+            {/* ── RIGHT COLUMN ── */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, borderLeft: '1px solid #F4F5F9', paddingLeft: 20, overflowY: 'auto', minHeight: 0 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+              {/* Sources section */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>Sources</label>
+                  <button type="button" onClick={() => setSources(s => [...s, blankSource()])}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, padding: '4px 10px', borderRadius: 8, background: '#F0F4FF', color: '#5D78FF', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+                    <Plus size={11} /> Add Source
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {sources.map((s, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, alignItems: 'center' }}>
+                      <select value={s.source} onChange={e => setSources(ss => ss.map((x, i) => i === idx ? { ...x, source: e.target.value } : x))} style={inp(false)}>
+                        {['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner'].map(o => <option key={o}>{o}</option>)}
+                      </select>
+                      <input value={s.sourceName} onChange={e => setSources(ss => ss.map((x, i) => i === idx ? { ...x, sourceName: e.target.value } : x))} placeholder="Source name / referrer" style={inp(false)} />
+                      {sources.length > 1 && (
+                        <button type="button" onClick={() => setSources(ss => ss.filter((_, i) => i !== idx))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FF5353' }}><X size={12} /></button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Lead details */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <Field label="Status">
+                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} style={inp(false)}>
+                    {UI_STATUSES.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+                <Field label="Lead Date">
+                  <input type="date" value={form.leadDate} onChange={e => setForm({ ...form, leadDate: e.target.value })} style={inp(false)} />
+                </Field>
+                <Field label="Region (Lead)">
+                  <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })} style={inp(false)}>
+                    {['North', 'West', 'South', 'East'].map(r => <option key={r}>{r}</option>)}
+                  </select>
+                </Field>
+                <Field label="Commercial Type">
+                  <select value={form.commercialType} onChange={e => setForm({ ...form, commercialType: e.target.value })} style={inp(false)}>
+                    {['Capex', 'Opex', 'Deferred', 'Esco', 'Rental'].map(c => <option key={c}>{c}</option>)}
+                  </select>
+                </Field>
+                <Field label={`Est. Value (${symbol})`}>
+                  <input value={form.estimatedValue} onChange={e => setForm({ ...form, estimatedValue: e.target.value })} placeholder="0" type="number" min="0" style={inp(false)} />
+                </Field>
+                <Field label="Est. Close Date">
+                  <input type="date" value={form.closeDate} onChange={e => setForm({ ...form, closeDate: e.target.value })} style={inp(false)} />
+                </Field>
+              </div>
+
+              {/* Sales Persons */}
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>Sales Person(s)</label>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: formOwners.length ? 8 : 0 }}>
+                  {formOwners.map(o => (
+                    <span key={o.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 20, background: '#EEF2FF', color: '#5D78FF', fontSize: 11, fontWeight: 600, border: '1px solid #C7D2FE' }}>
+                      {o.name}
+                      <button type="button" onClick={() => setFormOwners(prev => prev.filter(x => x.id !== o.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#818CF8', padding: 0, display: 'flex', alignItems: 'center' }}><X size={10} /></button>
+                    </span>
+                  ))}
+                </div>
+                <select
+                  value=""
+                  onChange={e => {
+                    const user = allUsers.find(u => u.id === e.target.value)
+                    if (user && !formOwners.some(o => o.id === user.id)) {
+                      setFormOwners(prev => [...prev, { id: user.id, name: user.name }])
+                    }
+                  }}
+                  style={{ ...inp(false), color: formOwners.length ? '#6B7280' : '#9CA3AF' }}>
+                  <option value="">+ Add sales person…</option>
+                  {allUsers.filter(u => !formOwners.some(o => o.id === u.id)).map(u => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
+                </select>
+              </div>
+
               <Field label="Description">
-                <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Add description..." rows={2} style={{ ...inp(false), resize: 'vertical' }} />
+                <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Add description..." rows={1} style={{ ...inp(false), resize: 'none' }} />
               </Field>
               <Field label="Month-on-Month Remarks">
-                <textarea value={form.monthlyRemarks} onChange={e => setForm({ ...form, monthlyRemarks: e.target.value })} placeholder="Monthly progress remarks..." rows={2} style={{ ...inp(false), resize: 'vertical' }} />
+                <textarea value={form.monthlyRemarks} onChange={e => setForm({ ...form, monthlyRemarks: e.target.value })} placeholder="Monthly progress remarks..." rows={1} style={{ ...inp(false), resize: 'none' }} />
               </Field>
 
               {/* Company Ref Number fields */}
@@ -831,11 +910,14 @@ export default function Leads() {
                   <input value={form.companyCityCode} onChange={e => setForm({ ...form, companyCityCode: e.target.value })} placeholder="City code (e.g. CH)" style={inp(false)} />
                 </div>
               </div>
-            </div>
+            </div></div>{/* end right column inner + outer */}
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-              <button onClick={closeModal} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => handleSave()} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>{editId ? 'Save Changes' : 'Create Lead'}</button>
+            </div>{/* end 2-col grid body */}
+
+            {/* Footer */}
+            <div style={{ display: 'flex', gap: 12, padding: '12px 24px', borderTop: '1px solid #F0F1F5', flexShrink: 0 }}>
+              <button onClick={closeModal} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: '1px solid #E8EAED', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => handleSave()} style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>{editId ? 'Save Changes' : 'Create Lead'}</button>
             </div>
           </div>
         </div>

@@ -9,10 +9,11 @@ const router = Router()
 
 router.use(authenticate)
 
-router.get('/', requirePermission('hr_user', 'read_all'), async (_req, res) => {
+router.get('/', requirePermission('hr_user', 'read_all'), async (req: AuthRequest, res) => {
+  const { includePending } = req.query as Record<string, string>
   const users = await prisma.user.findMany({
-    where: { isActive: true },
-    select: { id: true, name: true, email: true, role: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true },
+    where: includePending === 'true' ? {} : { isActive: true },
+    select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true },
     orderBy: { name: 'asc' }
   })
   res.json(users)
@@ -22,18 +23,34 @@ router.post('/', requirePermission('hr_user', 'create'), async (req: AuthRequest
   const data = userSchema.parse(req.body)
   const { password, dateOfBirth, joiningDate, ...rest } = data
   const passwordHash = await bcrypt.hash(password, 10)
+
+  // Create user as INACTIVE — requires SuperAdmin approval
   const user = await prisma.user.create({
     data: {
       ...rest,
       role: rest.role as any,
       roleName: rest.role ?? 'Viewer',
       passwordHash,
+      isActive: false, // Start inactive — will activate after approval
       ...(dateOfBirth && { dateOfBirth: new Date(dateOfBirth) }),
       ...(joiningDate && { joiningDate: new Date(joiningDate) }),
     },
-    select: { id: true, name: true, email: true, role: true, designation: true }
+    select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, baseSalary: true, isActive: true }
   })
-  res.status(201).json(user)
+
+  // Create approval request for SuperAdmin to review
+  await prisma.approvalRequest.create({
+    data: {
+      requestedById: req.user!.id,
+      entityType: 'hr_user',
+      entityId: user.id,
+      action: 'activate',
+      payload: { name: user.name, email: rest.email, role: user.roleName, salary: rest.baseSalary },
+      reason: `New employee: ${user.name} (${rest.email}) — Salary: ${rest.baseSalary ?? 'Not set'}, Role: ${user.roleName}`,
+    }
+  })
+
+  res.status(201).json({ ...user, status: 'pending_approval', message: 'User created. Awaiting admin approval to activate.' })
 })
 
 router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthRequest, res) => {

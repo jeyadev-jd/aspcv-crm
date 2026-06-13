@@ -81,9 +81,18 @@ export default function Approvals() {
                       color: STATUS_COLORS[req.status],
                     }}>{req.status.toUpperCase()}</span>
                     <span style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>
-                      {req.action} on {req.entityType} <span style={{ fontFamily: 'monospace', fontSize: 11, color: '#aaa' }}>{req.entityId.slice(-8)}</span>
+                      {req.entityType === 'hr_user' && req.action === 'activate' ? (
+                        <>🔑 Activate User</>
+                      ) : (
+                        <>{req.action} on {req.entityType}</>
+                      )}
                     </span>
                   </div>
+                  {req.entityType === 'hr_user' && req.reason && (
+                    <p style={{ fontSize: 12, color: '#555', margin: '0 0 4px', fontWeight: 500 }}>
+                      📋 {req.reason}
+                    </p>
+                  )}
                   <p style={{ fontSize: 12, color: '#666', margin: '0 0 4px' }}>
                     Requested by <b>{req.requestedBy?.name}</b> ({req.requestedBy?.roleName})
                   </p>

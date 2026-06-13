@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Briefcase, Trash2, Edit2, CheckCircle2, XCircle, ArrowRightCircle, Loader2 } from 'lucide-react'
+import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Briefcase, Trash2, Edit2, CheckCircle2, XCircle, ArrowRightCircle, Loader2, ExternalLink } from 'lucide-react'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
 import { useDeals, useCreateDeal, useUpdateDeal, useUpdateDealStage, useDeleteDeal, DEAL_STAGES, stageToUI } from '@/hooks/useDeals'
+import { useLead } from '@/hooks/useLeads'
+import LeadDetailPanel from '@/components/shared/LeadDetailPanel'
 
 type UIStage = 'Lead In' | 'Proposal' | 'Negotiation' | 'Closed Won' | 'Closed Lost'
 
@@ -51,6 +53,9 @@ export default function Deals() {
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [viewLeadId, setViewLeadId] = useState<string | null>(null)
+
+  const { data: viewLead } = useLead(viewLeadId ?? '')
 
   const deals = rawDeals.map(d => ({
     ...d,
@@ -184,7 +189,7 @@ export default function Deals() {
           {isMobile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
               {paginated.map(deal => (
-                <div key={deal.id} onClick={() => openEdit(deal)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div key={deal.id} onClick={() => deal.leadId ? setViewLeadId(deal.leadId) : openEdit(deal)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 34, height: 34, borderRadius: 8, background: stageStyle[deal.uiStage].bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -193,6 +198,7 @@ export default function Deals() {
                       <div>
                         <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{deal.title}</p>
                         <p style={{ fontSize: 10, color: '#B1B1BE' }}>{deal.accountName}</p>
+                        {deal.leadId && <span style={{ fontSize: 10, color: '#5D78FF', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}><ExternalLink size={9} />Origin Lead</span>}
                       </div>
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: stageStyle[deal.uiStage].bg, color: stageStyle[deal.uiStage].color, whiteSpace: 'nowrap' }}>{deal.uiStage}</span>
@@ -217,7 +223,7 @@ export default function Deals() {
               </thead>
               <tbody>
                 {paginated.map((deal, i) => (
-                  <tr key={deal.id} onClick={() => openEdit(deal)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
+                  <tr key={deal.id} onClick={() => deal.leadId ? setViewLeadId(deal.leadId) : openEdit(deal)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     <td style={{ padding: '12px 16px' }}>
@@ -227,7 +233,10 @@ export default function Deals() {
                         </div>
                         <div>
                           <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{deal.title}</p>
-                          <p style={{ fontSize: 10, color: '#B1B1BE' }}>{deal.lead?.title ?? '—'}</p>
+                          {deal.leadId
+                            ? <span style={{ fontSize: 10, color: '#5D78FF', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}><ExternalLink size={9} />Origin Lead</span>
+                            : <p style={{ fontSize: 10, color: '#B1B1BE' }}>No origin lead</p>
+                          }
                         </div>
                       </div>
                     </td>
@@ -251,6 +260,7 @@ export default function Deals() {
                         {menuOpen === deal.id && (
                           <div style={dropdownStyle}>
                             <button onClick={() => { openEdit(deal); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
+                            {deal.leadId && <button onClick={() => { setViewLeadId(deal.leadId!); setMenuOpen(null) }} style={menuItem}><ExternalLink size={12} style={{ marginRight: 8 }} />View Origin Lead</button>}
                             <button onClick={() => quickStage(deal.id, 'Closed Won')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Closed Won</button>
                             <button onClick={() => quickStage(deal.id, 'Closed Lost')} style={menuItem}><XCircle size={12} style={{ marginRight: 6 }} />Mark Closed Lost</button>
                             <button onClick={() => quickStage(deal.id, 'Negotiation')} style={menuItem}><ArrowRightCircle size={12} style={{ marginRight: 6 }} />Move to Negotiation</button>
@@ -277,6 +287,15 @@ export default function Deals() {
           </div>
         </div>
       </div>
+
+      {/* Lead detail panel */}
+      {viewLeadId && viewLead && (
+        <LeadDetailPanel
+          lead={viewLead}
+          onClose={() => setViewLeadId(null)}
+          onEdit={() => setViewLeadId(null)}
+        />
+      )}
 
       {/* Delete confirm */}
       {deleteConfirm && (

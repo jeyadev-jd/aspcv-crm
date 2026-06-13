@@ -65,7 +65,15 @@ router.patch('/:id/approve', requirePermission('approval_request', 'review'), as
 
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000)
 
-  // HR user creation: create the user immediately on approval
+  // HR user activation: activate the inactive user
+  if (ar.entityType === 'hr_user' && ar.action === 'activate') {
+    await prisma.user.update({
+      where: { id: ar.entityId },
+      data: { isActive: true },
+    })
+  }
+
+  // HR user creation (legacy): create the user immediately on approval
   if (ar.entityType === 'hr_user' && ar.action === 'user_create') {
     const bcrypt = await import('bcrypt')
     const payload = ar.payload as Record<string, unknown>
@@ -99,6 +107,12 @@ router.patch('/:id/reject', requirePermission('approval_request', 'review'), asy
   const ar = await prisma.approvalRequest.findUnique({ where: { id: req.params.id as string } })
   if (!ar) { res.status(404).json({ error: 'Not found' }); return }
   if (ar.status !== 'pending') { res.status(400).json({ error: 'Already reviewed' }); return }
+
+  // Delete the inactive user if rejecting user activation
+  if (ar.entityType === 'hr_user' && ar.action === 'activate') {
+    await prisma.user.delete({ where: { id: ar.entityId } })
+  }
+
   const updated = await prisma.approvalRequest.update({
     where: { id: req.params.id as string },
     data: { status: 'rejected', reviewedById: req.user!.id, reviewedAt: new Date(), rejectReason },

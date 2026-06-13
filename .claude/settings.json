@@ -20,5 +20,11 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "ui-ux-pro-max@ui-ux-pro-max-skill": true,
+    "playground@claude-plugins-official": true,
+    "linear@claude-plugins-official": true,
+    "auth0@claude-plugins-official": true
   }
 }

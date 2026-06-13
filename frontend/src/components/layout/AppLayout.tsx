@@ -17,7 +17,7 @@ export default function AppLayout() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', height: '100%', background: '#F4F5F9', display: 'flex' }}>
+    <div style={{ minHeight: '100vh', height: '100%', background: '#F4F5F9', display: 'flex', flex: 1, minWidth: 0, maxWidth: '100%', overflowX: 'hidden' }}>
       {/* Mobile drawer overlay */}
       {isMobile && drawerOpen && (
         <div
@@ -43,6 +43,7 @@ export default function AppLayout() {
         transition: 'margin-left 0.2s, width 0.2s',
         minHeight: '100vh',
         flex: 1,
+        minWidth: 0,
         overflow: 'hidden',
       }}>
         <Topbar onToggleSidebar={toggleSidebar} />

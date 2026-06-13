@@ -26,7 +26,7 @@ function toAccount(c: Record<string, any>): Account {
     phone: c.phone ?? '',
     email: c.email ?? '',
     address: [c.area?.name, c.city?.name, c.state].filter(Boolean).join(', '),
-    employees: 0,
+    employees: c._count?.contacts ?? 0,
     status: c.isActive ? (c._count?.leads > 0 ? 'Active' : 'Prospect') : 'Inactive',
     openDeals: c._count?.leads ?? 0,
     revenue: 0,
@@ -35,7 +35,7 @@ function toAccount(c: Record<string, any>): Account {
 
 // Map Contact API response → Contact interface
 function toContact(c: Record<string, any>): Contact {
-  const parts = (c.name as string).split(' ')
+  const parts = (c.name ?? '').split(' ')
   return {
     id: c.id,
     firstName: parts[0] ?? '',
@@ -44,9 +44,9 @@ function toContact(c: Record<string, any>): Contact {
     email: c.email ?? '',
     phone: c.phone ?? '',
     mobile: c.whatsapp ?? '',
-    department: '',
+    department: c.company?.name ?? '',
     account: c.company?.name ?? '',
-    status: c.isActive ? 'Active' : 'Inactive',
+    status: c.isActive !== false ? 'Active' : 'Inactive',
   }
 }
 
