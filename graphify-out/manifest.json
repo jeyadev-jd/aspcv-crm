@@ -310,8 +310,8 @@
     "semantic_hash": "fbfac8b376ad01d099c9feb52a21cfe9"
   },
   "backend/src/routes/users.ts": {
-    "mtime": 1781270937.590775,
-    "ast_hash": "d46d99ffd0ce793c392a84535a7bbc75",
+    "mtime": 1781354762.2863877,
+    "ast_hash": "31ee57d8cf2071c78e037ce0c91d390a",
     "semantic_hash": ""
   },
   "backend/src/services/fileStorage.ts": {
@@ -1580,8 +1580,8 @@
     "semantic_hash": ""
   },
   "backend/src/routes/approval-requests.ts": {
-    "mtime": 1781270761.2478857,
-    "ast_hash": "e5a0edd14ba46fdaa30eb7cebce075db",
+    "mtime": 1781354745.496321,
+    "ast_hash": "6d479522f273cf3895541fab952e0dbf",
     "semantic_hash": ""
   },
   "backend/src/routes/role-definitions.ts": {
@@ -1610,8 +1610,8 @@
     "semantic_hash": ""
   },
   "frontend/src/pages/Approvals.tsx": {
-    "mtime": 1781271623.0370822,
-    "ast_hash": "1577040b2c1bc3c02d1fe1950f436ef3",
+    "mtime": 1781354755.747573,
+    "ast_hash": "422117576e3cdd41b4679a6c01fe0a31",
     "semantic_hash": ""
   },
   "frontend/src/pages/Roles.tsx": {
