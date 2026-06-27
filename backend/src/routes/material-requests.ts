@@ -31,10 +31,11 @@ const INCLUDE = {
 }
 
 router.get('/', async (req: AuthRequest, res) => {
-  const { status, mine } = req.query as Record<string, string>
+  const { status, mine, projectId } = req.query as Record<string, string>
   const where: any = {}
   if (mine === 'true') where.requestedById = req.user!.id
   if (status) where.status = status
+  if (projectId) where.projectId = projectId
   const requests = await prisma.materialRequest.findMany({ where, include: INCLUDE, orderBy: { createdAt: 'desc' } })
   res.json(requests)
 })
@@ -93,10 +94,41 @@ router.patch('/:id/approve', async (req: AuthRequest, res) => {
     return
   }
 
-  const mr = await prisma.materialRequest.findUnique({ where: { id } })
-  const merged = { ...mr, ...updateData }
+  const mrFull = await prisma.materialRequest.findUnique({ where: { id }, include: { items: true, project: true } })
+  const merged = { ...mrFull, ...updateData }
   const newStatus = deriveStatus(merged)
   const updated = await prisma.materialRequest.update({ where: { id }, data: { ...updateData, status: newStatus }, include: INCLUDE })
+
+  // Auto-create purchase invoice when fully approved (accountant sign-off)
+  if (newStatus === 'paid' && mrFull) {
+    const year = new Date().getFullYear()
+    const pinvCount = await prisma.invoice.count({ where: { number: { startsWith: `PINV-${year}-` } } })
+    const pinvNumber = `PINV-${year}-${String(pinvCount + 1).padStart(4, '0')}`
+    const total = mrFull.totalEstimated ?? mrFull.items.reduce((s, i) => s + (i.estimatedPrice ?? 0) * (i.quantity ?? 1), 0)
+    await prisma.invoice.create({
+      data: {
+        number: pinvNumber,
+        date: now,
+        customer: mrFull.project?.title ?? `MR ${mrFull.refNumber}`,
+        status: 'Paid',
+        amount: total,
+        fromName: 'ASPCV — Aspiration Cleantech Ventures',
+        toName: mrFull.project?.title ?? undefined,
+        items: {
+          create: mrFull.items.map(i => ({
+            item: i.name + (i.componentRefNo ? ` (${i.componentRefNo})` : ''),
+            hours: i.quantity ?? 1,
+            rate: i.estimatedPrice ?? 0,
+            amount: (i.estimatedPrice ?? 0) * (i.quantity ?? 1),
+          })),
+        },
+        activities: {
+          create: [{ text: `Purchase invoice auto-generated from ${mrFull.refNumber} after full approval` }],
+        },
+      },
+    })
+  }
+
   res.json(updated)
 })
 

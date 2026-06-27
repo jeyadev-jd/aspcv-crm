@@ -4,14 +4,18 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { projectSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
 import { requirePermission } from '../middleware/permissions'
+import { getScopeFilter } from '../middleware/scoping'
+import { checkProjectOverrun } from '../services/notify'
 
 const router = Router()
 router.use(authenticate)
 
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('project', 'read_own'), async (req: AuthRequest, res) => {
   const { status, companyId, dealId } = req.query as Record<string, string>
+  const scope = await getScopeFilter(req.user!.id, req.user!.roleName, 'project')
   const projects = await prisma.project.findMany({
     where: {
+      ...scope,
       isActive: true,
       ...(status && { status: status as any }),
       ...(companyId && { companyId }),
@@ -45,6 +49,7 @@ router.post('/', requirePermission('project', 'create'), async (req: AuthRequest
   const project = await prisma.project.create({
     data: {
       ...data,
+      createdById: req.user!.id,
       startDate: data.startDate ? new Date(data.startDate) : undefined,
       endDate: data.endDate ? new Date(data.endDate) : undefined,
     },
@@ -66,6 +71,8 @@ router.put('/:id', requirePermission('project', 'edit'), async (req: AuthRequest
     include: { company: { select: { id: true, name: true } } },
   })
   await appendEvent('Project', project.id, 'UPDATED', `Project "${project.title}" updated`, req.user?.id)
+  // tiered budget-overrun alert → admin / project head / business head
+  await checkProjectOverrun(project.id)
   res.json(project)
 })
 

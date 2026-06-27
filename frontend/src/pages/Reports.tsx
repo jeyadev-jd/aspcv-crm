@@ -423,7 +423,7 @@ export default function Reports() {
       </div>
 
       {/* ── KPI row ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 14 }}>
         <KpiCard label="Revenue YTD"     value={fmt(revenueYTD, symbol, currency)}    sub="Jan–May 2026"  color="#2BC155" icon={DollarSign} delta="+18%" deltaUp />
         <KpiCard label="Active Pipeline" value={fmt(totalPipeline, symbol, currency)} sub="Excl. closed"  color="#5D78FF" icon={Briefcase}  delta="+12%" deltaUp />
         <KpiCard label="Closed Won"      value={fmt(totalWon, symbol, currency)}       sub="This year"     color="#8B5CF6" icon={Target}     delta="+9%"  deltaUp />
@@ -579,8 +579,8 @@ export default function Reports() {
           </div>
 
           {/* Tickets + Product perf */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div style={{ ...card }}>
+          <div className="crm-chart-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+            <div className="crm-chart-card" style={{ ...card }}>
               <SectionHeader title="Support Ticket Trend" sub="Open vs resolved by week" />
               <ResponsiveContainer width="100%" height={180}>
                 <LineChart data={ticketsTrend} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -691,8 +691,8 @@ export default function Reports() {
           </div>
 
           {/* Sales funnel + Deal velocity */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <div style={{ ...card }}>
+          <div className="crm-chart-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+            <div className="crm-chart-card" style={{ ...card }}>
               <SectionHeader title="Sales Funnel" sub="Lead-to-close conversion" />
               <ResponsiveContainer width="100%" height={220}>
                 <FunnelChart>

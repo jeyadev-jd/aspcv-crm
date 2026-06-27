@@ -1,8 +1,24 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useMaterialRequests, useCreateMaterialRequest, useApproveMaterialRequest, useRejectMaterialRequest } from '../hooks/useMaterialRequests'
 import { useProjects } from '../hooks/useProjects'
+import { useComponents } from '../hooks/useComponents'
+import type { RawComponent } from '../hooks/useComponents'
 import { useAuthStore } from '../lib/authStore'
 import { Plus, Check, X, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { CsvImportExport } from '../components/shared/CsvImportExport'
+import type { CsvColDef } from '../components/shared/CsvImportExport'
+import type { MaterialRequest } from '../hooks/useMaterialRequests'
+
+// Items serialised as "name|qty|unit|price;name2|qty2|unit2|price2"
+const MR_CSV_COLS: CsvColDef<MaterialRequest>[] = [
+  { header: 'RefNumber',      accessor: r => r.refNumber ?? '' },
+  { header: 'Status',         accessor: r => r.status },
+  { header: 'Project',        accessor: r => r.project?.title ?? '' },
+  { header: 'TotalEstimated', accessor: r => r.totalEstimated != null ? String(r.totalEstimated) : '' },
+  { header: 'Notes',          accessor: r => r.notes ?? '' },
+  { header: 'Items',          accessor: r => r.items.map(i => [i.name, i.quantity, i.unit ?? '', i.estimatedPrice ?? ''].join('|')).join(';') },
+]
+const MR_CSV_TEMPLATE = { RefNumber: '', Status: 'pending', Project: '', TotalEstimated: '', Notes: 'Monthly site materials', Items: 'Copper wire|10|kg|500;PVC conduit|5|m|120' }
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   pending:           { bg: '#FEF3C7', color: '#92400E', label: 'Pending' },
@@ -45,7 +61,27 @@ export default function MaterialRequests() {
 
   const { data: requests = [], isLoading } = useMaterialRequests({ status: filterStatus || undefined, mine: showMine || undefined })
   const { data: projects = [] } = useProjects()
+  const { data: components = [] } = useComponents()
   const create = useCreateMaterialRequest()
+  const [dropdownIdx, setDropdownIdx] = useState<number | null>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  async function importMRs(rows: Record<string, string>[]) {
+    let success = 0; const errors: string[] = []
+    for (const [i, row] of rows.entries()) {
+      const rawItems = (row.Items ?? '').split(';').map(s => s.trim()).filter(Boolean).map(seg => {
+        const [name, qty, unit, price] = seg.split('|')
+        return { name: name?.trim() ?? '', quantity: Number(qty) || 1, unit: unit?.trim() || undefined, estimatedPrice: price ? Number(price) : undefined }
+      }).filter(it => it.name)
+      if (!rawItems.length) { errors.push(`Row ${i + 1}: no valid items`); continue }
+      const proj = projects.find(p => p.title.toLowerCase() === (row.Project ?? '').toLowerCase())
+      try {
+        await create.mutateAsync({ projectId: proj?.id, items: rawItems, notes: row.Notes || undefined, totalEstimated: row.TotalEstimated ? Number(row.TotalEstimated) : undefined })
+        success++
+      } catch (e: unknown) { errors.push(`Row ${i + 1}: ${e instanceof Error ? e.message : 'Error'}`) }
+    }
+    return { total: rows.length, success, errors }
+  }
   const approve = useApproveMaterialRequest()
   const reject = useRejectMaterialRequest()
 
@@ -70,17 +106,20 @@ export default function MaterialRequests() {
   }
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Material Requests</h1>
           <p style={{ fontSize: 13, color: '#8A8FA8', marginTop: 4 }}>{requests.length} requests</p>
         </div>
-        {canCreate && (
-          <button onClick={() => setShowCreate(v => !v)} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <Plus size={14} />New Request
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <CsvImportExport data={requests} columns={MR_CSV_COLS} filename="material-requests.csv" templateRow={MR_CSV_TEMPLATE} onImport={importMRs} />
+          {canCreate && (
+            <button onClick={() => setShowCreate(v => !v)} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Plus size={14} />New Request
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -109,16 +148,62 @@ export default function MaterialRequests() {
               <option value="">No project</option>
               {projects.map((p: any) => <option key={p.id} value={p.id}>{p.title}</option>)}
             </select>
-            {items.map((item, idx) => (
-              <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <input value={item.name} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))} placeholder="Item name *" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, flex: '2 1 140px' }} />
-                <input value={item.quantity} type="number" onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} placeholder="Qty" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 70 }} />
-                <input value={item.unit} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))} placeholder="Unit" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 80 }} />
-                <input value={item.estimatedPrice} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, estimatedPrice: e.target.value } : x))} placeholder="Est. Price" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 100 }} />
-                <input value={item.componentRefNo} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, componentRefNo: e.target.value } : x))} placeholder="RC Ref# (optional)" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 130 }} />
-                {items.length > 1 && <button onClick={() => setItems(p => p.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
-              </div>
-            ))}
+            {items.map((item, idx) => {
+              const query = item.name.toLowerCase()
+              const suggestions: RawComponent[] = query.length >= 1
+                ? components.filter(c =>
+                    c.name.toLowerCase().includes(query) ||
+                    (c.category ?? '').toLowerCase().includes(query) ||
+                    c.refNumber.toLowerCase().includes(query)
+                  ).slice(0, 8)
+                : []
+              function pickRC(rc: RawComponent) {
+                setItems(prev => prev.map((x, i) => i === idx ? {
+                  ...x,
+                  name: rc.name,
+                  unit: rc.unit ?? x.unit,
+                  estimatedPrice: rc.price != null ? String(rc.price) : x.estimatedPrice,
+                  componentRefNo: rc.refNumber,
+                } : x))
+                setDropdownIdx(null)
+              }
+              return (
+                <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ position: 'relative', flex: '2 1 140px' }}>
+                    <input
+                      value={item.name}
+                      onChange={e => { setItems(p => p.map((x, i) => i === idx ? { ...x, name: e.target.value } : x)); setDropdownIdx(idx) }}
+                      onFocus={() => setDropdownIdx(idx)}
+                      onBlur={() => setTimeout(() => setDropdownIdx(null), 150)}
+                      placeholder="Item name * (type to search catalog)"
+                      style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: '100%', boxSizing: 'border-box' as const }}
+                    />
+                    {dropdownIdx === idx && suggestions.length > 0 && (
+                      <div ref={dropdownRef} style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E8E9F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 999, maxHeight: 240, overflowY: 'auto' }}>
+                        {suggestions.map(rc => (
+                          <div key={rc.id} onMouseDown={() => pickRC(rc)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #F4F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                            onMouseEnter={e => (e.currentTarget.style.background = '#F4F5FF')}
+                            onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{rc.name}</div>
+                              <div style={{ fontSize: 11, color: '#8A8FA8' }}>{rc.category} · {rc.refNumber} · {rc.unit ?? ''}</div>
+                            </div>
+                            {rc.price != null && (
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#5D78FF', whiteSpace: 'nowrap', marginLeft: 8 }}>₹{rc.price.toLocaleString('en-IN')}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <input value={item.quantity} type="number" onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} placeholder="Qty" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 70 }} />
+                  <input value={item.unit} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))} placeholder="Unit" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 80 }} />
+                  <input value={item.estimatedPrice} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, estimatedPrice: e.target.value } : x))} placeholder="Est. Price" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 100 }} />
+                  <input value={item.componentRefNo} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, componentRefNo: e.target.value } : x))} placeholder="RC Ref#" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 120 }} />
+                  {items.length > 1 && <button onClick={() => setItems(p => p.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
+                </div>
+              )
+            })}
             <button onClick={() => setItems(p => [...p, blankItem()])} style={{ fontSize: 12, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 0' }}>+ Add item</button>
             {itemsTotal > 0 && (
               <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1D23', marginTop: 8, padding: '8px 12px', background: '#F8F9FF', borderRadius: 8, display: 'inline-block' }}>

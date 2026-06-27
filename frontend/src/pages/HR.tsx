@@ -2,6 +2,28 @@ import { useState } from 'react'
 import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser, CRM_ROLES, DEPARTMENTS, type CrmUser } from '../hooks/useUsers'
 import { useAuthStore } from '../lib/authStore'
 import { X, Cake, Mail, Building, Plus, Edit2, Trash2, Phone, CreditCard, Calendar, Wallet } from 'lucide-react'
+import { CsvImportExport } from '../components/shared/CsvImportExport'
+import type { CsvColDef } from '../components/shared/CsvImportExport'
+
+const HR_CSV_COLS: CsvColDef<CrmUser>[] = [
+  { header: 'Name',            accessor: r => r.name },
+  { header: 'Email',           accessor: r => r.email },
+  { header: 'Role',            accessor: r => r.role },
+  { header: 'Department',      accessor: r => r.department ?? '' },
+  { header: 'DateOfBirth',     accessor: r => r.dateOfBirth ?? '' },
+  { header: 'JoiningDate',     accessor: r => r.joiningDate ?? '' },
+  { header: 'BaseSalary',      accessor: r => r.baseSalary != null ? String(r.baseSalary) : '' },
+  { header: 'HRA',             accessor: r => r.hra != null ? String(r.hra) : '' },
+  { header: 'Allowances',      accessor: r => r.allowances != null ? String(r.allowances) : '' },
+  { header: 'PF',              accessor: r => r.pfApplicable ? 'true' : 'false' },
+  { header: 'ESI',             accessor: r => r.esiApplicable ? 'true' : 'false' },
+  { header: 'PAN',             accessor: r => r.pan ?? '' },
+  { header: 'BankAccount',     accessor: r => r.bankAccount ?? '' },
+  { header: 'IFSC',            accessor: r => r.ifsc ?? '' },
+  { header: 'BankName',        accessor: r => r.bankName ?? '' },
+  { header: 'EmergencyContact',accessor: r => r.emergencyContact ?? '' },
+]
+const HR_CSV_TEMPLATE = { Name: 'Raj Kumar', Email: 'raj@company.com', Role: 'Engineer', Department: 'Operations', DateOfBirth: '1995-06-15', JoiningDate: '2024-01-01', BaseSalary: '35000', HRA: '5000', Allowances: '2000', PF: 'true', ESI: 'true', PAN: 'ABCDE1234F', BankAccount: '1234567890', IFSC: 'SBIN0001234', BankName: 'SBI', EmergencyContact: '9876543210', Password: 'TempPass@123' }
 
 const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
   SuperAdmin:    { bg: '#EDE9FE', color: '#7C3AED' },
@@ -67,6 +89,19 @@ export default function HR() {
 
   const { data: users = [], isLoading } = useUsers()
   const createUser = useCreateUser()
+
+  async function importEmployees(rows: Record<string, string>[]) {
+    let success = 0; const errors: string[] = []
+    for (const row of rows) {
+      if (!row.Name || !row.Email) { errors.push(`"${row.Name || row.Email}": Name and Email required`); continue }
+      const validRole = CRM_ROLES.includes(row.Role as never) ? row.Role : 'Engineer'
+      try {
+        await createUser.mutateAsync({ name: row.Name, email: row.Email, password: row.Password || 'TempPass@123', role: validRole, department: row.Department || undefined, dateOfBirth: row.DateOfBirth || undefined, joiningDate: row.JoiningDate || undefined, baseSalary: row.BaseSalary ? Number(row.BaseSalary) : undefined, hra: row.HRA ? Number(row.HRA) : undefined, allowances: row.Allowances ? Number(row.Allowances) : undefined, pfApplicable: row.PF !== 'false', esiApplicable: row.ESI !== 'false', pan: row.PAN || undefined, bankAccount: row.BankAccount || undefined, ifsc: row.IFSC || undefined, bankName: row.BankName || undefined, emergencyContact: row.EmergencyContact || undefined })
+        success++
+      } catch (e: unknown) { errors.push(`"${row.Name}": ${e instanceof Error ? e.message : 'Error'}`) }
+    }
+    return { total: rows.length, success, errors }
+  }
   const updateUser = useUpdateUser()
   const deactivateUser = useDeactivateUser()
 
@@ -148,17 +183,20 @@ export default function HR() {
   if (isLoading) return <div style={{ padding: 32, fontSize: 13, color: '#8A8FA8' }}>Loading employees...</div>
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Employees</h1>
           <p style={{ fontSize: 13, color: '#8A8FA8', marginTop: 4 }}>{users.length} team members</p>
         </div>
-        {canManage && (
-          <button onClick={openAdd} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <Plus size={14} />Add Employee
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <CsvImportExport data={users} columns={HR_CSV_COLS} filename="employees.csv" templateRow={HR_CSV_TEMPLATE} onImport={importEmployees} />
+          {canManage && (
+            <button onClick={openAdd} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Plus size={14} />Add Employee
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Birthday alert */}

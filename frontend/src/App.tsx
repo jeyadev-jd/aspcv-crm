@@ -17,7 +17,8 @@ import Kanban from '@/pages/Kanban'
 import CalendarPage from '@/pages/Calendar'
 import Invoices from '@/pages/Invoices'
 import Support from '@/pages/Support'
-import Installations from '@/pages/Installations'
+import Dealers from '@/pages/Dealers'
+import RawComponents from '@/pages/RawComponents'
 import Reports from '@/pages/Reports'
 import Settings from '@/pages/Settings'
 import HR from '@/pages/HR'
@@ -29,6 +30,7 @@ import Inventory from '@/pages/Inventory'
 import Financials from '@/pages/Financials'
 import Roles from '@/pages/Roles'
 import Approvals from '@/pages/Approvals'
+import UserManagement from '@/pages/UserManagement'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -56,7 +58,8 @@ export default function App() {
             <Route path="/calendar"  element={<CalendarPage />} />
             <Route path="/invoices"  element={<Invoices />} />
             <Route path="/support"        element={<Support />} />
-            <Route path="/installations"  element={<Installations />} />
+            <Route path="/dealers"        element={<Dealers />} />
+            <Route path="/raw-components" element={<RawComponents />} />
             <Route path="/reports"   element={<Reports />} />
             <Route path="/settings"  element={<Settings />} />
             <Route path="/hr"               element={<HR />} />
@@ -68,6 +71,7 @@ export default function App() {
             <Route path="/financials"       element={<Financials />} />
             <Route path="/roles"            element={<Roles />} />
             <Route path="/approvals"        element={<Approvals />} />
+            <Route path="/users"            element={<UserManagement />} />
           </Route>
         </Route>
       </Routes>

@@ -4,14 +4,17 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { installationSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
 import { requirePermission } from '../middleware/permissions'
+import { getScopeFilter } from '../middleware/scoping'
 
 const router = Router()
 router.use(authenticate)
 
-router.get('/', async (req, res) => {
+router.get('/', requirePermission('installation', 'read_own'), async (req: AuthRequest, res) => {
   const { status, companyId, projectId } = req.query as Record<string, string>
+  const scope = await getScopeFilter(req.user!.id, req.user!.roleName, 'installation')
   const installations = await prisma.installation.findMany({
     where: {
+      ...scope,
       isActive: true,
       ...(status && { status: status as any }),
       ...(companyId && { companyId }),
@@ -43,6 +46,7 @@ router.post('/', requirePermission('installation', 'create'), async (req: AuthRe
   const installation = await prisma.installation.create({
     data: {
       ...data,
+      createdById: req.user!.id,
       scheduledDate: data.scheduledDate ? new Date(data.scheduledDate) : undefined,
       completedDate: data.completedDate ? new Date(data.completedDate) : undefined,
     },

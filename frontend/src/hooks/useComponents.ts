@@ -24,6 +24,13 @@ export interface RawComponent {
   assignedToType?: string
   assignedToId?: string
   assignedAt?: string
+  dealerId?: string | null
+  dealerName?: string | null
+  price?: number | null
+  gstPercent?: number | null
+  hsnCode?: string | null
+  unit?: string | null
+  quantity?: number | null
   customFields?: Record<string, string>
   notes?: string
   movements?: ComponentMovement[]

@@ -1,9 +1,23 @@
 import { useState, useRef, useEffect } from 'react'
-import { Search, Bell, Settings, AlignJustify, UserCheck, Building2, Users, Briefcase, FolderOpen, LifeBuoy, X, CheckCircle2 } from 'lucide-react'
+import { Search, Bell, Settings, AlignJustify, UserCheck, Building2, Users, Briefcase, FolderOpen, LifeBuoy, X, AlertTriangle, Trash2 } from 'lucide-react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { searchRecords, typeColor } from '@/lib/searchData'
 import type { SearchResult } from '@/lib/searchData'
+import { useNotifications, useMarkNotificationRead, useMarkAllRead, useDeleteNotification } from '@/hooks/useNotifications'
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const m = Math.floor(diff / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m} min ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h} hr ago`
+  const d = Math.floor(h / 24)
+  return d === 1 ? 'Yesterday' : `${d} days ago`
+}
+
+const sevColor: Record<string, string> = { info: '#5D78FF', warning: '#FF9B52', critical: '#FF5353' }
 
 const titles: Record<string, string> = {
   '/':          'Dashboard',
@@ -31,22 +45,6 @@ const typeIcon: Record<string, React.FC<{ size?: number; style?: React.CSSProper
   Ticket:  LifeBuoy,
 }
 
-interface Notif {
-  id: string
-  title: string
-  sub: string
-  time: string
-  read: boolean
-  color: string
-}
-
-const initNotifs: Notif[] = [
-  { id: '1', title: 'New lead assigned', sub: 'Apex Sustainability — Oliver Grant', time: '5 min ago', read: false, color: '#5D78FF' },
-  { id: '2', title: 'Ticket TKT-003 opened', sub: 'Solar inverter offline — GreenBuild', time: '1 hr ago', read: false, color: '#FF5353' },
-  { id: '3', title: 'Deal closed: BioWarm HRV', sub: '+£210,000 · Closed Won', time: '2 hrs ago', read: false, color: '#2BC155' },
-  { id: '4', title: 'Invoice AA-04-19-1890 paid', sub: '+£1,890 · Sophia Wagner', time: 'Yesterday', read: true, color: '#5D78FF' },
-]
-
 interface TopbarProps { onToggleSidebar: () => void }
 
 export default function Topbar({ onToggleSidebar }: TopbarProps) {
@@ -63,9 +61,13 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
   const searchRef = useRef<HTMLDivElement>(null)
 
   const [notifOpen, setNotifOpen] = useState(false)
-  const [notifs, setNotifs] = useState(initNotifs)
   const notifRef = useRef<HTMLDivElement>(null)
-  const unread = notifs.filter(n => !n.read).length
+  const { data: notifData } = useNotifications()
+  const notifs = notifData?.notifications ?? []
+  const unread = notifData?.unread ?? 0
+  const markRead = useMarkNotificationRead()
+  const markAll = useMarkAllRead()
+  const deleteNotif = useDeleteNotification()
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -110,8 +112,10 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
     setSearchOpen(false); setQuery(''); setResults([])
   }
 
-  function markAllRead() { setNotifs(prev => prev.map(n => ({ ...n, read: true }))) }
-  function markRead(id: string) { setNotifs(prev => prev.map(n => n.id === id ? { ...n, read: true } : n)) }
+  function openNotif(n: { id: string; read: boolean; entityType?: string | null; entityId?: string | null }) {
+    if (!n.read) markRead.mutate(n.id)
+    if (n.entityType === 'Project') { setNotifOpen(false); navigate('/projects') }
+  }
 
   return (
     <header style={{
@@ -270,39 +274,46 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #F4F5F9' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>Notifications</p>
               {unread > 0 && (
-                <button onClick={markAllRead} style={{ fontSize: 11, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>
+                <button onClick={() => markAll.mutate()} style={{ fontSize: 11, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>
                   Mark all read
                 </button>
               )}
             </div>
-            {notifs.map(n => (
-              <div
-                key={n.id}
-                onClick={() => markRead(n.id)}
-                style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px',
-                  background: n.read ? 'transparent' : '#FAFBFF',
-                  borderBottom: '1px solid #F4F5F9', cursor: 'pointer', transition: 'background 0.1s',
-                }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#F4F5F9')}
-                onMouseLeave={e => (e.currentTarget.style.background = n.read ? 'transparent' : '#FAFBFF')}
-              >
-                <div style={{ width: 8, height: 8, borderRadius: '50%', background: n.read ? 'transparent' : n.color, marginTop: 5, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: 12, fontWeight: n.read ? 500 : 600, color: '#374557' }}>{n.title}</p>
-                  <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 2 }}>{n.sub}</p>
-                  <p style={{ fontSize: 10, color: '#C4C4CF', marginTop: 4 }}>{n.time}</p>
+            <div style={{ maxHeight: 380, overflowY: 'auto' }}>
+              {notifs.length === 0 && (
+                <div style={{ padding: 28, textAlign: 'center' }}>
+                  <Bell size={22} style={{ color: '#D5D5D5', margin: '0 auto 8px' }} />
+                  <p style={{ fontSize: 12, color: '#B1B1BE' }}>No notifications</p>
                 </div>
-                {n.read && <CheckCircle2 size={14} style={{ color: '#D5D5D5', flexShrink: 0, marginTop: 2 }} />}
-              </div>
-            ))}
-            <div style={{ padding: '10px 16px', textAlign: 'center', borderTop: '1px solid #F4F5F9' }}>
-              <button
-                onClick={() => { setNotifOpen(false); navigate('/settings') }}
-                style={{ fontSize: 12, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
-              >
-                Manage notification settings
-              </button>
+              )}
+              {notifs.map(n => {
+                const color = sevColor[n.severity] ?? '#5D78FF'
+                return (
+                  <div
+                    key={n.id}
+                    onClick={() => openNotif(n)}
+                    style={{
+                      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 16px',
+                      background: n.read ? 'transparent' : '#FAFBFF',
+                      borderBottom: '1px solid #F4F5F9', cursor: 'pointer', transition: 'background 0.1s',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#F4F5F9')}
+                    onMouseLeave={e => (e.currentTarget.style.background = n.read ? 'transparent' : '#FAFBFF')}
+                  >
+                    {n.severity === 'critical' || n.severity === 'warning'
+                      ? <AlertTriangle size={14} style={{ color, marginTop: 3, flexShrink: 0 }} />
+                      : <div style={{ width: 8, height: 8, borderRadius: '50%', background: n.read ? 'transparent' : color, marginTop: 5, flexShrink: 0 }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: n.read ? 500 : 600, color: '#374557' }}>{n.title}</p>
+                      <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 2 }}>{n.message}</p>
+                      <p style={{ fontSize: 10, color: '#C4C4CF', marginTop: 4 }}>{relativeTime(n.createdAt)}</p>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); deleteNotif.mutate(n.id) }} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, marginTop: 2 }}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

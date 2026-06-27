@@ -44,10 +44,9 @@ export default function AppLayout() {
         minHeight: '100vh',
         flex: 1,
         minWidth: 0,
-        overflow: 'hidden',
       }}>
         <Topbar onToggleSidebar={toggleSidebar} />
-        <main style={{ flex: 1, padding: isMobile ? '14px 14px' : '28px 32px', minWidth: 0, overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <main style={{ flex: 1, padding: isMobile ? '14px' : '24px 28px', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           <Outlet />
         </main>
       </div>

@@ -44,7 +44,7 @@ export default function MyProfile() {
   const absentCount = attendance.filter(r => r.status === 'absent').length
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: '0 0 24px' }}>My Profile</h1>
 
       {/* Profile card */}
@@ -100,7 +100,7 @@ export default function MyProfile() {
             </select>
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(80px, 1fr))', gap: 12, marginBottom: 16 }}>
           {[
             { label: 'Present', value: presentCount, color: '#2BC155' },
             { label: 'Absent', value: absentCount, color: '#EF4444' },

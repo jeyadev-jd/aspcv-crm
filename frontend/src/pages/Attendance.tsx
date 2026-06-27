@@ -64,7 +64,7 @@ export default function Attendance() {
   const records = tab === 'my' ? myRecords : allRecords
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Attendance</h1>
       </div>

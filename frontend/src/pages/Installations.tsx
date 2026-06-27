@@ -5,8 +5,24 @@ import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
 import { useInstallations, useCreateInstallation, useUpdateInstallation, useUpdateInstallationStatus, useDeleteInstallation, INSTALL_STATUS_LABEL } from '@/hooks/useInstallations'
 import type { InstallationAPI } from '@/hooks/useInstallations'
+import { CsvImportExport } from '@/components/shared/CsvImportExport'
+import type { CsvColDef } from '@/components/shared/CsvImportExport'
 
 type UIStatus = 'Scheduled' | 'In Progress' | 'Completed' | 'On Hold'
+
+const INST_CSV_COLS: CsvColDef<InstallationAPI>[] = [
+  { header: 'Title',         accessor: r => r.title },
+  { header: 'Company',       accessor: r => r.company?.name ?? '' },
+  { header: 'Status',        accessor: r => INSTALL_STATUS_LABEL[r.status] ?? r.status },
+  { header: 'ScheduledDate', accessor: r => r.scheduledDate ?? '' },
+  { header: 'CompletedDate', accessor: r => r.completedDate ?? '' },
+  { header: 'Notes',         accessor: r => r.notes ?? '' },
+]
+const INST_STATUS_MAP: Record<string, InstallationAPI['status']> = {
+  'scheduled': 'Scheduled', 'in progress': 'InProgress', 'inprogress': 'InProgress',
+  'completed': 'Completed', 'on hold': 'OnHold', 'onhold': 'OnHold',
+}
+const INST_CSV_TEMPLATE = { Title: 'Site A Installation', Company: 'Acme Corp', Status: 'Scheduled', ScheduledDate: '2026-08-01', CompletedDate: '', Notes: '' }
 
 const statusStyle: Record<UIStatus, { bg: string; color: string }> = {
   Scheduled:     { bg: '#E8EDFF', color: '#5D78FF' },
@@ -32,6 +48,19 @@ export default function Installations() {
 
   const { data: rawInstalls = [], isLoading } = useInstallations()
   const createInstall = useCreateInstallation()
+
+  async function importInstallations(rows: Record<string, string>[]) {
+    let success = 0; const errors: string[] = []
+    for (const row of rows) {
+      const co = accounts.find(a => a.name.toLowerCase() === (row.Company ?? '').toLowerCase())
+      if (!co) { errors.push(`"${row.Title}": company "${row.Company}" not found`); continue }
+      try {
+        await createInstall.mutateAsync({ title: row.Title, companyId: co.id, status: INST_STATUS_MAP[(row.Status ?? '').toLowerCase()] ?? 'Scheduled', scheduledDate: row.ScheduledDate || undefined, completedDate: row.CompletedDate || undefined, notes: row.Notes || undefined })
+        success++
+      } catch (e: unknown) { errors.push(`"${row.Title}": ${e instanceof Error ? e.message : 'Error'}`) }
+    }
+    return { total: rows.length, success, errors }
+  }
   const updateInstall = useUpdateInstallation()
   const updateStatus = useUpdateInstallationStatus()
   const deleteInstall = useDeleteInstallation()
@@ -154,12 +183,15 @@ export default function Installations() {
             <button onClick={() => changeFilter('All')} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: filter === 'All' ? '#5D78FF' : '#F4F5F9', color: filter === 'All' ? '#fff' : '#B1B1BE' }}>All</button>
             {uiStatuses.map(s => <button key={s} onClick={() => changeFilter(s)} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: filter === s ? '#5D78FF' : '#F4F5F9', color: filter === s ? '#fff' : '#B1B1BE' }}>{s}</button>)}
           </div>
-          <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
-            <Plus size={14} /> New Installation
-          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <CsvImportExport data={rawInstalls} columns={INST_CSV_COLS} filename="installations.csv" templateRow={INST_CSV_TEMPLATE} onImport={importInstallations} compact={isMobile} />
+            <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
+              <Plus size={14} /> New Installation
+            </button>
+          </div>
         </div>
 
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div className="crm-table-wrap" style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflowX: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
           {isMobile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
               {paginated.map(item => (
@@ -259,13 +291,13 @@ export default function Installations() {
       )}
 
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 480, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+        <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
+          <div className="crm-modal" style={{ width: '100%', maxWidth: 480 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>{editId ? 'Edit Installation' : 'New Installation'}</p>
               <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="crm-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <Field label="Installation Title *" error={errors.title}>
                 <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="e.g. ASHP Site A Installation" style={inp(!!errors.title)} />
               </Field>
@@ -288,7 +320,7 @@ export default function Installations() {
                 <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Installation notes…" rows={3} style={{ ...inp(false), resize: 'vertical' }} />
               </Field>
             </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+            <div className="crm-modal-footer">
               <button onClick={closeModal} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleSave} disabled={createInstall.isPending || updateInstall.isPending} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>
                 {(createInstall.isPending || updateInstall.isPending) ? 'Saving…' : editId ? 'Save Changes' : 'Create Installation'}

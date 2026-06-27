@@ -364,12 +364,13 @@ export default function Products() {
 
       {/* Add / Edit Product Modal */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 500, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
+          <div className="crm-modal" style={{ width: '100%', maxWidth: 500 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>{editItem ? 'Edit Product' : 'Add Product'}</p>
               <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
             </div>
+            <div className="crm-modal-body">
             {!editItem && (
               <div style={{ border: '2px dashed #E8EDFF', borderRadius: 12, height: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', background: '#FAFBFF', marginBottom: 16 }}>
                 <Upload size={20} style={{ color: '#5D78FF' }} />
@@ -412,7 +413,8 @@ export default function Products() {
                 <textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Product spec or notes..." rows={3} style={{ ...inp(false), resize: 'vertical' }} />
               </Field>
             </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+            </div>
+            <div className="crm-modal-footer">
               <button onClick={closeModal} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleSave} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>{editItem ? 'Save Changes' : 'Add Product'}</button>
             </div>

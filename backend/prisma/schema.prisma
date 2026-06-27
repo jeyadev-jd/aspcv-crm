@@ -23,21 +23,40 @@ model Product {
   updatedAt DateTime @updatedAt
 }
 
+model Signatory {
+  id            String   @id @default(cuid())
+  name          String
+  designation   String?
+  signatureData String?  // base64 PNG
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
 model Invoice {
-  id         String        @id @default(cuid())
-  number     String        @unique
-  date       DateTime
-  customer   String
-  status     InvoiceStatus @default(Unpaid)
-  amount     Float
-  fromName   String?
-  fromAddr   String?
-  toName     String?
-  toAddr     String?
-  items      InvoiceItem[]
-  activities Activity[]
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id            String        @id @default(cuid())
+  number        String        @unique
+  date          DateTime
+  customer      String
+  status        InvoiceStatus @default(Unpaid)
+  amount        Float
+  fromName      String?
+  fromAddr      String?
+  toName        String?
+  toAddr        String?
+  // Tax / GST fields
+  customerGstin String?
+  customerState String?
+  placeOfSupply String?
+  typeOfSupply  String?
+  poNo          String?
+  poDate        DateTime?
+  gstRate       Float?        @default(9)   // each leg: SGST + CGST
+  paymentTerms  String?
+  signatoryId   String?
+  items         InvoiceItem[]
+  activities    Activity[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 }
 
 model InvoiceItem {
@@ -45,6 +64,7 @@ model InvoiceItem {
   invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   invoiceId String
   item      String
+  hsnCode   String?
   hours     Float?
   rate      Float?
   amount    Float
@@ -487,9 +507,13 @@ model Project {
   status      ProjectStatus @default(Planning)
   startDate   DateTime?
   endDate     DateTime?
-  budget      Float?
+  budget      Float?        // planned budget / PO value
+  actualBudget Float?       @default(0) // actual spend so far
+  progress    Int?          @default(0) // 0-100 % complete
+  alertTier   Int?          @default(0) // highest overrun tier fired: 0|50|75|100
   notes       String?
   isActive    Boolean       @default(true)
+  createdById String?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   installations Installation[]
@@ -508,6 +532,7 @@ model Installation {
   completedDate DateTime?
   notes         String?
   isActive      Boolean            @default(true)
+  createdById   String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
 }
@@ -623,11 +648,69 @@ model RawComponent {
   assignedToType String?
   assignedToId   String?
   assignedAt     DateTime?
+  // dealer / purchase details
+  dealerId       String?
+  dealerName     String?
+  price          Float?
+  gstPercent     Float?
+  hsnCode        String?
+  unit           String?
+  quantity       Int?                @default(1)
   customFields   Json?
   notes          String?
   movements      ComponentMovement[]
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
+}
+
+// ─── Dealers / Suppliers ─────────────────────────────────────────────────────
+
+model Dealer {
+  id         String          @id @default(cuid())
+  name       String
+  company    String?
+  gstNumber  String?
+  phone      String?
+  email      String?
+  address    String?
+  city       String?
+  state      String?
+  category   String?         // what they supply
+  notes      String?
+  isActive   Boolean         @default(true)
+  contacts   DealerContact[]
+  createdById String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+}
+
+model DealerContact {
+  id          String  @id @default(cuid())
+  dealerId    String
+  dealer      Dealer  @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  name        String
+  designation String?
+  phone       String?
+  email       String?
+  whatsapp    String?
+  isPrimary   Boolean @default(false)
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+
+model Notification {
+  id         String   @id @default(cuid())
+  userId     String   // recipient (scalar, no FK)
+  type       String   // project_overrun | info | warning
+  severity   String   @default("info") // info | warning | critical
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId, read])
 }
 
 model ComponentMovement {

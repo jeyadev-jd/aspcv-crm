@@ -1,349 +1,408 @@
 import { useState } from 'react'
-import { Plus, X, MoreHorizontal, CheckCircle2 } from 'lucide-react'
 import type React from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
+import { useAuthStore } from '@/lib/authStore'
 import { useIsMobile } from '@/lib/useIsMobile'
+import {
+  Settings as SettingsIcon, Building2, Bell, User, Shield,
+  ExternalLink, CheckCircle, ChevronRight,
+} from 'lucide-react'
 
-interface User {
-  id: string
-  name: string
-  email: string
-  role: 'Admin' | 'Sales' | 'Engineer' | 'Support' | 'Viewer'
-  status: 'Active' | 'Inactive'
-  lastLogin: string
-}
-
-const initUsers: User[] = [
-  { id: '1', name: 'Jeyadev',        email: 'jeyadev2006@gmail.com',   role: 'Admin',    status: 'Active',   lastLogin: '20 May 2026' },
-  { id: '2', name: 'James Keating',  email: 'j.keating@aspcv.co.uk',  role: 'Sales',    status: 'Active',   lastLogin: '20 May 2026' },
-  { id: '3', name: 'Priya Rao',      email: 'p.rao@aspcv.co.uk',      role: 'Sales',    status: 'Active',   lastLogin: '19 May 2026' },
-  { id: '4', name: 'Dan Hughes',     email: 'd.hughes@aspcv.co.uk',   role: 'Engineer', status: 'Active',   lastLogin: '18 May 2026' },
-  { id: '5', name: 'Chloe Parks',    email: 'c.parks@aspcv.co.uk',    role: 'Support',  status: 'Active',   lastLogin: '17 May 2026' },
-  { id: '6', name: 'Sam Colton',     email: 's.colton@aspcv.co.uk',   role: 'Engineer', status: 'Inactive', lastLogin: '01 Apr 2026' },
-]
-
-const roles = ['Admin', 'Sales', 'Engineer', 'Support', 'Viewer'] as User['role'][]
-
-const roleStyle: Record<string, { bg: string; color: string }> = {
-  Admin:    { bg: '#FFF3F3', color: '#FF5353' },
-  Sales:    { bg: '#E8EDFF', color: '#5D78FF' },
-  Engineer: { bg: '#FFF5EE', color: '#FF9B52' },
-  Support:  { bg: '#E7FAF0', color: '#2BC155' },
-  Viewer:   { bg: '#F4F5F9', color: '#8C8C8C' },
-}
-
-const statusStyle: Record<string, { bg: string; color: string }> = {
-  Active:   { bg: '#E7FAF0', color: '#2BC155' },
-  Inactive: { bg: '#F4F5F9', color: '#8C8C8C' },
-}
-
-const blankForm = { name: '', email: '', role: 'Sales' as User['role'], status: 'Active' as User['status'] }
-
-const tabs = ['Users', 'Roles', 'General', 'Notifications'] as const
+const tabs = ['Company', 'Profile', 'Notifications', 'System'] as const
 type Tab = typeof tabs[number]
 
+const TAB_ICONS: Record<Tab, React.ElementType> = {
+  Company:       Building2,
+  Profile:       User,
+  Notifications: Bell,
+  System:        Shield,
+}
+
 const initNotifications = [
-  { label: 'New Lead assigned to me',          on: true  },
-  { label: 'Deal stage changed',               on: true  },
-  { label: 'Project milestone reached',        on: true  },
-  { label: 'Support ticket opened',            on: true  },
-  { label: 'Support ticket High priority',     on: true  },
-  { label: 'Invoice overdue',                  on: true  },
-  { label: 'Task due today',                   on: true  },
-  { label: 'Weekly pipeline summary email',    on: false },
-  { label: 'Monthly revenue report email',     on: false },
+  { label: 'New lead assigned to me',       group: 'Sales',        on: true  },
+  { label: 'Deal stage changed',            group: 'Sales',        on: true  },
+  { label: 'Approval request needs review', group: 'Approvals',    on: true  },
+  { label: 'My approval request reviewed',  group: 'Approvals',    on: true  },
+  { label: 'Project milestone reached',     group: 'Projects',     on: true  },
+  { label: 'Task due today',                group: 'Tasks',        on: true  },
+  { label: 'Support ticket opened',         group: 'Support',      on: true  },
+  { label: 'Support ticket high priority',  group: 'Support',      on: true  },
+  { label: 'Invoice overdue',               group: 'Finance',      on: true  },
+  { label: 'Salary slip generated',         group: 'Payroll',      on: true  },
+  { label: 'Weekly pipeline summary email', group: 'Digest',       on: false },
+  { label: 'Monthly revenue report email',  group: 'Digest',       on: false },
 ]
 
+function FieldRow({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, paddingBottom: 18, borderBottom: '1px solid #f4f5f9', flexWrap: 'wrap' }}>
+      <div style={{ minWidth: 140, flexShrink: 0 }}>
+        <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', margin: 0 }}>{label}</p>
+        {desc && <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 3 }}>{desc}</p>}
+      </div>
+      <div style={{ flex: 1, minWidth: 160 }}>{children}</div>
+    </div>
+  )
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
+  return (
+    <div
+      onClick={onChange}
+      style={{
+        width: 36, height: 20, borderRadius: 10, flexShrink: 0,
+        background: on ? '#5D78FF' : '#E5E7EB',
+        position: 'relative', cursor: 'pointer', transition: 'background 0.2s',
+      }}
+    >
+      <div style={{
+        position: 'absolute', top: 2, left: on ? 18 : 2,
+        width: 16, height: 16, borderRadius: '50%', background: '#fff',
+        transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.15)',
+      }} />
+    </div>
+  )
+}
+
+function inp(hasError = false): React.CSSProperties {
+  return {
+    width: '100%', padding: '8px 12px', borderRadius: 8, boxSizing: 'border-box',
+    border: `1px solid ${hasError ? '#EF4444' : '#E5E7EB'}`,
+    fontSize: 12, color: '#374557', outline: 'none', background: '#fff',
+  }
+}
+
 export default function Settings() {
-  const isMobile = useIsMobile()
+  const navigate = useNavigate()
   const { currency, setCurrency } = useCurrency()
-  const [activeTab, setActiveTab] = useState<Tab>('Users')
-  const [users, setUsers] = useState(initUsers)
-  const [showModal, setShowModal] = useState(false)
-  const [form, setForm] = useState(blankForm)
-  const [errors, setErrors] = useState<Record<string, string>>({})
+  const user = useAuthStore(s => s.user)
+  const isMobile = useIsMobile()
+
+  const [activeTab, setActiveTab] = useState<Tab>('Company')
   const [notifications, setNotifications] = useState(initNotifications)
-  const [savedMsg, setSavedMsg] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('')
+
+  const [profile, setProfile] = useState({
+    name: user?.name ?? '',
+    email: '',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+  const [profileErrors, setProfileErrors] = useState<Record<string, string>>({})
+
+  function save(msg = 'Saved') {
+    setSavedMsg(msg)
+    setTimeout(() => setSavedMsg(''), 2500)
+  }
+
+  function saveProfile() {
+    const e: Record<string, string> = {}
+    if (!profile.name.trim()) e.name = 'Required'
+    if (profile.newPassword && profile.newPassword.length < 8) e.newPassword = 'Min 8 characters'
+    if (profile.newPassword && profile.newPassword !== profile.confirmPassword) e.confirmPassword = 'Passwords do not match'
+    setProfileErrors(e)
+    if (!Object.keys(e).length) save('Profile saved')
+  }
 
   function toggleNotif(i: number) {
     setNotifications(prev => prev.map((n, idx) => idx === i ? { ...n, on: !n.on } : n))
   }
 
-  function handleSaveGeneral() {
-    setSavedMsg(true)
-    setTimeout(() => setSavedMsg(false), 2000)
-  }
-
-  function validate() {
-    const e: Record<string, string> = {}
-    if (!form.name.trim()) e.name = 'Name required'
-    if (!form.email.trim()) e.email = 'Email required'
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = 'Invalid email'
-    return e
-  }
-
-  function handleSave() {
-    const e = validate()
-    if (Object.keys(e).length) { setErrors(e); return }
-    const u: User = {
-      id: String(Date.now()), name: form.name, email: form.email,
-      role: form.role, status: form.status,
-      lastLogin: '—',
-    }
-    setUsers(p => [...p, u])
-    setShowModal(false)
-    setForm(blankForm)
-    setErrors({})
-  }
+  // Group notifications by group label
+  const notifGroups = [...new Set(notifications.map(n => n.group))]
 
   return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 20, alignItems: 'flex-start' }}>
-      {/* Tab sidebar */}
-      <div style={{ width: isMobile ? '100%' : 180, flexShrink: 0 }}>
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden' }}>
-          {tabs.map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} style={{
-              display: 'block', width: '100%', textAlign: 'left',
-              padding: '12px 16px', fontSize: 12, fontWeight: activeTab === tab ? 600 : 500,
-              border: 'none', cursor: 'pointer',
-              background: activeTab === tab ? '#5D78FF' : 'transparent',
-              color: activeTab === tab ? '#fff' : '#374557',
-              borderBottom: '1px solid #F0F1F5',
-              transition: 'all 0.15s',
-            }}>{tab}</button>
-          ))}
-        </div>
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 16, marginTop: 14 }}>
-          <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 4 }}>ASPCV CRM</p>
-          <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 10 }}>Aspiration Cleantech Ventures</p>
-          <p style={{ fontSize: 10, color: '#B1B1BE' }}>Version 1.0.0</p>
-          <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 2 }}>Build 2026.05.20</p>
-        </div>
+    <div style={{ width: '100%', boxSizing: 'border-box' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
+        <SettingsIcon size={20} color="#5D78FF" />
+        <h1 style={{ fontSize: 18, fontWeight: 700, color: '#374557', margin: 0 }}>Settings</h1>
       </div>
 
-      {/* Main content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {activeTab === 'Users' && (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div>
-                <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>User Management</p>
-                <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 2 }}>{users.length} users · {users.filter(u => u.status === 'Active').length} active</p>
-              </div>
-              <button onClick={() => setShowModal(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                <Plus size={14} /> Invite User
+      {/* Mobile: horizontal tab strip */}
+      {isMobile && (
+        <div style={{ display: 'flex', overflowX: 'auto', gap: 4, marginBottom: 16, paddingBottom: 2, WebkitOverflowScrolling: 'touch' }}>
+          {tabs.map(tab => {
+            const Icon = TAB_ICONS[tab]
+            return (
+              <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                padding: '9px 14px', fontSize: 12, fontWeight: activeTab === tab ? 700 : 500,
+                border: 'none', borderRadius: 8, cursor: 'pointer',
+                background: activeTab === tab ? '#5D78FF' : '#fff',
+                color: activeTab === tab ? '#fff' : '#374557',
+                border: `1px solid ${activeTab === tab ? '#5D78FF' : '#f0f1f5'}`,
+                minHeight: 44,
+              }}>
+                <Icon size={14} />{tab}
               </button>
-            </div>
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden' }}>
-              <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #F4F5F9' }}>
-                    {['User', 'Role', 'Status', 'Last Login', ''].map(h => (
-                      <th key={h} style={{ textAlign: 'left', padding: '10px 20px', fontSize: 11, fontWeight: 500, color: '#B1B1BE' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map((u, i) => (
-                    <tr key={u.id} style={{ borderBottom: i < users.length - 1 ? '1px solid #F4F5F9' : 'none' }}>
-                      <td style={{ padding: '12px 20px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg,#5D78FF,#8B5CF6)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>{u.name[0]}</span>
-                          </div>
-                          <div>
-                            <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{u.name}</p>
-                            <p style={{ fontSize: 11, color: '#B1B1BE' }}>{u.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td style={{ padding: '12px 20px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: roleStyle[u.role].bg, color: roleStyle[u.role].color }}>{u.role}</span>
-                      </td>
-                      <td style={{ padding: '12px 20px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[u.status].bg, color: statusStyle[u.status].color }}>{u.status}</span>
-                      </td>
-                      <td style={{ padding: '12px 20px', fontSize: 11, color: '#B1B1BE' }}>{u.lastLogin}</td>
-                      <td style={{ padding: '12px 20px' }}>
-                        <button style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer' }}><MoreHorizontal size={15} /></button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Roles' && (
-          <div>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 4 }}>Role Permissions</p>
-            <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 16 }}>Access control per module</p>
-            <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden' }}>
-              <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #F4F5F9', background: '#FAFBFF' }}>
-                    <th style={{ textAlign: 'left', padding: '10px 20px', fontSize: 11, fontWeight: 500, color: '#B1B1BE' }}>Module</th>
-                    {roles.map(r => <th key={r} style={{ textAlign: 'center', padding: '10px 16px', fontSize: 11, fontWeight: 500, color: '#B1B1BE' }}>{r}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {[
-                    { module: 'Dashboard',   perms: [true, true, true, true, true] },
-                    { module: 'Leads',       perms: [true, true, false, false, true] },
-                    { module: 'Accounts',    perms: [true, true, false, false, true] },
-                    { module: 'Contacts',    perms: [true, true, false, true, true] },
-                    { module: 'Deals',       perms: [true, true, false, false, false] },
-                    { module: 'Products',    perms: [true, true, true, false, true] },
-                    { module: 'Projects',    perms: [true, true, true, true, true] },
-                    { module: 'Support',     perms: [true, false, true, true, false] },
-                    { module: 'Reports',     perms: [true, true, false, false, false] },
-                    { module: 'Settings',    perms: [true, false, false, false, false] },
-                  ].map((row, i) => (
-                    <tr key={row.module} style={{ borderBottom: i < 9 ? '1px solid #F4F5F9' : 'none' }}>
-                      <td style={{ padding: '12px 20px', fontSize: 12, color: '#374557', fontWeight: 500 }}>{row.module}</td>
-                      {row.perms.map((allowed, j) => (
-                        <td key={j} style={{ padding: '12px 16px', textAlign: 'center' }}>
-                          {allowed ? <CheckCircle2 size={14} style={{color:'#2BC155'}}/> : <span style={{color:'#D5D5D5'}}>—</span>}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'General' && (
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 24 }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 20 }}>General Settings</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {[
-                { label: 'Company Name', value: 'Aspiration Cleantech Ventures', desc: 'Displayed on invoices and reports' },
-                { label: 'Trading Name', value: 'ASPCV', desc: 'Short name used in the CRM' },
-                { label: 'Company Email', value: 'admin@aspcv.co.uk', desc: 'Primary contact email' },
-                { label: 'Company Phone', value: '+44 113 000 1234', desc: 'Main office number' },
-                { label: 'HQ Address', value: 'Leeds, LS1 1BA, United Kingdom', desc: 'Registered address' },
-                { label: 'Currency', value: '__currency__', desc: 'Default currency for deals and invoices' },
-                { label: 'Timezone', value: 'Europe/London (GMT+1)', desc: 'Used for scheduling and reports' },
-                { label: 'Date Format', value: 'DD MMM YYYY', desc: 'e.g. 20 May 2026' },
-              ].map(item => (
-                <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 20, paddingBottom: 16, borderBottom: '1px solid #F4F5F9' }}>
-                  <div style={{ width: 180, flexShrink: 0 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{item.label}</p>
-                    <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 2 }}>{item.desc}</p>
-                  </div>
-                  {item.value === '__currency__' ? (
-                    <div style={{ flex: 1, display: 'flex', gap: 8 }}>
-                      {(['INR', 'USD'] as const).map(c => (
-                        <button
-                          key={c}
-                          onClick={() => setCurrency(c)}
-                          style={{
-                            padding: '8px 20px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                            border: `1px solid ${currency === c ? '#5D78FF' : '#F0F1F5'}`,
-                            background: currency === c ? '#E8EDFF' : '#fff',
-                            color: currency === c ? '#5D78FF' : '#374557',
-                            cursor: 'pointer', transition: 'all 0.15s',
-                          }}
-                        >
-                          {c === 'INR' ? '₹ INR (Indian Rupee)' : '$ USD (US Dollar)'}
-                        </button>
-                      ))}
-                      <p style={{ fontSize: 11, color: '#B1B1BE', alignSelf: 'center', marginLeft: 4 }}>
-                        1 USD = ₹83.50
-                      </p>
-                    </div>
-                  ) : (
-                    <input defaultValue={item.value} style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', outline: 'none' }} />
-                  )}
-                </div>
-              ))}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <button onClick={handleSaveGeneral} style={{ padding: '10px 24px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>Save Changes</button>
-                {savedMsg && <span style={{ fontSize: 12, color: '#2BC155', fontWeight: 600 }}>✓ Saved</span>}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Notifications' && (
-          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 24 }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 4 }}>Notification Preferences</p>
-            <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 20 }}>Control what alerts you receive</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {notifications.map((item, i) => (
-                <div key={item.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 14, borderBottom: '1px solid #F4F5F9' }}>
-                  <p style={{ fontSize: 12, color: '#374557' }}>{item.label}</p>
-                  <div onClick={() => toggleNotif(i)} style={{ width: 36, height: 20, borderRadius: 10, background: item.on ? '#5D78FF' : '#F4F5F9', position: 'relative', cursor: 'pointer', flexShrink: 0, transition: 'background 0.2s' }}>
-                    <div style={{ position: 'absolute', top: 2, left: item.on ? 18 : 2, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 4px rgba(0,0,0,0.15)' }} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Invite Modal */}
-      {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>Invite User</p>
-              <button onClick={() => { setShowModal(false); setErrors({}) }} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <Field label="Full Name *" error={errors.name}>
-                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Full name" style={inp(!!errors.name)} />
-              </Field>
-              <Field label="Email *" error={errors.email}>
-                <input value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="name@aspcv.co.uk" style={inp(!!errors.email)} />
-              </Field>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                <Field label="Role">
-                  <select value={form.role} onChange={e => setForm({ ...form, role: e.target.value as User['role'] })} style={inp(false)}>
-                    {roles.map(r => <option key={r}>{r}</option>)}
-                  </select>
-                </Field>
-                <Field label="Status">
-                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as User['status'] })} style={inp(false)}>
-                    <option>Active</option>
-                    <option>Inactive</option>
-                  </select>
-                </Field>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
-              <button onClick={() => { setShowModal(false); setErrors({}) }} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={handleSave} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>Send Invite</button>
-            </div>
-          </div>
+            )
+          })}
         </div>
       )}
+
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        {/* Sidebar — desktop only */}
+        {!isMobile && (
+        <div style={{ width: 200, flexShrink: 0 }}>
+          <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, overflow: 'hidden', marginBottom: 12 }}>
+            {tabs.map(tab => {
+              const Icon = TAB_ICONS[tab]
+              return (
+                <button key={tab} onClick={() => setActiveTab(tab)} style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  width: '100%', padding: '11px 14px', fontSize: 12, fontWeight: activeTab === tab ? 700 : 500,
+                  border: 'none', borderBottom: '1px solid #f4f5f9', cursor: 'pointer',
+                  background: activeTab === tab ? '#5D78FF' : 'transparent',
+                  color: activeTab === tab ? '#fff' : '#374557',
+                  transition: 'all 0.15s',
+                }}>
+                  <Icon size={14} />
+                  {tab}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Quick links */}
+          <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, overflow: 'hidden' }}>
+            <p style={{ fontSize: 10, fontWeight: 700, color: '#B1B1BE', padding: '10px 14px 6px', letterSpacing: 0.5 }}>QUICK LINKS</p>
+            {[
+              { label: 'User Management', to: '/users' },
+              { label: 'Roles & Permissions', to: '/roles' },
+              { label: 'Approval Requests', to: '/approvals' },
+            ].map(l => (
+              <button key={l.to} onClick={() => navigate(l.to)} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                width: '100%', padding: '9px 14px', fontSize: 12, color: '#5D78FF',
+                border: 'none', borderTop: '1px solid #f4f5f9', background: 'transparent', cursor: 'pointer', fontWeight: 500,
+              }}>
+                {l.label}
+                <ExternalLink size={11} />
+              </button>
+            ))}
+          </div>
+        </div>
+        )}
+
+        {/* Content */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+
+          {/* ── Company ── */}
+          {activeTab === 'Company' && (
+            <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, padding: 24 }}>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 4 }}>Company Information</p>
+              <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 24 }}>Shown on invoices, reports, and system emails.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+                <FieldRow label="Company Name" desc="Legal name on invoices">
+                  <input defaultValue="Aspiration Cleantech Ventures" style={inp()} />
+                </FieldRow>
+                <FieldRow label="Trading Name" desc="Short name in the CRM">
+                  <input defaultValue="ASPCV" style={inp()} />
+                </FieldRow>
+                <FieldRow label="Company Email" desc="Primary contact email">
+                  <input defaultValue="admin@aspcv.co.uk" type="email" style={inp()} />
+                </FieldRow>
+                <FieldRow label="Company Phone" desc="Main office number">
+                  <input defaultValue="+44 113 000 1234" style={inp()} />
+                </FieldRow>
+                <FieldRow label="Registered Address" desc="HQ / registered address">
+                  <input defaultValue="Leeds, LS1 1BA, United Kingdom" style={inp()} />
+                </FieldRow>
+                <FieldRow label="GST / Tax Number" desc="Used on invoices">
+                  <input defaultValue="" placeholder="e.g. 29ABCDE1234F1Z5" style={inp()} />
+                </FieldRow>
+                <FieldRow label="Currency" desc="Default for deals & invoices">
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {(['INR', 'USD'] as const).map(c => (
+                      <button key={c} onClick={() => setCurrency(c)} style={{
+                        padding: '7px 18px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                        border: `1px solid ${currency === c ? '#5D78FF' : '#E5E7EB'}`,
+                        background: currency === c ? '#EEF2FF' : '#fff',
+                        color: currency === c ? '#5D78FF' : '#374557', cursor: 'pointer',
+                      }}>
+                        {c === 'INR' ? '₹ INR' : '$ USD'}
+                      </button>
+                    ))}
+                  </div>
+                </FieldRow>
+                <FieldRow label="Timezone" desc="For scheduling & reports">
+                  <select style={inp()}>
+                    <option>Asia/Kolkata (IST, GMT+5:30)</option>
+                    <option>Europe/London (GMT+1)</option>
+                    <option>America/New_York (EST, GMT-5)</option>
+                    <option>UTC</option>
+                  </select>
+                </FieldRow>
+                <FieldRow label="Date Format" desc="Display format across CRM">
+                  <select style={inp()}>
+                    <option>DD MMM YYYY (e.g. 13 Jun 2026)</option>
+                    <option>DD/MM/YYYY</option>
+                    <option>MM/DD/YYYY</option>
+                    <option>YYYY-MM-DD</option>
+                  </select>
+                </FieldRow>
+                <FieldRow label="Office Check-in Time" desc="Late threshold for attendance">
+                  <input defaultValue="09:00" type="time" style={{ ...inp(), width: 120 }} />
+                </FieldRow>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 4 }}>
+                  <button onClick={() => save('Company settings saved')} style={{ padding: '9px 22px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    Save Changes
+                  </button>
+                  {savedMsg && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#22C55E', fontWeight: 600 }}>
+                      <CheckCircle size={13} /> {savedMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Profile ── */}
+          {activeTab === 'Profile' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Personal info */}
+              <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, padding: 24 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 4 }}>Personal Information</p>
+                <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 24 }}>Your name and email visible to others in the system.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <FieldRow label="Full Name">
+                    <input
+                      value={profile.name}
+                      onChange={e => setProfile(p => ({ ...p, name: e.target.value }))}
+                      style={inp(!!profileErrors.name)}
+                    />
+                    {profileErrors.name && <p style={{ fontSize: 10, color: '#EF4444', marginTop: 3 }}>{profileErrors.name}</p>}
+                  </FieldRow>
+                  <FieldRow label="Role" desc="Assigned by admin">
+                    <input value={user?.roleName ?? user?.role ?? '—'} disabled style={{ ...inp(), background: '#fafbff', color: '#aaa' }} />
+                  </FieldRow>
+                </div>
+              </div>
+
+              {/* Change password */}
+              <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, padding: 24 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 4 }}>Change Password</p>
+                <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 24 }}>Leave blank to keep current password.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  <FieldRow label="Current Password">
+                    <input type="password" value={profile.currentPassword} onChange={e => setProfile(p => ({ ...p, currentPassword: e.target.value }))} style={inp()} placeholder="Current password" />
+                  </FieldRow>
+                  <FieldRow label="New Password" desc="Min 8 characters">
+                    <input type="password" value={profile.newPassword} onChange={e => setProfile(p => ({ ...p, newPassword: e.target.value }))} style={inp(!!profileErrors.newPassword)} placeholder="New password" />
+                    {profileErrors.newPassword && <p style={{ fontSize: 10, color: '#EF4444', marginTop: 3 }}>{profileErrors.newPassword}</p>}
+                  </FieldRow>
+                  <FieldRow label="Confirm Password">
+                    <input type="password" value={profile.confirmPassword} onChange={e => setProfile(p => ({ ...p, confirmPassword: e.target.value }))} style={inp(!!profileErrors.confirmPassword)} placeholder="Repeat new password" />
+                    {profileErrors.confirmPassword && <p style={{ fontSize: 10, color: '#EF4444', marginTop: 3 }}>{profileErrors.confirmPassword}</p>}
+                  </FieldRow>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 20 }}>
+                  <button onClick={saveProfile} style={{ padding: '9px 22px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    Save Profile
+                  </button>
+                  {savedMsg && (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#22C55E', fontWeight: 600 }}>
+                      <CheckCircle size={13} /> {savedMsg}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Notifications ── */}
+          {activeTab === 'Notifications' && (
+            <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, padding: 24 }}>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 4 }}>Notification Preferences</p>
+              <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 24 }}>Control which alerts you receive in the system.</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {notifGroups.map(group => (
+                  <div key={group}>
+                    <p style={{ fontSize: 10, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.6, marginBottom: 10 }}>{group.toUpperCase()}</p>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, border: '1px solid #f0f1f5', borderRadius: 8, overflow: 'hidden' }}>
+                      {notifications
+                        .filter(n => n.group === group)
+                        .map((item, i) => {
+                          const idx = notifications.findIndex(n => n === item)
+                          return (
+                            <div key={item.label} style={{
+                              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              padding: '12px 16px',
+                              borderBottom: i < notifications.filter(n => n.group === group).length - 1 ? '1px solid #f4f5f9' : 'none',
+                              background: '#fff',
+                            }}>
+                              <p style={{ fontSize: 12, color: '#374557', margin: 0 }}>{item.label}</p>
+                              <Toggle on={item.on} onChange={() => toggleNotif(idx)} />
+                            </div>
+                          )
+                        })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => save('Preferences saved')} style={{ marginTop: 24, padding: '9px 22px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                Save Preferences
+              </button>
+              {savedMsg && (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#22C55E', fontWeight: 600, marginLeft: 12 }}>
+                  <CheckCircle size={13} /> {savedMsg}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* ── System ── */}
+          {activeTab === 'System' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* App info */}
+              <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, padding: 24 }}>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 20 }}>System Information</p>
+                {[
+                  { label: 'Application', value: 'ASPCV CRM' },
+                  { label: 'Organisation', value: 'Aspiration Cleantech Ventures' },
+                  { label: 'Version', value: '1.0.0' },
+                  { label: 'Build Date', value: '13 Jun 2026' },
+                  { label: 'Backend', value: 'Node.js + Express + Prisma' },
+                  { label: 'Database', value: 'PostgreSQL' },
+                  { label: 'Frontend', value: 'React + Vite + TypeScript' },
+                ].map(row => (
+                  <div key={row.label} style={{ display: 'flex', gap: 20, padding: '10px 0', borderBottom: '1px solid #f4f5f9' }}>
+                    <span style={{ fontSize: 12, color: '#B1B1BE', width: 160, flexShrink: 0 }}>{row.label}</span>
+                    <span style={{ fontSize: 12, color: '#374557', fontWeight: 500 }}>{row.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Admin shortcuts */}
+              <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, overflow: 'hidden' }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: '#374557', padding: '16px 20px 12px' }}>Admin Tools</p>
+                {[
+                  { label: 'Manage Users & Roles',     desc: 'Assign roles, grant permissions, deactivate users', to: '/users' },
+                  { label: 'Role Definitions',          desc: 'Create or edit roles and their permission sets', to: '/roles' },
+                  { label: 'Approval Requests',         desc: 'Review pending approvals for employees and changes', to: '/approvals' },
+                ].map(item => (
+                  <button key={item.to} onClick={() => navigate(item.to)} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    width: '100%', padding: '14px 20px', border: 'none',
+                    borderTop: '1px solid #f4f5f9', background: '#fff', cursor: 'pointer', textAlign: 'left',
+                  }}>
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', margin: 0 }}>{item.label}</p>
+                      <p style={{ fontSize: 11, color: '#B1B1BE', margin: '2px 0 0' }}>{item.desc}</p>
+                    </div>
+                    <ChevronRight size={14} color="#B1B1BE" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
+      </div>
     </div>
   )
-}
-
-function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>{label}</label>
-      {children}
-      {error && <p style={{ fontSize: 10, color: '#FF5353', marginTop: 3 }}>{error}</p>}
-    </div>
-  )
-}
-
-function inp(hasError: boolean): React.CSSProperties {
-  return {
-    width: '100%', padding: '8px 12px', borderRadius: 8,
-    border: `1px solid ${hasError ? '#FF5353' : '#F0F1F5'}`,
-    fontSize: 12, color: '#374557', outline: 'none', background: '#fff',
-  }
 }

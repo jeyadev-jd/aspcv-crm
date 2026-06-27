@@ -31,6 +31,9 @@ import financialsRouter from './routes/financials'
 import approvalRequestsRouter from './routes/approval-requests'
 import roleDefinitionsRouter from './routes/role-definitions'
 import userPermissionsRouter from './routes/user-permissions'
+import dealersRouter from './routes/dealers'
+import notificationsRouter from './routes/notifications'
+import signatoriesRouter from './routes/signatories'
 import { errorHandler } from './middleware/errorHandler'
 
 const app = express()
@@ -72,6 +75,9 @@ app.use('/api/financials', financialsRouter)
 app.use('/api/approval-requests', approvalRequestsRouter)
 app.use('/api/role-definitions', roleDefinitionsRouter)
 app.use('/api/user-permissions', userPermissionsRouter)
+app.use('/api/dealers', dealersRouter)
+app.use('/api/notifications', notificationsRouter)
+app.use('/api/signatories', signatoriesRouter)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 

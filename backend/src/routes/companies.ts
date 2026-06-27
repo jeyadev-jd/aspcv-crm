@@ -4,16 +4,19 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { companySchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
 import { requirePermission, checkApprovalToken, consumeApprovalToken } from '../middleware/permissions'
+import { getScopeFilter } from '../middleware/scoping'
 
 const router = Router()
 router.use(authenticate)
 
 const INCLUDE = { _count: { select: { contacts: true, leads: true } } }
 
-router.get('/', requirePermission('company', 'read_all'), async (req: AuthRequest, res) => {
+router.get('/', requirePermission('company', 'read_own'), async (req: AuthRequest, res) => {
   const { q, customerType } = req.query as Record<string, string>
+  const scope = await getScopeFilter(req.user!.id, req.user!.roleName, 'company')
   const companies = await prisma.company.findMany({
     where: {
+      ...scope,
       isActive: true,
       ...(q && { name: { contains: q, mode: 'insensitive' } }),
       ...(customerType && { customerType: customerType as any }),

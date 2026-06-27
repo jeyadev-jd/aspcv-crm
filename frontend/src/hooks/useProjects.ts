@@ -12,6 +12,9 @@ export interface ProjectAPI {
   startDate?: string | null
   endDate?: string | null
   budget?: number | null
+  actualBudget?: number | null
+  progress?: number | null
+  alertTier?: number | null
   notes?: string | null
   installations?: { id: string; status: string }[]
   createdAt: string

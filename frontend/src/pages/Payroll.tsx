@@ -31,7 +31,7 @@ export default function Payroll() {
   const canPay = user && ['SuperAdmin', 'HR', 'Accountant'].includes(user.role)
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Payroll</h1>

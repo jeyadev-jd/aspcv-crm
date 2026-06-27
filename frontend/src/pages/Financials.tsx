@@ -42,7 +42,7 @@ export default function Financials() {
   const maxMonth = Math.max(1, ...monthKeys.map(m => Object.values(monthlyExpenses[m]).reduce((a, b) => a + b, 0)))
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: '0 0 24px' }}>Assets, Liabilities & Expenses</h1>
 
       {/* Summary cards */}
@@ -72,7 +72,7 @@ export default function Financials() {
       {monthKeys.length > 0 && (
         <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 6px rgba(0,0,0,0.07)', marginBottom: 24 }}>
           <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 16 }}>Monthly Expenses (last 6 months)</div>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 120 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', height: 120, overflowX: 'auto', minWidth: 0 }}>
             {monthKeys.slice(-6).map(m => {
               const total = Object.values(monthlyExpenses[m]).reduce((a, b) => a + b, 0)
               const pct = (total / maxMonth) * 100
@@ -101,12 +101,14 @@ export default function Financials() {
       )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: 0, background: '#F3F4F6', borderRadius: 10, padding: 3, marginBottom: 20, width: 'fit-content' }}>
+      <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 0, background: '#F3F4F6', borderRadius: 10, padding: 3, width: 'fit-content', minWidth: '100%' }}>
         {(['overview', 'assets', 'liabilities', 'expenses'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)} style={{ padding: '7px 16px', borderRadius: 8, border: 'none', fontSize: 13, fontWeight: 500, cursor: 'pointer', background: tab === t ? '#fff' : 'transparent', color: tab === t ? '#1A1D23' : '#6B7280', boxShadow: tab === t ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', textTransform: 'capitalize' }}>
             {t}
           </button>
         ))}
+      </div>
       </div>
 
       {/* Overview tab — combined snapshot */}

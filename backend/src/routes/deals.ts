@@ -102,7 +102,6 @@ router.patch('/:id/stage', async (req: AuthRequest, res) => {
   await appendEvent('Deal', deal.id, 'STAGE_CHANGED', `Stage changed to ${stage}`, req.user?.id)
 
   let promotedProject = null
-  let promotedInstallation = null
   if (stage === 'OrderWon') {
     const existing = await prisma.project.findFirst({ where: { dealId: deal.id, isActive: true } })
     if (!existing) {
@@ -112,27 +111,17 @@ router.patch('/:id/stage', async (req: AuthRequest, res) => {
           dealId: deal.id,
           title: deal.title,
           status: 'Planning',
+          budget: deal.value ?? undefined,
+          createdById: req.user?.id,
           notes: `Auto-created from Deal (Order Won)`,
         },
         include: { company: { select: { id: true, name: true } } },
       })
       await appendEvent('Project', promotedProject.id, 'CREATED', `Project auto-created from Deal "${deal.title}"`, req.user?.id)
-
-      promotedInstallation = await prisma.installation.create({
-        data: {
-          companyId: deal.companyId,
-          projectId: promotedProject.id,
-          title: `Installation — ${deal.title}`,
-          status: 'Scheduled',
-          notes: `Auto-created from Deal (Order Won)`,
-        },
-        include: { company: { select: { id: true, name: true } } },
-      })
-      await appendEvent('Installation', promotedInstallation.id, 'CREATED', `Installation auto-created from Deal "${deal.title}"`, req.user?.id)
     }
   }
 
-  res.json({ deal, promotedProject, promotedInstallation })
+  res.json({ deal, promotedProject })
 })
 
 router.delete('/:id', async (req: AuthRequest, res) => {

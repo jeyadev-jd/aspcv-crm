@@ -115,10 +115,10 @@ export default function Dashboard() {
   const support = 9
 
   return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 20, alignItems: 'flex-start', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 20, alignItems: 'stretch', width: '100%', boxSizing: 'border-box', minWidth: 0, flex: 1, minHeight: 0 }}>
 
       {/* ── LEFT PANEL ── hidden on mobile */}
-      {!isMobile && <div style={{ width: 224, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {!isMobile && <div style={{ width: 200, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto' }}>
 
         {/* Unified: logo + user + clock */}
         <div style={{
@@ -208,7 +208,7 @@ export default function Dashboard() {
       </div>}
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 20 }}>
 
         {/* Currency switcher */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8 }}>
@@ -231,7 +231,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stat cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, minmax(0, 1fr))', gap: 14 }}>
           {[
             { label: 'Pipeline',        sub: '8 active deals',        value: fmtInr(pipelineInr, symbol, currency), color: '#5D78FF', up: true,  pct: '+18%' },
             { label: 'Open Leads',      sub: '4 new this week',       value: String(openLeads),                      color: '#FF9B52', up: true,  pct: '+12%' },
@@ -247,7 +247,7 @@ export default function Dashboard() {
                 <MoreHorizontal size={14} style={{ color: '#D5D5D5' }} />
               </div>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '12px 0 6px' }}>
-                <p style={{ fontSize: 22, fontWeight: 700, color: '#374557' }}>{s.value}</p>
+                <p style={{ fontSize: 'clamp(16px, 2vw, 22px)', fontWeight: 700, color: '#374557' }}>{s.value}</p>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, color: s.up ? '#2BC155' : '#FF5353' }}>
                   {s.up ? <TrendingUp size={11} /> : <TrendingDown size={11} />} {s.pct}
                 </span>
@@ -258,7 +258,7 @@ export default function Dashboard() {
         </div>
 
         {/* Charts */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: 14 }}>
           <div style={{ ...card, padding: '20px 20px 12px', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
               <div>
@@ -303,7 +303,7 @@ export default function Dashboard() {
         </div>
 
         {/* Recent Deals */}
-        <div style={{ ...card, overflow: 'hidden', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ ...card, overflow: 'hidden', borderRadius: 16, boxShadow: '0 2px 8px rgba(0,0,0,0.04)', flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 24px', borderBottom: '1px solid #F4F5F9' }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>Recent Deals</p>
             <span onClick={() => navigate('/deals')} style={{ fontSize: 12, color: '#5D78FF', cursor: 'pointer', fontWeight: 600 }}>View all →</span>
@@ -342,6 +342,7 @@ export default function Dashboard() {
               ))}
             </div>
           ) : (
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
             <colgroup>
               <col style={{ width: '28%' }} /><col style={{ width: '24%' }} />
@@ -384,6 +385,7 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table>
+          </div>
           )}
         </div>
       </div>

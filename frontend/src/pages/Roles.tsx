@@ -1,7 +1,14 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
-import { ShieldCheck, Plus, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
+import { useIsMobile } from '@/lib/useIsMobile'
+import {
+  ShieldCheck, Plus, ChevronDown, ChevronRight, Trash2,
+  UserCheck, Handshake, Contact, Building2, FolderOpen, CheckSquare,
+  KanbanSquare, Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
+  FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
+  MessageSquare, ClipboardCheck, Shield,
+} from 'lucide-react'
 
 interface RoleDef {
   id: string
@@ -13,7 +20,95 @@ interface RoleDef {
   permissions: { id: string; resource: string; action: string; allowed: boolean }[]
 }
 
+const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key: string; label: string }[] }[] = [
+  { label: 'Leads', Icon: UserCheck, perms: [
+    { key: 'lead:create', label: 'Add new leads' }, { key: 'lead:read_own', label: 'View own leads' },
+    { key: 'lead:read_all', label: 'View all leads' }, { key: 'lead:edit', label: 'Edit leads' }, { key: 'lead:delete', label: 'Delete leads' },
+  ]},
+  { label: 'Deals', Icon: Handshake, perms: [
+    { key: 'deal:create', label: 'Add new deals' }, { key: 'deal:read_own', label: 'View own deals' },
+    { key: 'deal:read_all', label: 'View all deals' }, { key: 'deal:edit', label: 'Edit deals' }, { key: 'deal:delete', label: 'Delete deals' },
+  ]},
+  { label: 'Contacts', Icon: Contact, perms: [
+    { key: 'contact:create', label: 'Add contacts' }, { key: 'contact:read_own', label: 'View own contacts' },
+    { key: 'contact:read_all', label: 'View all contacts' }, { key: 'contact:edit', label: 'Edit contacts' }, { key: 'contact:delete', label: 'Delete contacts' },
+  ]},
+  { label: 'Accounts', Icon: Building2, perms: [
+    { key: 'company:create', label: 'Add companies' }, { key: 'company:read_all', label: 'View companies' },
+    { key: 'company:edit', label: 'Edit companies' }, { key: 'company:delete', label: 'Delete companies' },
+  ]},
+  { label: 'Projects', Icon: FolderOpen, perms: [
+    { key: 'project:create', label: 'Create projects' }, { key: 'project:read_all', label: 'View projects' },
+    { key: 'project:edit', label: 'Edit projects' }, { key: 'project:delete', label: 'Delete projects' },
+  ]},
+  { label: 'Tasks', Icon: CheckSquare, perms: [
+    { key: 'task:create', label: 'Create tasks' }, { key: 'task:read_own', label: 'View own tasks' },
+    { key: 'task:read_all', label: 'View all tasks' }, { key: 'task:edit', label: 'Edit tasks' }, { key: 'task:delete', label: 'Delete tasks' },
+  ]},
+  { label: 'Kanban', Icon: KanbanSquare, perms: [
+    { key: 'kanban:read_all', label: 'View board' }, { key: 'kanban:create', label: 'Add cards' },
+    { key: 'kanban:edit', label: 'Move & edit cards' }, { key: 'kanban:delete', label: 'Delete cards' },
+  ]},
+  { label: 'Calendar', Icon: Calendar, perms: [
+    { key: 'calendar:read_all', label: 'View calendar' }, { key: 'calendar:create', label: 'Add events' },
+    { key: 'calendar:edit', label: 'Edit events' }, { key: 'calendar:delete', label: 'Delete events' },
+  ]},
+  { label: 'Employees (HR)', Icon: UserCircle, perms: [
+    { key: 'hr_user:create', label: 'Add new employees' }, { key: 'hr_user:read_all', label: 'View all employees' },
+    { key: 'hr_user:edit', label: 'Edit employee details' }, { key: 'hr_user:deactivate', label: 'Deactivate employees' },
+  ]},
+  { label: 'Attendance', Icon: AlarmClock, perms: [
+    { key: 'attendance:checkin', label: 'Check in & out' }, { key: 'attendance:read_own', label: 'View own attendance' },
+    { key: 'attendance:read_all', label: 'View all attendance' },
+  ]},
+  { label: 'Payroll', Icon: Wallet, perms: [
+    { key: 'salary:generate', label: 'Generate salary slips' }, { key: 'salary:approve', label: 'Approve salary' },
+    { key: 'salary:mark_paid', label: 'Mark salary as paid' }, { key: 'salary:read_own', label: 'View own salary slip' }, { key: 'salary:read_all', label: 'View all salary slips' },
+  ]},
+  { label: 'Finance & Assets', Icon: BarChart2, perms: [
+    { key: 'financial:create', label: 'Add financial entries' }, { key: 'financial:read_all', label: 'View financials' },
+    { key: 'financial:edit', label: 'Edit entries' }, { key: 'financial:delete', label: 'Delete entries' },
+  ]},
+  { label: 'Invoices', Icon: FileText, perms: [
+    { key: 'invoice:read_all', label: 'View invoices' }, { key: 'invoice:create', label: 'Create invoices' },
+    { key: 'invoice:edit', label: 'Edit invoices' }, { key: 'invoice:delete', label: 'Delete invoices' },
+  ]},
+  { label: 'Products', Icon: Package, perms: [
+    { key: 'product:read_all', label: 'View products' }, { key: 'product:create', label: 'Add products' },
+    { key: 'product:edit', label: 'Edit products' }, { key: 'product:delete', label: 'Delete products' },
+  ]},
+  { label: 'Material Requests', Icon: ClipboardList, perms: [
+    { key: 'material_request:create', label: 'Raise material requests' }, { key: 'material_request:read_own', label: 'View own requests' },
+    { key: 'material_request:read_all', label: 'View all requests' },
+  ]},
+  { label: 'Inventory', Icon: Boxes, perms: [
+    { key: 'component:create', label: 'Add components' }, { key: 'component:read_all', label: 'View inventory' },
+    { key: 'component:edit', label: 'Edit components' }, { key: 'component:assign', label: 'Assign to projects' },
+  ]},
+  { label: 'Installation', Icon: Wrench, perms: [
+    { key: 'installation:read_all', label: 'View installations' }, { key: 'installation:create', label: 'Add installations' },
+    { key: 'installation:edit', label: 'Edit installations' }, { key: 'installation:delete', label: 'Delete installations' },
+  ]},
+  { label: 'Support Tickets', Icon: Headphones, perms: [
+    { key: 'support:read_all', label: 'View all tickets' }, { key: 'support:create', label: 'Raise tickets' },
+    { key: 'support:edit', label: 'Edit tickets' }, { key: 'support:delete', label: 'Delete tickets' },
+  ]},
+  { label: 'Discussions', Icon: MessageSquare, perms: [
+    { key: 'discussion:create', label: 'Start discussions' }, { key: 'discussion:read_all', label: 'Read all discussions' },
+    { key: 'discussion:edit_own', label: 'Edit own comments' }, { key: 'discussion:delete_own', label: 'Delete own comments' },
+  ]},
+  { label: 'Approvals', Icon: ClipboardCheck, perms: [
+    { key: 'approval_request:create', label: 'Submit approval requests' }, { key: 'approval_request:review', label: 'Approve or reject requests' },
+  ]},
+  { label: 'Admin', Icon: Shield, perms: [
+    { key: 'role_admin:manage', label: 'Manage roles & permissions' },
+  ]},
+]
+
+const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap(g => g.perms.map(p => p.key))
+
 export default function Roles() {
+  const isMobile = useIsMobile()
   const qc = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [newRoleName, setNewRoleName] = useState('')
@@ -42,7 +137,7 @@ export default function Roles() {
   })
 
   return (
-    <div style={{ padding: '24px', maxWidth: 900 }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
         <ShieldCheck size={22} color="#5D78FF" />
         <h1 style={{ fontSize: 20, fontWeight: 700, color: '#374557', margin: 0 }}>Roles & Permissions</h1>
@@ -97,23 +192,38 @@ export default function Roles() {
                 )}
               </div>
               {expandedId === role.id && (
-                <div style={{ borderTop: '1px solid #f0f1f5', padding: 16 }}>
-                  {role.permissions.length === 0 ? (
-                    <p style={{ fontSize: 13, color: '#aaa' }}>No permissions defined.</p>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 6 }}>
-                      {role.permissions.map(p => (
-                        <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#555', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={p.allowed}
-                            onChange={() => togglePermission.mutate({ id: role.id, resource: p.resource, action: p.action, allowed: !p.allowed })}
-                          />
-                          <span><b>{p.resource}</b>:{p.action}</span>
-                        </label>
-                      ))}
-                    </div>
-                  )}
+                <div style={{ borderTop: '1px solid #f0f1f5', padding: 16, background: '#fafbff' }}>
+                  <div style={{ columns: isMobile ? 1 : 2, columnGap: 24, columnFill: 'balance' }}>
+                    {PERMISSION_GROUPS.map(group => {
+                      const GIcon = group.Icon
+                      return (
+                        <div key={group.label} style={{ breakInside: 'avoid', marginBottom: 16 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, paddingBottom: 4, borderBottom: '1px solid #f0f1f5' }}>
+                            <GIcon size={12} color="#5D78FF" />
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#374557', textTransform: 'uppercase', letterSpacing: 0.5 }}>{group.label}</span>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            {group.perms.map(p => {
+                              const [resource, action] = p.key.split(':')
+                              const existing = role.permissions.find(px => px.resource === resource && px.action === action)
+                              const checked = existing?.allowed ?? false
+                              return (
+                                <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 6px', borderRadius: 5, background: checked ? '#EEF2FF' : 'transparent' }}>
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => togglePermission.mutate({ id: role.id, resource, action, allowed: !checked })}
+                                    style={{ width: 14, height: 14, cursor: 'pointer', flexShrink: 0 }}
+                                  />
+                                  <span style={{ fontSize: 12, color: checked ? '#374557' : '#9CA3AF' }}>{p.label}</span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
             </div>

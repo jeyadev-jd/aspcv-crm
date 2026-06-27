@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roles & Permissions Playground</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+
+    .main {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .panel {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow-y: auto;
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .panel h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #5D78FF;
+      margin-bottom: 8px;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .control-group label {
+      font-size: 12px;
+      color: #888;
+    }
+
+    input[type="text"], select {
+      background: #1a1a1a;
+      border: 1px solid #444;
+      color: #e0e0e0;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-family: monospace;
+    }
+
+    input[type="text"]:focus, select:focus {
+      outline: none;
+      border-color: #5D78FF;
+    }
+
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #5D78FF;
+      color: #fff;
+    }
+
+    .btn-primary:hover {
+      background: #4a63dd;
+    }
+
+    .btn-primary:disabled {
+      background: #444;
+      color: #666;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: #f87171;
+      color: #fff;
+      font-size: 12px;
+      padding: 4px 8px;
+    }
+
+    .btn-danger:hover {
+      background: #ef4444;
+    }
+
+    .role-item {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 12px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .role-item:hover {
+      border-color: #5D78FF;
+    }
+
+    .role-item.active {
+      border-color: #5D78FF;
+      background: #2d2d3d;
+    }
+
+    .role-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .role-name {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .role-count {
+      font-size: 11px;
+      color: #666;
+    }
+
+    .permissions-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .perm-checkbox {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .perm-checkbox input {
+      width: 14px;
+      height: 14px;
+      cursor: pointer;
+    }
+
+    .prompt-section {
+      background: #2a2a2a;
+      border-top: 1px solid #333;
+      padding: 16px 20px;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .prompt-label {
+      font-size: 11px;
+      color: #666;
+      margin-bottom: 8px;
+    }
+
+    #promptOutput {
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      color: #90EE90;
+      margin-bottom: 12px;
+    }
+
+    .copy-btn {
+      background: #333;
+      color: #e0e0e0;
+      padding: 6px 12px;
+      font-size: 12px;
+      border: 1px solid #444;
+      border-radius: 4px;
+    }
+
+    .copy-btn:hover {
+      background: #444;
+    }
+
+    .status {
+      font-size: 12px;
+      color: #90EE90;
+      margin-left: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="main">
+      <!-- Left: Controls -->
+      <div class="panel" style="flex: 0 0 280px;">
+        <h2>Create Role</h2>
+        <div class="control-group">
+          <label>Internal Name</label>
+          <input type="text" id="roleName" placeholder="e.g. sales_manager">
+        </div>
+        <div class="control-group">
+          <label>Display Name</label>
+          <input type="text" id="roleDisplay" placeholder="e.g. Sales Manager">
+        </div>
+        <button class="btn-primary" onclick="createRole()" id="createBtn">Create Role</button>
+
+        <h2 style="margin-top: 20px;">Roles</h2>
+        <div id="rolesList"></div>
+      </div>
+
+      <!-- Right: Permissions -->
+      <div class="panel" style="flex: 1;">
+        <h2 id="selectedRoleTitle">Select a role</h2>
+        <div id="permissionsList" style="flex: 1; overflow-y: auto;"></div>
+      </div>
+    </div>
+
+    <!-- Bottom: Prompt -->
+    <div class="prompt-section">
+      <div class="prompt-label">API Log</div>
+      <div id="promptOutput"></div>
+      <button class="copy-btn" onclick="copyPrompt()">Copy</button>
+      <span class="status" id="copyStatus"></span>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:4000/api';
+    const token = localStorage.getItem('crm_token');
+
+    let state = {
+      roles: [],
+      selectedRoleId: null,
+      logs: []
+    };
+
+    const allPermissions = [
+      'lead:create', 'lead:read_own', 'lead:read_all', 'lead:edit', 'lead:delete',
+      'deal:create', 'deal:read_own', 'deal:read_all', 'deal:edit', 'deal:delete',
+      'contact:create', 'contact:read_own', 'contact:read_all', 'contact:edit', 'contact:delete',
+      'company:create', 'company:read_all', 'company:edit', 'company:delete',
+      'project:create', 'project:read_all', 'project:edit', 'project:delete',
+      'material_request:create', 'material_request:read_own', 'material_request:read_all',
+      'component:create', 'component:read_all', 'component:edit', 'component:assign',
+      'attendance:checkin', 'attendance:read_own', 'attendance:read_all',
+      'salary:generate', 'salary:approve', 'salary:mark_paid', 'salary:read_own', 'salary:read_all',
+      'hr_user:create', 'hr_user:read_all', 'hr_user:edit', 'hr_user:deactivate',
+      'financial:create', 'financial:read_all', 'financial:edit', 'financial:delete',
+      'task:create', 'task:read_own', 'task:read_all', 'task:edit', 'task:delete',
+      'discussion:create', 'discussion:read_all', 'discussion:edit_own', 'discussion:delete_own',
+      'approval_request:create', 'approval_request:review',
+      'role_admin:manage',
+      'kanban:read_all', 'kanban:edit', 'kanban:create', 'kanban:delete',
+      'calendar:read_all', 'calendar:edit', 'calendar:create', 'calendar:delete',
+      'product:read_all', 'product:create', 'product:edit', 'product:delete',
+      'invoice:read_all', 'invoice:create', 'invoice:edit', 'invoice:delete',
+      'installation:read_all', 'installation:create', 'installation:edit', 'installation:delete',
+      'support:read_all', 'support:create', 'support:edit', 'support:delete'
+    ];
+
+    async function log(action, data) {
+      state.logs.unshift(`[${new Date().toLocaleTimeString()}] ${action}: ${JSON.stringify(data).slice(0, 100)}`);
+      state.logs = state.logs.slice(0, 10);
+      updatePrompt();
+    }
+
+    async function createRole() {
+      const name = document.getElementById('roleName').value.trim();
+      const display = document.getElementById('roleDisplay').value.trim();
+
+      if (!name || !display) {
+        log('ERROR', 'Missing name or display name');
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/role-definitions`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ name, displayName: display })
+        });
+
+        if (!res.ok) throw new Error(`${res.status}`);
+        const role = await res.json();
+
+        await log('CREATE', { name: role.name, id: role.id });
+        document.getElementById('roleName').value = '';
+        document.getElementById('roleDisplay').value = '';
+
+        await fetchRoles();
+      } catch (e) {
+        await log('ERROR', e.message);
+      }
+    }
+
+    async function fetchRoles() {
+      try {
+        const res = await fetch(`${API_BASE}/role-definitions`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) throw new Error(`${res.status}`);
+        state.roles = await res.json();
+        renderRoles();
+      } catch (e) {
+        await log('FETCH_ERROR', e.message);
+      }
+    }
+
+    function renderRoles() {
+      const html = state.roles.map(r => `
+        <div class="role-item ${state.selectedRoleId === r.id ? 'active' : ''}" onclick="selectRole('${r.id}')">
+          <div class="role-header">
+            <div class="role-name">${r.displayName}</div>
+            <div class="role-count">${r.permissions?.length ?? 0} perms</div>
+          </div>
+        </div>
+      `).join('');
+
+      document.getElementById('rolesList').innerHTML = html || '<div style="color: #666; font-size: 12px;">No roles loaded</div>';
+    }
+
+    function selectRole(roleId) {
+      state.selectedRoleId = roleId;
+      renderRoles();
+      renderPermissions();
+    }
+
+    function renderPermissions() {
+      const role = state.roles.find(r => r.id === state.selectedRoleId);
+      if (!role) {
+        document.getElementById('selectedRoleTitle').textContent = 'Select a role';
+        document.getElementById('permissionsList').innerHTML = '';
+        return;
+      }
+
+      document.getElementById('selectedRoleTitle').textContent = role.displayName;
+
+      const rolePerms = new Set(role.permissions?.map(p => `${p.resource}:${p.action}`) ?? []);
+
+      const html = allPermissions.map(perm => `
+        <div class="perm-checkbox">
+          <input type="checkbox" ${rolePerms.has(perm) ? 'checked' : ''}
+            onchange="togglePerm('${role.id}', '${perm}', this.checked)">
+          <span>${perm}</span>
+        </div>
+      `).join('');
+
+      document.getElementById('permissionsList').innerHTML = html;
+    }
+
+    async function togglePerm(roleId, perm, allowed) {
+      const [resource, action] = perm.split(':');
+      try {
+        const res = await fetch(`${API_BASE}/role-definitions/${roleId}/permissions/${resource}/${action}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ allowed })
+        });
+
+        if (!res.ok) throw new Error(`${res.status}`);
+        await log('TOGGLE', { perm, allowed });
+        await fetchRoles();
+      } catch (e) {
+        await log('TOGGLE_ERROR', e.message);
+      }
+    }
+
+    async function deleteRole(roleId) {
+      if (!confirm('Delete this role?')) return;
+      try {
+        const res = await fetch(`${API_BASE}/role-definitions/${roleId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) throw new Error(`${res.status}`);
+        await log('DELETE', { roleId });
+        state.selectedRoleId = null;
+        await fetchRoles();
+      } catch (e) {
+        await log('DELETE_ERROR', e.message);
+      }
+    }
+
+    function updatePrompt() {
+      document.getElementById('promptOutput').textContent = state.logs.join('\n');
+    }
+
+    function copyPrompt() {
+      navigator.clipboard.writeText(document.getElementById('promptOutput').textContent);
+      const status = document.getElementById('copyStatus');
+      status.textContent = 'Copied!';
+      setTimeout(() => { status.textContent = ''; }, 2000);
+    }
+
+    // Init
+    fetchRoles();
+  </script>
+</body>
+</html>

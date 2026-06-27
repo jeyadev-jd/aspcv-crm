@@ -4,7 +4,7 @@ import {
   Package, FolderOpen, CheckSquare, KanbanSquare, Calendar,
   FileText, LifeBuoy, BarChart2, Settings, Bell, HelpCircle, Wrench,
   ClipboardList, Boxes, UserCircle, Clock, Wallet, PiggyBank,
-  ShieldCheck, ClipboardCheck,
+  ShieldCheck, ClipboardCheck, Store,
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/authStore'
 
@@ -24,6 +24,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { icon: Building2,       to: '/accounts', label: 'Accounts', permission: ['company', 'read_all'] },
       { icon: Users,           to: '/contacts', label: 'Contacts', permission: ['contact', 'read_own'] },
       { icon: Briefcase,       to: '/deals',    label: 'Deals',    permission: ['deal', 'read_own'] },
+      { icon: Store,           to: '/dealers',  label: 'Dealers' },
     ],
   },
   {
@@ -31,7 +32,6 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { icon: Package,      to: '/products',      label: 'Products' },
       { icon: FolderOpen,   to: '/projects',      label: 'Projects',     permission: ['project', 'read_all'] },
-      { icon: Wrench,       to: '/installations', label: 'Installation', permission: ['installation', 'read_all'] },
       { icon: CheckSquare,  to: '/tasks',         label: 'Tasks' },
       { icon: KanbanSquare, to: '/kanban',        label: 'Kanban' },
       { icon: Calendar,     to: '/calendar',      label: 'Calendar' },
@@ -51,6 +51,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { icon: ClipboardList, to: '/material-requests', label: 'Material Req.', permission: ['material_request', 'create'] },
       { icon: Boxes,         to: '/inventory',          label: 'Inventory',    permission: ['component', 'read_all'] },
+      { icon: Wrench,        to: '/raw-components',     label: 'Raw Components', permission: ['component', 'read_all'] },
     ],
   },
   {
@@ -72,6 +73,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { icon: BarChart2,      to: '/reports',    label: 'Reports' },
       { icon: Settings,       to: '/settings',   label: 'Settings' },
       { icon: ShieldCheck,    to: '/roles',      label: 'Roles & Perms', permission: ['role_admin', 'manage'] },
+      { icon: Users,          to: '/users',      label: 'Users',          permission: ['role_admin', 'manage'] },
       { icon: ClipboardCheck, to: '/approvals',  label: 'Approvals',     permission: ['approval_request', 'review'] },
     ],
   },

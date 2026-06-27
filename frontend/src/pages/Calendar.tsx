@@ -160,7 +160,7 @@ export default function CalendarPage() {
       {/* Calendar main */}
       <div style={{ flex: 1, minWidth: 0, background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5' }}>
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: '1px solid #F0F1F5' }}>
+        <div className="crm-cal-header">
           <div style={{ display: 'flex', gap: 4 }}>
             {(['Month', 'Week', 'Day'] as const).map(v => (
               <button key={v} onClick={() => setView(v)} style={{
@@ -207,12 +207,12 @@ export default function CalendarPage() {
                     <div
                       key={day.toISOString()}
                       onClick={() => openModal(format(day, 'yyyy-MM-dd'))}
+                      className="crm-cal-month-cell"
                       style={{
-                        minHeight: 80,
                         borderRight: col < 6 ? '1px solid #F0F1F5' : 'none',
                         borderBottom: '1px solid #F0F1F5',
                         background: isSameMonth(day, current) ? '#fff' : '#FAFAFA',
-                        padding: 4, cursor: 'pointer', transition: 'background 0.1s',
+                        transition: 'background 0.1s',
                       }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#F8F9FF')}
                       onMouseLeave={e => (e.currentTarget.style.background = isSameMonth(day, current) ? '#fff' : '#FAFAFA')}
@@ -333,19 +333,16 @@ export default function CalendarPage() {
 
       {/* Add Event Modal */}
       {showModal && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}
-        >
-          <div style={{ background: '#fff', borderRadius: 16, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}>
+          <div className="crm-modal" style={{ width: '100%', maxWidth: 420 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>New Event</p>
               <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE' }}>
                 <X size={18} />
               </button>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="crm-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 6 }}>Event Title *</p>
                 <input
@@ -398,8 +395,7 @@ export default function CalendarPage() {
                 </div>
               </div>
             </div>
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 24, justifyContent: 'flex-end' }}>
+            <div className="crm-modal-footer" style={{ justifyContent: 'flex-end' }}>
               <button onClick={() => setShowModal(false)} style={{ padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#F4F5F9', color: '#374557', border: 'none', cursor: 'pointer' }}>
                 Cancel
               </button>

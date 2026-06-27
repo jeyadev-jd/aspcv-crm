@@ -3,6 +3,20 @@ import { useComponents, useCreateComponent, useUpdateComponent, useAssignCompone
 import { useAuthStore } from '../lib/authStore'
 import { Plus, ChevronDown, ChevronUp, Package, ArrowRight, RotateCcw, Clock, Trash2 } from 'lucide-react'
 import type { RawComponent } from '../hooks/useComponents'
+import { CsvImportExport } from '../components/shared/CsvImportExport'
+import type { CsvColDef } from '../components/shared/CsvImportExport'
+
+const INV_COMP_CSV_COLS: CsvColDef<RawComponent>[] = [
+  { header: 'RefNumber',      accessor: r => r.refNumber },
+  { header: 'Name',           accessor: r => r.name },
+  { header: 'Category',       accessor: r => r.category ?? '' },
+  { header: 'WarrantyMonths', accessor: r => r.warrantyMonths != null ? String(r.warrantyMonths) : '' },
+  { header: 'Status',         accessor: r => r.status },
+  { header: 'Notes',          accessor: r => r.notes ?? '' },
+  { header: 'CustomFields',   accessor: r => r.customFields ? Object.entries(r.customFields).map(([k, v]) => `${k}:${v}`).join(';') : '' },
+]
+const INV_COMP_TEMPLATE = { RefNumber: 'RC-2026-0001', Name: 'Copper Wire 4mm', Category: 'Electrical', WarrantyMonths: '12', Status: 'in_stock', Notes: '', CustomFields: 'Voltage:220V;Supplier:XYZ' }
+const VALID_COMP_STATUSES = new Set(['in_stock', 'assigned', 'used', 'returned', 'disposed'])
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   in_stock:  { bg: '#D1FAE5', color: '#065F46', label: 'In Stock' },
@@ -42,6 +56,19 @@ export default function Inventory() {
 
   const { data: components = [], isLoading } = useComponents({ status: filterStatus || undefined })
   const createComp = useCreateComponent()
+
+  async function importComponents(rows: Record<string, string>[]) {
+    let success = 0; const errors: string[] = []
+    for (const row of rows) {
+      if (!row.Name) { errors.push(`Row missing Name`); continue }
+      const customFields = row.CustomFields ? Object.fromEntries(row.CustomFields.split(';').map(s => { const [k, ...v] = s.split(':'); return [k.trim(), v.join(':').trim()] }).filter(([k]) => k)) : undefined
+      try {
+        await createComp.mutateAsync({ name: row.Name, refNumber: row.RefNumber || undefined, category: row.Category || undefined, warrantyMonths: row.WarrantyMonths ? Number(row.WarrantyMonths) : undefined, status: (VALID_COMP_STATUSES.has(row.Status) ? row.Status : 'in_stock') as RawComponent['status'], notes: row.Notes || undefined, customFields })
+        success++
+      } catch (e: unknown) { errors.push(`"${row.Name}": ${e instanceof Error ? e.message : 'Error'}`) }
+    }
+    return { total: rows.length, success, errors }
+  }
   const updateComp = useUpdateComponent()
   const assignComp = useAssignComponent()
   const returnComp = useReturnComponent()
@@ -85,17 +112,20 @@ export default function Inventory() {
   }
 
   return (
-    <div style={{ padding: 'clamp(12px, 3vw, 24px) clamp(12px, 3.5vw, 28px)', minHeight: '100vh', background: '#F8F9FF', maxWidth: '100%', boxSizing: 'border-box' as const }}>
+    <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Raw Components</h1>
           <p style={{ fontSize: 13, color: '#8A8FA8', marginTop: 4 }}>Sorted oldest first — assign longest-stored components first</p>
         </div>
-        {canManage && (
-          <button onClick={() => setShowCreate(v => !v)} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
-            <Plus size={14} />Add Component
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <CsvImportExport data={components} columns={INV_COMP_CSV_COLS} filename="inventory.csv" templateRow={INV_COMP_TEMPLATE} onImport={importComponents} />
+          {canManage && (
+            <button onClick={() => setShowCreate(v => !v)} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
+              <Plus size={14} />Add Component
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}

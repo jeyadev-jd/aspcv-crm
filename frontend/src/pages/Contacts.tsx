@@ -275,7 +275,7 @@ export default function Contacts() {
         </div>
 
         {/* Table */}
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div className="crm-table-wrap" style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflowX: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 640 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #F4F5F9', background: '#FAFBFF' }}>
@@ -471,13 +471,13 @@ export default function Contacts() {
 
       {/* Create / Edit Modal */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', maxHeight: '90vh' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F1F5' }}>
+        <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
+          <div className="crm-modal" style={{ width: '100%', maxWidth: 520 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>{editId ? 'Edit Contact' : 'New Contact'}</p>
               <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
             </div>
-            <div style={{ overflowY: 'auto', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="crm-modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <Field label="Full Name *" error={errors.name}>
                 <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Full name" style={inp(!!errors.name)} />
               </Field>
@@ -505,7 +505,7 @@ export default function Contacts() {
                 <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Any notes…" rows={2} style={{ ...inp(false), resize: 'vertical' }} />
               </Field>
             </div>
-            <div style={{ display: 'flex', gap: 12, padding: '14px 24px', borderTop: '1px solid #F0F1F5' }}>
+            <div className="crm-modal-footer">
               <button onClick={closeModal} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #E8EAED', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleSave} disabled={createContact.isPending || updateContact.isPending} style={{ flex: 2, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>
                 {createContact.isPending || updateContact.isPending ? 'Saving…' : editId ? 'Save Changes' : 'Create Contact'}

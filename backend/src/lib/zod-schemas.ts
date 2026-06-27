@@ -119,6 +119,8 @@ export const projectSchema = z.object({
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   budget: z.number().optional(),
+  actualBudget: z.number().optional(),
+  progress: z.number().min(0).max(100).optional(),
   notes: z.string().optional(),
 })
 

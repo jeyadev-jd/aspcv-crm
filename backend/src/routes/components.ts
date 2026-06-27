@@ -34,7 +34,8 @@ router.get('/:id', async (req, res) => {
 })
 
 router.post('/', requirePermission('component', 'create'), async (req: AuthRequest, res) => {
-  const { name, category, warrantyMonths, receivedAt, customFields, notes } = req.body
+  const { name, category, warrantyMonths, receivedAt, customFields, notes,
+          dealerId, dealerName, price, gstPercent, hsnCode, unit, quantity } = req.body
   if (!name?.trim()) { res.status(400).json({ error: 'Name required' }); return }
 
   const refNumber = await nextRefNumber()
@@ -47,6 +48,13 @@ router.post('/', requirePermission('component', 'create'), async (req: AuthReque
       receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
       customFields: customFields ?? null,
       notes: notes ?? null,
+      dealerId: dealerId ?? null,
+      dealerName: dealerName ?? null,
+      price: price ?? null,
+      gstPercent: gstPercent ?? null,
+      hsnCode: hsnCode ?? null,
+      unit: unit ?? null,
+      quantity: quantity ?? 1,
     },
   })
 
@@ -58,7 +66,8 @@ router.post('/', requirePermission('component', 'create'), async (req: AuthReque
 })
 
 router.patch('/:id', requirePermission('component', 'edit'), async (req: AuthRequest, res) => {
-  const { name, category, warrantyMonths, customFields, notes } = req.body
+  const { name, category, warrantyMonths, customFields, notes,
+          dealerId, dealerName, price, gstPercent, hsnCode, unit, quantity } = req.body
   const component = await prisma.rawComponent.update({
     where: { id: req.params.id as string },
     data: {
@@ -67,6 +76,13 @@ router.patch('/:id', requirePermission('component', 'edit'), async (req: AuthReq
       ...(warrantyMonths !== undefined && { warrantyMonths }),
       ...(customFields !== undefined && { customFields }),
       ...(notes !== undefined && { notes }),
+      ...(dealerId !== undefined && { dealerId }),
+      ...(dealerName !== undefined && { dealerName }),
+      ...(price !== undefined && { price }),
+      ...(gstPercent !== undefined && { gstPercent }),
+      ...(hsnCode !== undefined && { hsnCode }),
+      ...(unit !== undefined && { unit }),
+      ...(quantity !== undefined && { quantity }),
     },
   })
   res.json(component)

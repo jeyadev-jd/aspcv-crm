@@ -24,12 +24,27 @@ router.get('/:id', async (req, res) => {
 })
 
 router.post('/', requirePermission('invoice', 'create'), async (req, res) => {
-  const { number, date, customer, status, amount, fromName, fromAddr, toName, toAddr, items } = req.body
+  const {
+    number, date, customer, status, amount,
+    fromName, fromAddr, toName, toAddr,
+    customerGstin, customerState, placeOfSupply, typeOfSupply,
+    poNo, poDate, gstRate, paymentTerms, signatoryId, items,
+  } = req.body
+  const subTotal = items?.length
+    ? items.reduce((s: number, i: { amount: number }) => s + Number(i.amount), 0)
+    : Number(amount)
   const invoice = await prisma.invoice.create({
     data: {
-      number, date: new Date(date), customer, status, amount: Number(amount),
+      number, date: new Date(date), customer, status: status || 'Unpaid', amount: subTotal,
       fromName, fromAddr, toName, toAddr,
-      items: items ? { create: items } : undefined,
+      customerGstin, customerState, placeOfSupply, typeOfSupply,
+      poNo, poDate: poDate ? new Date(poDate) : undefined,
+      gstRate: gstRate !== undefined ? Number(gstRate) : 9,
+      paymentTerms, signatoryId: signatoryId || undefined,
+      items: items?.length ? { create: items.map((i: { item: string; hsnCode?: string; rate?: number; hours?: number; amount: number }) => ({
+        item: i.item, hsnCode: i.hsnCode, rate: i.rate ? Number(i.rate) : undefined,
+        hours: i.hours ? Number(i.hours) : undefined, amount: Number(i.amount),
+      })) } : undefined,
       activities: { create: [{ text: `Created invoice #${number}` }] },
     },
     include: { items: true, activities: true },
@@ -38,10 +53,29 @@ router.post('/', requirePermission('invoice', 'create'), async (req, res) => {
 })
 
 router.put('/:id', requirePermission('invoice', 'edit'), async (req, res) => {
-  const { status, amount } = req.body
+  const {
+    status, amount, customer, date, toAddr,
+    customerGstin, customerState, placeOfSupply, typeOfSupply,
+    poNo, poDate, gstRate, paymentTerms, signatoryId, items,
+  } = req.body
+  if (items !== undefined) {
+    await prisma.invoiceItem.deleteMany({ where: { invoiceId: req.params.id as string } })
+  }
   const invoice = await prisma.invoice.update({
     where: { id: req.params.id as string },
-    data: { status, amount: amount !== undefined ? Number(amount) : undefined },
+    data: {
+      status, customer, toAddr,
+      amount: amount !== undefined ? Number(amount) : undefined,
+      date: date ? new Date(date) : undefined,
+      customerGstin, customerState, placeOfSupply, typeOfSupply,
+      poNo, poDate: poDate ? new Date(poDate) : undefined,
+      gstRate: gstRate !== undefined ? Number(gstRate) : undefined,
+      paymentTerms, signatoryId: signatoryId || undefined,
+      items: items?.length ? { create: items.map((i: { item: string; hsnCode?: string; rate?: number; hours?: number; amount: number }) => ({
+        item: i.item, hsnCode: i.hsnCode, rate: i.rate ? Number(i.rate) : undefined,
+        hours: i.hours ? Number(i.hours) : undefined, amount: Number(i.amount),
+      })) } : undefined,
+    },
     include: { items: true, activities: true },
   })
   res.json(invoice)

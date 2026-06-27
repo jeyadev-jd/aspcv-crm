@@ -1,0 +1,261 @@
+/* ═══════════════════════════════════════════════
+   ASPCV CRM — Mobile-first premium CSS
+   Applied via className on specific elements
+═══════════════════════════════════════════════ */
+
+/* ── Scrollbar hiding ── */
+.crm-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.crm-scroll-x::-webkit-scrollbar { display: none; }
+
+/* ── Table wrapper ── */
+.crm-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+}
+.crm-table-wrap::-webkit-scrollbar { height: 3px; }
+.crm-table-wrap::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 3px; }
+
+/* ── Filter bar — horizontal scroll on mobile ── */
+.crm-filter-bar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* ── Status pill row ── */
+.crm-pill-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ── Modal overlay ── */
+.crm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  backdrop-filter: blur(2px);
+}
+
+/* ── Modal card ── */
+.crm-modal {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+}
+.crm-modal-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  flex: 1;
+  padding: 20px 24px 8px;
+}
+.crm-modal-footer {
+  padding: 14px 24px;
+  border-top: 1px solid #f4f5f9;
+  display: flex;
+  gap: 10px;
+  background: #fff;
+}
+
+/* ── Form grid — 2-col desktop, 1-col mobile ── */
+.crm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.crm-form-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+/* ── Kanban board — horizontal scroll on mobile ── */
+.crm-board {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 8px;
+}
+.crm-board::-webkit-scrollbar { height: 3px; }
+.crm-board::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 3px; }
+.crm-board-grid {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+
+/* ── Calendar ── */
+.crm-cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid #f0f1f5;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.crm-cal-month-cell {
+  min-height: 80px;
+  padding: 4px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+/* ── Button touch targets ── */
+.crm-btn {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.crm-btn:active { opacity: 0.75; }
+
+/* ── Invoice status canvas ── */
+.crm-status-canvas {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.crm-status-card {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* ── Reports charts ── */
+.crm-chart-grid {
+  display: grid;
+  gap: 20px;
+}
+.crm-chart-card {
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.07);
+  min-width: 0;
+}
+
+/* ── Mobile-only overrides ── */
+@media (max-width: 768px) {
+  /* Modals go full-screen */
+  .crm-modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .crm-modal {
+    border-radius: 20px 20px 0 0;
+    max-height: 94vh;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .crm-modal-body {
+    padding: 16px 16px 8px;
+  }
+  .crm-modal-footer {
+    padding: 12px 16px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  /* Form inputs bigger touch targets */
+  .crm-modal input,
+  .crm-modal select,
+  .crm-modal textarea {
+    font-size: 16px !important; /* prevents iOS zoom */
+    min-height: 44px;
+    padding: 10px 12px !important;
+  }
+  .crm-modal label {
+    font-size: 13px;
+  }
+
+  /* Kanban board: horizontal scroll with min-width columns */
+  .crm-board-grid {
+    min-width: max-content;
+  }
+
+  /* Calendar header stacks on mobile */
+  .crm-cal-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* Calendar month cells smaller */
+  .crm-cal-month-cell {
+    min-height: 52px !important;
+  }
+
+  /* Status canvas goes column */
+  .crm-status-canvas {
+    flex-direction: column;
+  }
+
+  /* Reports grid stacks */
+  .crm-chart-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Leads table — hide secondary cols, fit in 412px */
+  /* Cols: 1=Lead 2=Company 3=Source 4=Region 5=Status 6=Value 7=Owner 8=Actions */
+  .crm-leads-table th:nth-child(2),
+  .crm-leads-table td:nth-child(2),
+  .crm-leads-table th:nth-child(3),
+  .crm-leads-table td:nth-child(3),
+  .crm-leads-table th:nth-child(4),
+  .crm-leads-table td:nth-child(4),
+  .crm-leads-table th:nth-child(6),
+  .crm-leads-table td:nth-child(6),
+  .crm-leads-table th:nth-child(7),
+  .crm-leads-table td:nth-child(7) {
+    display: none !important;
+  }
+  .crm-leads-table {
+    min-width: 0 !important;
+    width: 100%;
+  }
+  /* Keep lead title from overflowing */
+  .crm-leads-table td:nth-child(1) > div > div > p:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 55vw;
+  }
+
+  /* Filter bar scrolls horizontally */
+  .crm-filter-bar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .crm-filter-bar::-webkit-scrollbar { display: none; }
+  .crm-filter-bar > * { flex-shrink: 0; }
+
+  /* Pill row scrolls — flex:1 keeps button anchored right */
+  .crm-pill-row {
+    flex: 1;
+    min-width: 0;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .crm-pill-row::-webkit-scrollbar { display: none; }
+  .crm-pill-row > * { flex-shrink: 0; }
+}
