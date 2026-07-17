@@ -1,5 +1,8 @@
+import Pagination from '@/components/shared/Pagination'
+import Spinner from '@/components/shared/Spinner'
+import EmptyState from '@/components/shared/EmptyState'
 import { useState } from 'react'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, LifeBuoy, Trash2, Edit2, CheckCircle2, RefreshCw, Lock, Loader2 } from 'lucide-react'
+import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, LifeBuoy, Trash2, Edit2, CheckCircle2, RefreshCw, Lock, Loader2, AlertTriangle } from 'lucide-react'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
@@ -39,7 +42,7 @@ export default function Support() {
   const isMobile = useIsMobile()
   const { accounts } = useCrmData()
 
-  const { data: rawTickets = [], isLoading } = useTickets()
+  const { data: rawTickets = [], isLoading, isError, refetch } = useTickets()
   const createTicket = useCreateTicket()
   const updateTicket = useUpdateTicket()
   const updateStatus = useUpdateTicketStatus()
@@ -56,7 +59,7 @@ export default function Support() {
 
   const tickets = rawTickets.map(t => ({
     ...t,
-    uiStatus: apiToUI[t.status],
+    uiStatus: apiToUI[t.status] ?? 'Open',
     clientName: t.company?.name ?? '',
     contactName: t.contact?.name ?? '',
   }))
@@ -128,10 +131,10 @@ export default function Support() {
 
   function changeFilter(f: typeof filter) { setFilter(f); setPage(1) }
 
-  if (isLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 120px)' }}>
-      <Loader2 size={24} style={{ color: '#5D78FF', animation: 'spin 1s linear infinite' }} />
-    </div>
+  if (isLoading) return <Spinner />
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load support tickets" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
   )
 
   return (
@@ -170,7 +173,7 @@ export default function Support() {
             const count = tickets.filter(t => t.priority === p).length
             return (
               <div key={p} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: priorityStyle[p].bg, color: priorityStyle[p].color }}>{p}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: (priorityStyle[p] ?? priorityStyle.Medium).bg, color: (priorityStyle[p] ?? priorityStyle.Medium).color }}>{p}</span>
                 <p style={{ fontSize: 13, fontWeight: 700, color: '#374557' }}>{count}</p>
               </div>
             )
@@ -197,7 +200,7 @@ export default function Support() {
                 <div key={t.id} onClick={() => openEdit(t)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{t.title}</p>
-                    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: priorityStyle[t.priority].bg, color: priorityStyle[t.priority].color }}>{t.priority}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: (priorityStyle[t.priority] ?? priorityStyle.Medium).bg, color: (priorityStyle[t.priority] ?? priorityStyle.Medium).color }}>{t.priority}</span>
                   </div>
                   <p style={{ fontSize: 10, color: '#B1B1BE' }}>{t.clientName}</p>
                   <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8, background: statusStyle[t.uiStatus].bg, color: statusStyle[t.uiStatus].color, alignSelf: 'flex-start' }}>{t.uiStatus}</span>
@@ -221,8 +224,8 @@ export default function Support() {
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 8, background: priorityStyle[t.priority].bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <LifeBuoy size={13} style={{ color: priorityStyle[t.priority].color }} />
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: (priorityStyle[t.priority] ?? priorityStyle.Medium).bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <LifeBuoy size={13} style={{ color: (priorityStyle[t.priority] ?? priorityStyle.Medium).color }} />
                         </div>
                         <div>
                           <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{t.title}</p>
@@ -232,7 +235,7 @@ export default function Support() {
                     </td>
                     <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>{t.clientName}</td>
                     <td style={{ padding: '12px 16px' }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: priorityStyle[t.priority].bg, color: priorityStyle[t.priority].color }}>{t.priority}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: (priorityStyle[t.priority] ?? priorityStyle.Medium).bg, color: (priorityStyle[t.priority] ?? priorityStyle.Medium).color }}>{t.priority}</span>
                     </td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[t.uiStatus].bg, color: statusStyle[t.uiStatus].color }}>{t.uiStatus}</span>
@@ -262,15 +265,7 @@ export default function Support() {
               </tbody>
             </table>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #F4F5F9' }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === 1 ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === 1 ? 'default' : 'pointer' }}><ChevronLeft size={13} /> Prev</button>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pg => (
-                <button key={pg} onClick={() => setPage(pg)} style={{ width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: page === pg ? '#5D78FF' : 'transparent', color: page === pg ? '#fff' : '#B1B1BE' }}>{pg}</button>
-              ))}
-            </div>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === totalPages ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === totalPages ? 'default' : 'pointer' }}>Next <ChevronRight size={13} /></button>
-          </div>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
 

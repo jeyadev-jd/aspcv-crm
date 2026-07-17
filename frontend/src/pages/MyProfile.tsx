@@ -70,7 +70,7 @@ export default function MyProfile() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <DetailRow icon={<Cake size={13} />} label="Date of Birth" value={myDetails.dateOfBirth ? new Date(myDetails.dateOfBirth).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'} />
               <DetailRow icon={<Calendar size={13} />} label="Joining Date" value={myDetails.joiningDate ? new Date(myDetails.joiningDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '—'} />
-              <DetailRow icon={<Building size={13} />} label="Department" value={myDetails.department ?? '—'} />
+              <DetailRow icon={<Building size={13} />} label="Department" value={myDetails.department?.name ?? '—'} />
               <DetailRow icon={<Phone size={13} />} label="Emergency Contact" value={myDetails.emergencyContact ?? '—'} />
             </div>
           </div>

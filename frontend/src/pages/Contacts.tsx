@@ -1,9 +1,11 @@
+import Spinner from '@/components/shared/Spinner'
 import { useState, useRef, useEffect } from 'react'
 import {
   MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Trash2, Edit2,
   Search, Phone, Mail, MessageCircle, Building2, SlidersHorizontal,
-  ChevronDown, User, Loader2,
+  ChevronDown, User, Loader2, AlertTriangle,
 } from 'lucide-react'
+import EmptyState from '@/components/shared/EmptyState'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
@@ -21,7 +23,7 @@ const PAGE_SIZE = 10
 export default function Contacts() {
   const isMobile = useIsMobile()
   const { accounts } = useCrmData()
-  const { data: contacts = [], isLoading } = useApiContacts()
+  const { data: contacts = [], isLoading, isError, refetch } = useApiContacts()
   const createContact = useCreateContact()
   const updateContact = useUpdateContact()
   const deleteContact = useDeleteContact()
@@ -114,7 +116,11 @@ export default function Contacts() {
 
   const byCompany = companyNames.map(name => ({ name, count: contacts.filter(c => c.company?.name === name).length })).sort((a, b) => b.count - a.count).slice(0, 6)
 
-  if (isLoading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 120px)' }}><Loader2 size={24} style={{ color: '#5D78FF', animation: 'spin 1s linear infinite' }} /></div>
+  if (isLoading) return <Spinner />
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load contacts" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
+  )
 
   return (
     <div style={{ display: 'flex', gap: 20, minHeight: 'calc(100vh - 120px)', flex: 1, position: 'relative' }}>
@@ -587,7 +593,7 @@ function ContactEventsSection({ contactId }: { contactId: string }) {
               </div>
             </div>
           </div>
-          <button onClick={() => deleteEvent.mutate(ev.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 3 }}>×</button>
+          <button onClick={() => { if (confirm('Delete this event?')) deleteEvent.mutate(ev.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 3 }}>×</button>
         </div>
       ))}
       {events.length === 0 && !showAdd && <p style={{ fontSize: 11, color: '#C4C4C4', margin: 0 }}>No events added</p>}

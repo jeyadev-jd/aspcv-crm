@@ -10,7 +10,8 @@ export interface CrmUser {
   designation?: { id: string; name: string } | null
   dateOfBirth?: string | null
   joiningDate?: string | null
-  department?: string | null
+  department?: { id: string; name: string } | null
+  departmentId?: string | null
   baseSalary?: number | null
   hra?: number | null
   allowances?: number | null
@@ -24,11 +25,12 @@ export interface CrmUser {
   createdAt?: string
 }
 
-export function useUsers() {
+export function useUsers(enabled = true) {
   return useQuery<CrmUser[]>({
     queryKey: ['users'],
-    queryFn: () => api.get('/users').then(r => r.data),
+    queryFn: () => api.get('/users', { params: { pageSize: 1000 } }).then(r => r.data.data),
     staleTime: 5 * 60_000,
+    enabled,
   })
 }
 
@@ -63,7 +65,3 @@ export const CRM_ROLES = [
   'SeniorEngineer', 'Engineer', 'Technician', 'Accountant', 'HR', 'Viewer',
 ]
 
-export const DEPARTMENTS = [
-  'Projects', 'Sales', 'Service', 'Channel Sales', 'Marketing',
-  'Business Development', 'Accounts', 'HR', 'Management',
-]

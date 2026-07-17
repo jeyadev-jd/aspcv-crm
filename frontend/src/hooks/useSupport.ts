@@ -27,10 +27,10 @@ export const TICKET_STATUSES = Object.keys(TICKET_STATUS_LABEL) as TicketAPI['st
 export const TICKET_PRIORITIES = ['Low', 'Medium', 'High', 'Critical'] as const
 
 export function useTickets(params?: Record<string, string>) {
-  const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+  const qs = '?' + new URLSearchParams({ pageSize: '1000', ...params }).toString()
   return useQuery<TicketAPI[]>({
     queryKey: ['tickets', params],
-    queryFn: () => api.get(`/support${qs}`).then(r => r.data),
+    queryFn: () => api.get(`/support${qs}`).then(r => r.data.data),
     staleTime: 30_000,
   })
 }

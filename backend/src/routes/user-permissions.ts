@@ -1,10 +1,10 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 import { invalidate } from '../services/permissions-cache'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 router.use(requirePermission('role_admin', 'manage'))
 

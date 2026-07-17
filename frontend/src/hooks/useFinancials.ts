@@ -21,7 +21,7 @@ export interface FinancialSummary {
 export function useFinancials(type?: 'asset' | 'liability') {
   return useQuery<FinancialEntry[]>({
     queryKey: ['financials', type],
-    queryFn: () => api.get('/financials', { params: type ? { type } : {} }).then(r => r.data),
+    queryFn: () => api.get('/financials', { params: { pageSize: 1000, ...(type ? { type } : {}) } }).then(r => r.data.data),
   })
 }
 

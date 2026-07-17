@@ -1,3 +1,4 @@
+import Spinner from '@/components/shared/Spinner'
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
@@ -6,14 +7,21 @@ import { useIsMobile } from '@/lib/useIsMobile'
 import {
   MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, UserCheck,
   Trash2, Edit2, Loader2, Globe, MapPin,
-  SlidersHorizontal, ChevronDown,
+  SlidersHorizontal, ChevronDown, AlertTriangle,
 } from 'lucide-react'
+import EmptyState from '@/components/shared/EmptyState'
 import { useCrmData } from '@/lib/crmDataContext'
 import { api } from '@/lib/api'
 import { useLeads, useCreateLead, useUpdateLead, useDeleteLead, useChangeLeadStatus } from '@/hooks/useLeads'
 import DesignationInput from '@/components/shared/DesignationInput'
 import IndustryInput from '@/components/shared/IndustryInput'
 import { useUsers } from '@/hooks/useUsers'
+import { useAuthStore } from '@/lib/authStore'
+import { useDepartments } from '@/hooks/useDepartments'
+import { useRegions } from '@/hooks/useRegions'
+import { useCommercialModels } from '@/hooks/useCommercialModels'
+import { useCapacityUnits } from '@/hooks/useCapacityUnits'
+import { useLeadSourcesMaster } from '@/hooks/useLeadSourcesMaster'
 import LeadDetailPanel from '@/components/shared/LeadDetailPanel'
 import type React from 'react'
 import { CsvImportExport } from '@/components/shared/CsvImportExport'
@@ -27,8 +35,8 @@ const LEAD_CSV_COLS: CsvColDef<Lead>[] = [
   { header: 'CustomerType',     accessor: r => r.company?.customerType ?? '' },
   { header: 'Status',           accessor: r => r.status },
   { header: 'Stage',            accessor: r => r.stage },
-  { header: 'Region',           accessor: r => r.region },
-  { header: 'CommercialType',   accessor: r => r.commercialType },
+  { header: 'Region',           accessor: r => r.regionRef?.name ?? '' },
+  { header: 'CommercialType',   accessor: r => r.commercialModel?.name ?? '' },
   { header: 'EstimatedValue',   accessor: r => r.estimatedValue != null ? String(r.estimatedValue) : '' },
   { header: 'CloseDate',        accessor: r => r.closeDate ?? '' },
   { header: 'LeadDate',         accessor: r => r.leadDate ?? '' },
@@ -38,7 +46,7 @@ const LEAD_CSV_COLS: CsvColDef<Lead>[] = [
   { header: 'PrimaryContact',   accessor: r => r.contacts?.find(c => c.isPrimary)?.name ?? r.contacts?.[0]?.name ?? '' },
   { header: 'ContactEmail',     accessor: r => r.contacts?.find(c => c.isPrimary)?.email ?? r.contacts?.[0]?.email ?? '' },
   { header: 'ContactPhone',     accessor: r => r.contacts?.find(c => c.isPrimary)?.phone ?? r.contacts?.[0]?.phone ?? '' },
-  { header: 'Source',           accessor: r => r.sources?.[0]?.source ?? r.source ?? '' },
+  { header: 'Source',           accessor: r => r.sources?.[0]?.source ?? r.leadSourceRef?.name ?? '' },
   { header: 'SourceName',       accessor: r => r.sources?.[0]?.sourceName ?? '' },
   { header: 'MonthlyRemarks',   accessor: r => r.monthlyRemarks ?? '' },
   { header: 'Notes',            accessor: r => r.notes ?? '' },
@@ -80,10 +88,13 @@ interface ContactRow { id?: string; name: string; designation: string; email: st
 const blankContact = (): ContactRow => ({ name: '', designation: '', email: '', phone: '', whatsapp: '', isPrimary: false })
 
 const blankForm = {
-  title: '', companyId: '', region: 'North', commercialType: 'Capex',
+  title: '', companyId: '', regionId: '', commercialModelId: '',
   status: 'Enquiry', estimatedValue: '', closeDate: '',
-  notes: '', monthlyRemarks: '',
+  notes: '', monthlyRemarks: '', departmentId: '',
   leadDate: new Date().toISOString().slice(0, 10),
+  // Phase 1: capacity, temperature, ownership tiers
+  capacityValue: '', capacityUnitId: '', tempRangeMin: '', tempRangeMax: '',
+  primaryOwnerId: '', secondaryOwnerId: '', salesManagerId: '', businessHeadId: '',
   // company location fields
   customerType: 'Indian' as 'Indian' | 'International',
   companyRegion: 'North', state: 'None', city: '', area: '', country: '',
@@ -101,9 +112,15 @@ export default function Leads() {
   const isMobile = useIsMobile()
   const { symbol } = useCurrency()
   const { accounts } = useCrmData()
+  const can = useAuthStore(s => s.can)
 
-  const { data: leads = [], isLoading } = useLeads()
-  const { data: allUsers = [] } = useUsers()
+  const { data: leads = [], isLoading, isError, refetch } = useLeads()
+  const { data: allUsers = [] } = useUsers(can('hr_user', 'read_all'))
+  const { data: departments = [] } = useDepartments()
+  const { data: regions = [] } = useRegions()
+  const { data: commercialModels = [] } = useCommercialModels()
+  const { data: capacityUnits = [] } = useCapacityUnits()
+  const { data: leadSourcesMaster = [] } = useLeadSourcesMaster()
   const createLead = useCreateLead()
 
   async function importLeads(rows: Record<string, string>[]) {
@@ -112,11 +129,25 @@ export default function Leads() {
       if (!row.Title || !row.Company) { errors.push(`Row missing Title or Company`); continue }
       const co = accounts.find(a => a.name.toLowerCase() === row.Company.toLowerCase())
       if (!co) { errors.push(`"${row.Title}": company "${row.Company}" not found in accounts`); continue }
+      // Strict master-data lookup — region/commercial type/source must already exist as
+      // master rows (Admin creates them). No auto-create on import, to preserve integrity.
+      const regionName = row.Region || 'North'
+      const region = regions.find(r => r.name.toLowerCase() === regionName.toLowerCase())
+      if (!region) { errors.push(`"${row.Title}": region "${regionName}" not found in master data — add it under Admin first`); continue }
+      const cmName = row.CommercialType || 'Capex'
+      const cm = commercialModels.find(m => m.name.toLowerCase() === cmName.toLowerCase())
+      if (!cm) { errors.push(`"${row.Title}": commercial type "${cmName}" not found in master data — add it under Admin first`); continue }
+      let leadSourceId: string | undefined
+      if (row.Source) {
+        const src = leadSourcesMaster.find(s => s.name.toLowerCase() === row.Source.toLowerCase())
+        if (!src) { errors.push(`"${row.Title}": source "${row.Source}" not found in master data — add it under Admin first`); continue }
+        leadSourceId = src.id
+      }
       try {
         await createLead.mutateAsync({
           title: row.Title, companyId: co.id,
           status: row.Status || 'Enquiry', stage: row.Stage || 'Lead',
-          region: row.Region || 'North', commercialType: row.CommercialType || 'Capex',
+          regionId: region.id, commercialModelId: cm.id, leadSourceId,
           estimatedValue: row.EstimatedValue ? Number(row.EstimatedValue) : undefined,
           closeDate: row.CloseDate || undefined, leadDate: row.LeadDate || undefined,
           monthlyRemarks: row.MonthlyRemarks || undefined, notes: row.Notes || undefined,
@@ -176,9 +207,9 @@ export default function Leads() {
   // Filters
   const filtered = leads.filter(l => {
     if (filters.status.length && !filters.status.includes(STATUS_LABEL[l.status])) return false
-    if (filters.source.length && !l.sources?.some(s => filters.source.includes(s.source)) && !filters.source.includes(l.source ?? '')) return false
-    if (filters.region.length && !filters.region.includes(l.region ?? '')) return false
-    if (filters.commercialType.length && !filters.commercialType.includes(l.commercialType ?? '')) return false
+    if (filters.source.length && !l.sources?.some(s => filters.source.includes(s.source)) && !filters.source.includes(l.leadSourceRef?.name ?? '')) return false
+    if (filters.region.length && !filters.region.includes(l.regionRef?.name ?? '')) return false
+    if (filters.commercialType.length && !filters.commercialType.includes(l.commercialModel?.name ?? '')) return false
     if (filters.salesPerson.length && !l.owners?.some(o => filters.salesPerson.includes(o.user?.name ?? ''))) return false
     if (filters.clientType.length) {
       const ct = l.company?.customerType
@@ -230,13 +261,23 @@ export default function Leads() {
     setCompanyName(lead.company?.name ?? '')
     setForm({
       title: lead.title, companyId: lead.companyId,
-      region: lead.region, commercialType: lead.commercialType,
+      regionId: lead.regionId ?? lead.regionRef?.id ?? '',
+      commercialModelId: lead.commercialModelId ?? lead.commercialModel?.id ?? '',
       status: STATUS_LABEL[lead.status] ?? lead.status,
       estimatedValue: lead.estimatedValue ? String(lead.estimatedValue) : '',
       closeDate: lead.closeDate ? lead.closeDate.slice(0, 10) : '',
       notes: lead.notes ?? '',
       monthlyRemarks: lead.monthlyRemarks ?? '',
+      departmentId: lead.departmentId ?? lead.department?.id ?? '',
       leadDate: lead.leadDate ? lead.leadDate.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      capacityValue: lead.capacityValue != null ? String(lead.capacityValue) : '',
+      capacityUnitId: lead.capacityUnitId ?? lead.capacityUnit?.id ?? '',
+      tempRangeMin: lead.tempRangeMin != null ? String(lead.tempRangeMin) : '',
+      tempRangeMax: lead.tempRangeMax != null ? String(lead.tempRangeMax) : '',
+      primaryOwnerId: lead.primaryOwnerId ?? lead.primaryOwner?.id ?? '',
+      secondaryOwnerId: lead.secondaryOwnerId ?? lead.secondaryOwner?.id ?? '',
+      salesManagerId: lead.salesManagerId ?? lead.salesManager?.id ?? '',
+      businessHeadId: lead.businessHeadId ?? lead.businessHead?.id ?? '',
       customerType: 'Indian', companyRegion: 'North', state: 'None', city: '', area: '', country: '',
       companyNickname: lead.company?.nickname ?? '',
       companyStateCode: lead.company?.stateCode ?? '',
@@ -262,6 +303,9 @@ export default function Leads() {
     const e: Record<string, string> = {}
     if (!form.title.trim()) e.title = 'Title required'
     if (!companyName.trim()) e.company = 'Company required'
+    else if (!accounts.some(a => a.name.toLowerCase() === companyName.toLowerCase()) && !form.companyId) {
+      e.company = `"${companyName}" doesn't match an existing account — select one from the suggestions or create it under Accounts first`
+    }
     if (contacts.some(c => !c.name.trim())) e.contacts = 'All contact rows must have a name'
     return e
   }
@@ -271,17 +315,28 @@ export default function Leads() {
     if (Object.keys(e).length) { setErrors(e); return }
     const matchedAccount = accounts.find(a => a.name.toLowerCase() === companyName.toLowerCase())
     const validSources = sources.filter(s => s.source.trim())
+    const matchedLeadSource = validSources[0] ? leadSourcesMaster.find(s => s.name.toLowerCase() === validSources[0].source.toLowerCase()) : undefined
     const payload: Record<string, unknown> = {
       title: form.title.trim(),
       companyId: matchedAccount?.id ?? form.companyId,
-      source: validSources[0]?.source || 'Direct',
-      region: form.region, commercialType: form.commercialType,
+      leadSourceId: matchedLeadSource?.id || undefined,
+      regionId: form.regionId || undefined,
+      commercialModelId: form.commercialModelId || undefined,
       status: STATUS_TO_API[form.status] ?? form.status,
       estimatedValue: form.estimatedValue ? Number(form.estimatedValue) : undefined,
       closeDate: form.closeDate || undefined,
       leadDate: form.leadDate || undefined,
       notes: form.notes || undefined,
       monthlyRemarks: form.monthlyRemarks || undefined,
+      departmentId: form.departmentId || undefined,
+      capacityValue: form.capacityValue ? Number(form.capacityValue) : undefined,
+      capacityUnitId: form.capacityUnitId || undefined,
+      tempRangeMin: form.tempRangeMin ? Number(form.tempRangeMin) : undefined,
+      tempRangeMax: form.tempRangeMax ? Number(form.tempRangeMax) : undefined,
+      primaryOwnerId: form.primaryOwnerId || undefined,
+      secondaryOwnerId: form.secondaryOwnerId || undefined,
+      salesManagerId: form.salesManagerId || undefined,
+      businessHeadId: form.businessHeadId || undefined,
       contacts: contacts.filter(c => c.name.trim()).map(c => ({
         ...(c.id ? { id: c.id } : {}),
         name: c.name.trim(), designation: c.designation || undefined,
@@ -339,10 +394,10 @@ export default function Leads() {
 
   const st = (status: string) => statusStyle[status] ?? statusStyle.Enquiry
 
-  if (isLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 120px)' }}>
-      <Loader2 size={24} style={{ color: '#5D78FF', animation: 'spin 1s linear infinite' }} />
-    </div>
+  if (isLoading) return <Spinner />
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load leads" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
   )
 
   return (
@@ -389,8 +444,8 @@ export default function Leads() {
           {/* Source breakdown */}
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 16 }}>
             <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 10 }}>Source Breakdown</p>
-            {['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner'].map(src => {
-              const n = leads.filter(l => l.source === src).length
+            {(leadSourcesMaster.length ? leadSourcesMaster.map(s => s.name) : ['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner']).map(src => {
+              const n = leads.filter(l => l.leadSourceRef?.name === src).length
               const pct = leads.length ? Math.round((n / leads.length) * 100) : 0
               return (
                 <div key={src} style={{ marginBottom: 10 }}>
@@ -468,9 +523,9 @@ export default function Leads() {
               {activeFilterCount > 0 && <span style={{ background: '#5D78FF', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>{activeFilterCount}</span>}
             </div>
             {([
-              { key: 'source' as const, label: 'Source', opts: ['Direct', 'Channel Partner', 'WLB Partner', 'Business Partner'] },
-              { key: 'region' as const, label: 'Region', opts: ['North', 'West', 'South', 'East'] },
-              { key: 'commercialType' as const, label: 'Type', opts: ['Capex', 'Opex', 'Deferred', 'Esco', 'Rental'] },
+              { key: 'source' as const, label: 'Source', opts: leadSourcesMaster.map(s => s.name) },
+              { key: 'region' as const, label: 'Region', opts: regions.map(r => r.name) },
+              { key: 'commercialType' as const, label: 'Type', opts: commercialModels.map(m => m.name) },
               { key: 'salesPerson' as const, label: 'Sales Person', opts: salesPersonNames },
               { key: 'clientType' as const, label: 'Client Type', opts: ['India', 'International'] },
               { key: 'stage' as const, label: 'Stage', opts: ['Lead', 'QualifiedLead', 'Deal', 'Project', 'Installation', 'Support'] },
@@ -496,9 +551,9 @@ export default function Leads() {
                       {opts.map(opt => {
                         const checked = sel.includes(opt)
                         const optCount = leads.filter(l => {
-                          if (key === 'source') return l.sources?.some(s => s.source === opt) || l.source === opt
-                          if (key === 'region') return l.region === opt
-                          if (key === 'commercialType') return l.commercialType === opt
+                          if (key === 'source') return l.sources?.some(s => s.source === opt) || l.leadSourceRef?.name === opt
+                          if (key === 'region') return l.regionRef?.name === opt
+                          if (key === 'commercialType') return l.commercialModel?.name === opt
                           if (key === 'salesPerson') return l.owners?.some(o => o.user?.name === opt)
                           if (key === 'clientType') return opt === 'India' ? (l.company?.customerType === 'India' || l.company?.customerType === 'Indian') : l.company?.customerType === opt
                           if (key === 'stage') return l.stage === opt
@@ -668,7 +723,7 @@ export default function Leads() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontSize: 12, fontWeight: 700, color: '#1A1D23', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lead.title}</p>
                       <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1 }}>
-                        {lead.company?.name ?? '—'}{lead.region ? <span style={{ color: '#D1D5DB' }}> · </span> : ''}{lead.region}
+                        {lead.company?.name ?? '—'}{lead.regionRef?.name ? <span style={{ color: '#D1D5DB' }}> · </span> : ''}{lead.regionRef?.name}
                       </p>
                       {primary && <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 0 }}>{primary.name}{primary.designation ? ` · ${primary.designation}` : ''}</p>}
                     </div>
@@ -751,9 +806,9 @@ export default function Leads() {
                     </td>
                     <td style={{ padding: '7px 10px', fontSize: 11, color: '#374557' }}>{lead.company?.name ?? '—'}</td>
                     <td style={{ padding: '7px 10px' }}>
-                      <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 20, background: '#F4F5F9', color: '#374557', fontWeight: 500 }}>{lead.sources?.[0]?.source ?? lead.source}</span>
+                      <span style={{ fontSize: 10, padding: '3px 8px', borderRadius: 20, background: '#F4F5F9', color: '#374557', fontWeight: 500 }}>{lead.sources?.[0]?.source ?? lead.leadSourceRef?.name}</span>
                     </td>
-                    <td style={{ padding: '7px 10px', fontSize: 11, color: '#374557' }}>{lead.region}</td>
+                    <td style={{ padding: '7px 10px', fontSize: 11, color: '#374557' }}>{lead.regionRef?.name}</td>
                     <td style={{ padding: '7px 10px' }}>
                       <span style={{ fontSize: 10, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: s.bg, color: s.color }}>
                         {STATUS_LABEL[lead.status] ?? lead.status}
@@ -1016,14 +1071,22 @@ export default function Leads() {
                 <Field label="Lead Date">
                   <input type="date" value={form.leadDate} onChange={e => setForm({ ...form, leadDate: e.target.value })} style={inp(false)} />
                 </Field>
-                <Field label="Region (Lead)">
-                  <select value={form.region} onChange={e => setForm({ ...form, region: e.target.value })} style={inp(false)}>
-                    {['North', 'West', 'South', 'East'].map(r => <option key={r}>{r}</option>)}
+                <Field label="Region">
+                  <select value={form.regionId} onChange={e => setForm({ ...form, regionId: e.target.value })} style={inp(false)}>
+                    <option value="">— Select —</option>
+                    {regions.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </Field>
-                <Field label="Commercial Type">
-                  <select value={form.commercialType} onChange={e => setForm({ ...form, commercialType: e.target.value })} style={inp(false)}>
-                    {['Capex', 'Opex', 'Deferred', 'Esco', 'Rental'].map(c => <option key={c}>{c}</option>)}
+                <Field label="Commercial Model">
+                  <select value={form.commercialModelId} onChange={e => setForm({ ...form, commercialModelId: e.target.value })} style={inp(false)}>
+                    <option value="">— Select —</option>
+                    {commercialModels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Department">
+                  <select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })} style={inp(false)}>
+                    <option value="">— None —</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
                 </Field>
                 <Field label={`Est. Value (${symbol})`}>
@@ -1031,6 +1094,53 @@ export default function Leads() {
                 </Field>
                 <Field label="Est. Close Date">
                   <input type="date" value={form.closeDate} onChange={e => setForm({ ...form, closeDate: e.target.value })} style={inp(false)} />
+                </Field>
+              </div>
+
+              {/* Capacity / Temperature */}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
+                <Field label="Capacity">
+                  <input value={form.capacityValue} onChange={e => setForm({ ...form, capacityValue: e.target.value })} placeholder="0" type="number" min="0" style={inp(false)} />
+                </Field>
+                <Field label="Capacity Unit">
+                  <select value={form.capacityUnitId} onChange={e => setForm({ ...form, capacityUnitId: e.target.value })} style={inp(false)}>
+                    <option value="">— Select —</option>
+                    {capacityUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Temp Range (°C)">
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input value={form.tempRangeMin} onChange={e => setForm({ ...form, tempRangeMin: e.target.value })} placeholder="Min" type="number" style={inp(false)} />
+                    <input value={form.tempRangeMax} onChange={e => setForm({ ...form, tempRangeMax: e.target.value })} placeholder="Max" type="number" style={inp(false)} />
+                  </div>
+                </Field>
+              </div>
+
+              {/* Ownership tiers */}
+              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 10 }}>
+                <Field label="Primary Owner">
+                  <select value={form.primaryOwnerId} onChange={e => setForm({ ...form, primaryOwnerId: e.target.value })} style={inp(false)}>
+                    <option value="">— None —</option>
+                    {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Secondary Owner">
+                  <select value={form.secondaryOwnerId} onChange={e => setForm({ ...form, secondaryOwnerId: e.target.value })} style={inp(false)}>
+                    <option value="">— None —</option>
+                    {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Sales Manager">
+                  <select value={form.salesManagerId} onChange={e => setForm({ ...form, salesManagerId: e.target.value })} style={inp(false)}>
+                    <option value="">— None —</option>
+                    {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
+                </Field>
+                <Field label="Business Head">
+                  <select value={form.businessHeadId} onChange={e => setForm({ ...form, businessHeadId: e.target.value })} style={inp(false)}>
+                    <option value="">— None —</option>
+                    {allUsers.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
                 </Field>
               </div>
 

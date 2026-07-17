@@ -3,8 +3,104 @@ import { X, Edit2, Users, MapPin, Globe, Phone, Mail, MessageCircle, Calendar, D
 import { useCurrency } from '@/lib/currencyContext'
 import { useIsMobile } from '@/lib/useIsMobile'
 import DiscussionPanel from '@/components/shared/DiscussionPanel'
+import TimelinePanel from '@/components/shared/TimelinePanel'
+import TaskPanel from '@/components/shared/TaskPanel'
 import type { Lead } from '@/hooks/useLeads'
+import { useChangeLeadPipelineStage, useLeadStageHistory } from '@/hooks/useLeads'
+import { toast } from '@/lib/toast'
 import type React from 'react'
+
+const PIPELINE_STAGES = [
+  'Initial', 'QuestionnaireSent', 'QuestionnaireFollowUp', 'QuestionnaireValidation',
+  'TechnicalDiscussion', 'Costing', 'ProposalPreparation', 'ProposalSubmitted',
+  'Prospective', 'HighlyProspective', 'Negotiation', 'OrderWon',
+] as const
+const PIPELINE_LABEL: Record<string, string> = {
+  Initial: 'Initial', QuestionnaireSent: 'Questionnaire Sent', QuestionnaireFollowUp: 'Questionnaire Follow-up',
+  QuestionnaireValidation: 'Questionnaire Validation', TechnicalDiscussion: 'Technical Discussion',
+  Costing: 'Costing', ProposalPreparation: 'Proposal Preparation', ProposalSubmitted: 'Proposal Submitted',
+  Prospective: 'Prospective', HighlyProspective: 'Highly Prospective', Negotiation: 'Negotiation',
+  OrderWon: 'Order Won', ProjectDropped: 'Project Dropped',
+}
+
+function fmtDuration(ms: number): string {
+  const days = Math.floor(ms / 86400000)
+  if (days > 0) return `${days}d`
+  const hours = Math.floor(ms / 3600000)
+  if (hours > 0) return `${hours}h`
+  return `${Math.max(1, Math.floor(ms / 60000))}m`
+}
+
+function PipelinePanel({ lead, isMobile }: { lead: Lead; isMobile: boolean }) {
+  const changeStage = useChangeLeadPipelineStage()
+  const { data: history = [] } = useLeadStageHistory(lead.id)
+  const currentIdx = PIPELINE_STAGES.indexOf(lead.pipelineStage as any)
+  const isDropped = lead.pipelineStage === 'ProjectDropped'
+
+  async function advance() {
+    const next = PIPELINE_STAGES[currentIdx + 1]
+    if (!next) return
+    try {
+      await changeStage.mutateAsync({ id: lead.id, stage: next })
+      toast.success(`Advanced to ${PIPELINE_LABEL[next]}`)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Could not advance stage')
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* Stepper */}
+      <div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+          {PIPELINE_STAGES.map((stage, i) => {
+            const done = i < currentIdx || (i === currentIdx && !isDropped)
+            const active = i === currentIdx
+            return (
+              <span key={stage} style={{
+                fontSize: 10, fontWeight: active ? 700 : 600, padding: '4px 9px', borderRadius: 20,
+                background: isDropped && active ? '#FEE2E2' : done ? '#E7FAF0' : '#F4F5F9',
+                color: isDropped && active ? '#DC2626' : done ? '#2BC155' : '#9CA3AF',
+                border: active ? '1.5px solid currentColor' : '1px solid transparent',
+              }}>
+                {i + 1}. {PIPELINE_LABEL[stage]}
+              </span>
+            )
+          })}
+          {isDropped && (
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '4px 9px', borderRadius: 20, background: '#FEE2E2', color: '#DC2626', border: '1.5px solid currentColor' }}>
+              Project Dropped
+            </span>
+          )}
+        </div>
+        {!isDropped && currentIdx < PIPELINE_STAGES.length - 1 && (
+          <button onClick={advance} disabled={changeStage.isPending}
+            style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: changeStage.isPending ? 0.6 : 1 }}>
+            {changeStage.isPending ? 'Moving…' : `Advance to ${PIPELINE_LABEL[PIPELINE_STAGES[currentIdx + 1]]} →`}
+          </button>
+        )}
+      </div>
+
+      {/* Stage history */}
+      <div>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', letterSpacing: 0.5, marginBottom: 8 }}>STAGE HISTORY</p>
+        {history.length === 0 ? (
+          <p style={{ fontSize: 12, color: '#B1B1BE' }}>No history yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[...history].reverse().map(h => (
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, background: '#FAFBFF', border: '1px solid #F0F1F5' }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#374557', flex: 1 }}>{PIPELINE_LABEL[h.stage] ?? h.stage}</span>
+                <span style={{ fontSize: 10, color: '#9CA3AF' }}>{new Date(h.enteredAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                <span style={{ fontSize: 10, fontWeight: 600, color: '#5D78FF' }}>{fmtDuration(h.durationMs)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const STATUS_LABEL: Record<string, string> = {
   Enquiry: 'Enquiry', ProspectiveLead: 'Prospective Lead', ProjectHold: 'Project Hold',
@@ -33,7 +129,7 @@ interface Props { lead: Lead; onClose: () => void; onEdit: (lead: Lead) => void 
 export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
   const { symbol } = useCurrency()
   const isMobile = useIsMobile()
-  const [activeTab, setActiveTab] = useState<'overview' | 'contacts' | 'discussion'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'pipeline' | 'contacts' | 'discussion' | 'timeline' | 'tasks'>('overview')
   const s = statusStyle[lead.status] ?? statusStyle.Enquiry
   const sg = stageStyle[lead.stage] ?? stageStyle.Lead
   const isIndia = lead.company?.customerType === 'Indian' || lead.company?.customerType === 'India'
@@ -60,7 +156,7 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
 
   const tabs = (
     <div style={{ display: 'flex', borderBottom: '1px solid #F0F1F5', background: '#fff', flexShrink: 0 }}>
-      {(['overview', 'contacts', 'discussion'] as const).map(tab => (
+      {(['overview', 'pipeline', 'contacts', 'discussion', 'timeline', 'tasks'] as const).map(tab => (
         <button key={tab} onClick={() => setActiveTab(tab)} style={{
           flex: 1, padding: '8px 4px', fontSize: 12, fontWeight: activeTab === tab ? 700 : 400,
           color: activeTab === tab ? '#5D78FF' : '#9CA3AF', background: 'none', border: 'none',
@@ -77,6 +173,11 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: isMobile ? '10px 14px' : '20px 24px' }}>
       {/* Badges */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        {lead.leadNumber && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#2BC155', background: '#E7FAF0', padding: '3px 10px', borderRadius: 20, fontFamily: 'monospace', border: '1px solid #A7F3D0' }}>
+            <Hash size={9} />{lead.leadNumber}
+          </span>
+        )}
         {lead.refNumber && (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700, color: '#5D78FF', background: '#EEF2FF', padding: '3px 10px', borderRadius: 20, fontFamily: 'monospace', border: '1px solid #C7D2FE' }}>
             <Hash size={9} />{lead.refNumber}
@@ -99,23 +200,36 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
           {lead.closeDate ? <span style={{ fontSize: 11, fontWeight: 600, color: new Date(lead.closeDate) < new Date() ? '#FF5353' : '#374557' }}>{fmt(lead.closeDate)}</span> : <span style={{ color: '#D1D5DB', fontSize: 11 }}>—</span>}
         </InfoCard>
         <InfoCard icon={<MapPin size={12} style={{ color: '#8B5CF6' }} />} label="Region" iconBg="#F3EEFF">
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.region || '—'}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.regionRef?.name || '—'}</span>
         </InfoCard>
         <InfoCard icon={<Tag size={12} style={{ color: '#F59E0B' }} />} label="Commercial" iconBg="#FFF8E0">
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.commercialType || '—'}</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.commercialModel?.name || '—'}</span>
+        </InfoCard>
+        <InfoCard icon={<Building2 size={12} style={{ color: '#5D78FF' }} />} label="Department" iconBg="#EEF2FF">
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.department?.name || '—'}</span>
         </InfoCard>
         <InfoCard icon={<TrendingUp size={12} style={{ color: '#06B6D4' }} />} label="State" iconBg="#E0F7FA">
           <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{(lead.company?.state && lead.company.state !== 'None') ? lead.company.state : '—'}</span>
         </InfoCard>
+        {lead.capacityValue != null && (
+          <InfoCard icon={<Tag size={12} style={{ color: '#06B6D4' }} />} label="Capacity" iconBg="#E0F7FA">
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.capacityValue} {lead.capacityUnit?.name ?? ''}</span>
+          </InfoCard>
+        )}
+        {lead.primaryOwner && (
+          <InfoCard icon={<Users size={12} style={{ color: '#5D78FF' }} />} label="Primary Owner" iconBg="#EEF2FF">
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#374557' }}>{lead.primaryOwner.name}</span>
+          </InfoCard>
+        )}
       </div>
 
       {/* Sources */}
-      {(lead.sources?.length > 0 || lead.source) && (
+      {(lead.sources?.length > 0 || lead.leadSourceRef) && (
         <Section title="Sources">
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {lead.sources?.length > 0
               ? lead.sources.map(s => <span key={s.id} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#F4F5F9', color: '#374557', border: '1px solid #E8EAED' }}>{s.source}{s.sourceName ? <span style={{ color: '#9CA3AF' }}> · {s.sourceName}</span> : ''}</span>)
-              : <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>{lead.source}</span>}
+              : <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, background: '#F4F5F9', color: '#374557' }}>{lead.leadSourceRef?.name}</span>}
           </div>
         </Section>
       )}
@@ -191,7 +305,25 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
     </div>
   )
 
-  const tabContent = activeTab === 'overview' ? overviewContent : activeTab === 'contacts' ? contactsContent : discussionContent
+  const timelineContent = (
+    <div style={{ padding: isMobile ? '10px 14px' : '20px 24px' }}>
+      <TimelinePanel entityType="Lead" entityId={lead.id} />
+    </div>
+  )
+
+  const tasksContent = (
+    <div style={{ padding: isMobile ? '10px 14px' : '20px 24px' }}>
+      <TaskPanel entityType="Lead" entityId={lead.id} title="Lead Tasks" compact />
+    </div>
+  )
+
+  const pipelineContent = (
+    <div style={{ padding: isMobile ? '10px 14px' : '20px 24px' }}>
+      <PipelinePanel lead={lead} isMobile={isMobile} />
+    </div>
+  )
+
+  const tabContent = activeTab === 'overview' ? overviewContent : activeTab === 'pipeline' ? pipelineContent : activeTab === 'contacts' ? contactsContent : activeTab === 'discussion' ? discussionContent : activeTab === 'timeline' ? timelineContent : tasksContent
 
   if (isMobile) {
     return (

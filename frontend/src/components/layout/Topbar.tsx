@@ -25,7 +25,6 @@ const titles: Record<string, string> = {
   '/accounts':  'Accounts',
   '/contacts':  'Contacts',
   '/deals':     'Deals',
-  '/products':  'Products & Inventory',
   '/projects':  'Projects & Installations',
   '/tasks':     'Tasks',
   '/kanban':    'Kanban Board',

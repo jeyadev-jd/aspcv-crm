@@ -1,3 +1,18 @@
+## planning — MANDATORY (local Mythos override)
+
+Native plan mode is DISABLED for this project. NEVER call `EnterPlanMode` for any planning-shaped request (feature design, multi-step breakdown, architecture decision, "how should we build X").
+
+Instead, on any planning-shaped request:
+1. Gather minimal context yourself (file paths, existing patterns — keep it light).
+2. Call `mcp__crm-local-agent__mythos_plan` with `request` (the user's ask) + `context` (what you gathered).
+3. Review Mythos's draft plan for correctness/hallucination — Mythos is an uncensored 9B local model, verify file paths and APIs it references actually exist before trusting them.
+4. Present the (corrected) plan to the user directly in chat for approval — do NOT use `ExitPlanMode` (that's tied to native plan mode and won't fire here).
+5. On approval, implement directly.
+
+If `mythos_plan` tool is unavailable (MCP server not loaded — requires session restart after install) or returns an error, fall back to planning inline yourself and tell the user Mythos was unreachable.
+
+---
+
 ## communication — MANDATORY
 Caveman ultra active. All responses: ultra-compressed. Drop articles/filler/hedging. Arrows for causality. Abbreviate prose (DB/auth/fn/impl/req/res/config). Code/errors/API names: never abbreviate. Switch off only on destructive-op warnings.
 

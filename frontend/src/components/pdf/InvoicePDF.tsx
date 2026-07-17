@@ -10,11 +10,9 @@ const CO = {
   web:     'www.aspcv.com',
   gstin:   '33AAPCAI794H1ZH',
   pan:     'AAPCA1794H',
+  udyam:   'UDYAM-TN-02-0087917',
   state:   'Tamil Nadu',
   stateCode: '33',
-  bank:    'Yes Bank - Nungambakkam',
-  account: '0005619000003093',
-  ifsc:    'YESB0000005',
 }
 
 // ─── Amount in words (Indian system) ─────────────────────────────────────────
@@ -116,6 +114,9 @@ export interface InvoicePDFProps {
   signatoryName?: string
   signatoryDesignation?: string
   signatureData?: string | null  // base64 PNG
+  bankName?: string
+  bankAccountNumber?: string
+  bankIfsc?: string
   logoUrl?: string
   sealUrl?: string
 }
@@ -149,8 +150,8 @@ export function InvoicePDF(p: InvoicePDFProps) {
             <Image src={logoUrl} style={s.logo} />
           </View>
           <View style={s.coAddr}>
-            <Text style={[s.bold, { fontSize: 9, marginBottom: 2 }]}>{CO.name}</Text>
-            <Text style={{ lineHeight: 1.4 }}>{CO.addr1}{'\n'}{CO.addr2}{'\n'}Phone: {CO.phone}{'\n'}{CO.email}  |  {CO.web}</Text>
+            <Text style={[s.bold, { fontSize: 9, marginBottom: 1 }]}>{CO.name}</Text>
+            <Text style={{ lineHeight: 1 }}>{CO.addr1}{'\n'}{CO.addr2}{'\n'}Phone: {CO.phone}{'\n'}{CO.email}  |  {CO.web}</Text>
           </View>
         </View>
 
@@ -176,6 +177,7 @@ export function InvoicePDF(p: InvoicePDFProps) {
               <Text><Text style={s.bold}>State Code: </Text>{CO.stateCode}</Text>
               <Text><Text style={s.bold}>GSTIN: </Text>{CO.gstin}</Text>
               <Text><Text style={s.bold}>PAN: </Text>{CO.pan}</Text>
+              <Text><Text style={s.bold}>UDYAM No: </Text>{CO.udyam}</Text>
               <Text><Text style={s.bold}>Invoice No: </Text>{p.number}</Text>
             </View>
             <View style={{ flex: 1, padding: '3 6' }}>
@@ -261,9 +263,9 @@ export function InvoicePDF(p: InvoicePDFProps) {
           )}
 
           <View style={{ marginTop: 6 }}>
-            <Text><Text style={s.bold}>Bank Name & Branch : </Text>{CO.bank}</Text>
-            <Text><Text style={s.bold}>A/C number : </Text>{CO.account}</Text>
-            <Text><Text style={s.bold}>IFSC code : </Text>{CO.ifsc}</Text>
+            <Text><Text style={s.bold}>Bank Name & Branch : </Text>{p.bankName ?? 'Yes Bank - Nungambakkam'}</Text>
+            <Text><Text style={s.bold}>A/C number : </Text>{p.bankAccountNumber ?? '0005619000003093'}</Text>
+            <Text><Text style={s.bold}>IFSC code : </Text>{p.bankIfsc ?? 'YESB0000005'}</Text>
           </View>
         </View>
 

@@ -1,5 +1,8 @@
+import Pagination from '@/components/shared/Pagination'
+import Spinner from '@/components/shared/Spinner'
+import EmptyState from '@/components/shared/EmptyState'
 import { useState } from 'react'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Wrench, Edit2, Trash2, CheckCircle2, Play, Pause, Loader2 } from 'lucide-react'
+import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Wrench, Edit2, Trash2, CheckCircle2, Play, Pause, Loader2, AlertTriangle } from 'lucide-react'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
@@ -46,7 +49,7 @@ export default function Installations() {
   const isMobile = useIsMobile()
   const { accounts } = useCrmData()
 
-  const { data: rawInstalls = [], isLoading } = useInstallations()
+  const { data: rawInstalls = [], isLoading, isError, refetch } = useInstallations()
   const createInstall = useCreateInstallation()
 
   async function importInstallations(rows: Record<string, string>[]) {
@@ -76,7 +79,7 @@ export default function Installations() {
 
   const installs = rawInstalls.map(i => ({
     ...i,
-    uiStatus: apiToUI[i.status],
+    uiStatus: apiToUI[i.status] ?? 'Scheduled',
     clientName: i.company?.name ?? '',
   }))
 
@@ -143,10 +146,10 @@ export default function Installations() {
 
   function changeFilter(f: typeof filter) { setFilter(f); setPage(1) }
 
-  if (isLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 120px)' }}>
-      <Loader2 size={24} style={{ color: '#5D78FF', animation: 'spin 1s linear infinite' }} />
-    </div>
+  if (isLoading) return <Spinner />
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load installations" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
   )
 
   return (
@@ -265,15 +268,7 @@ export default function Installations() {
               </tbody>
             </table>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #F4F5F9' }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === 1 ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === 1 ? 'default' : 'pointer' }}><ChevronLeft size={13} /> Prev</button>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pg => (
-                <button key={pg} onClick={() => setPage(pg)} style={{ width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: page === pg ? '#5D78FF' : 'transparent', color: page === pg ? '#fff' : '#B1B1BE' }}>{pg}</button>
-              ))}
-            </div>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === totalPages ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === totalPages ? 'default' : 'pointer' }}>Next <ChevronRight size={13} /></button>
-          </div>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useMyAttendance, useTodayAttendance, useAllAttendance, useCheckIn, useCheckOut, useAttendanceLocations, useCreateAttendanceLocation } from '../hooks/useAttendance'
+import { useMyAttendance, useTodayAttendance, useAllAttendance, useCheckIn, useCheckOut, useBreakStart, useBreakEnd } from '../hooks/useAttendance'
 import { useAuthStore } from '../lib/authStore'
-import { MapPin, Clock, CheckCircle, XCircle, AlertCircle, Plus } from 'lucide-react'
+import { MapPin, Clock, CheckCircle, XCircle, AlertCircle, Coffee } from 'lucide-react'
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   present:   { bg: '#D1FAE5', color: '#065F46', label: 'Present' },
@@ -20,9 +20,9 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
 }
 
-function workHours(checkIn?: string, checkOut?: string): string {
+function workHours(checkIn?: string, checkOut?: string, breakMinutes = 0): string {
   if (!checkIn || !checkOut) return '—'
-  const ms = new Date(checkOut).getTime() - new Date(checkIn).getTime()
+  const ms = new Date(checkOut).getTime() - new Date(checkIn).getTime() - breakMinutes * 60000
   const h = Math.floor(ms / 3600000)
   const m = Math.floor((ms % 3600000) / 60000)
   return `${h}h ${m}m`
@@ -36,28 +36,23 @@ export default function Attendance() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
   const [tab, setTab] = useState<'my' | 'all'>('my')
-  const [showAddLocation, setShowAddLocation] = useState(false)
-  const [locationForm, setLocationForm] = useState({ name: '', lat: '', lng: '', radiusM: '100' })
   const [gpsError, setGpsError] = useState<string | null>(null)
 
   const { data: today } = useTodayAttendance()
   const { data: myRecords = [] } = useMyAttendance(month, year)
   const { data: allRecords = [] } = useAllAttendance(month, year)
-  const { data: locations = [] } = useAttendanceLocations()
 
   const checkIn = useCheckIn()
   const checkOut = useCheckOut()
-  const createLocation = useCreateAttendanceLocation()
+  const breakStart = useBreakStart()
+  const breakEnd = useBreakEnd()
 
   function handleCheckIn() {
     setGpsError(null)
-    if (!navigator.geolocation) { setGpsError('Geolocation not supported'); return }
+    if (!navigator.geolocation) { setGpsError('Geolocation not supported — cannot record location'); return }
     navigator.geolocation.getCurrentPosition(
       pos => checkIn.mutate({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {
-        // Still check in without GPS
-        checkIn.mutate({ lat: 0, lng: 0 })
-      }
+      () => setGpsError('Location permission denied — enable GPS to check in')
     )
   }
 
@@ -80,6 +75,12 @@ export default function Attendance() {
             <div style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: '#6B7280' }}>In: <strong>{fmtTime(today.checkIn)}</strong></span>
               <span style={{ fontSize: 12, color: '#6B7280' }}>Out: <strong>{fmtTime(today.checkOut)}</strong></span>
+              {(today.breakStart || today.breakMinutes > 0) && (
+                <span style={{ fontSize: 12, color: '#6B7280' }}>
+                  Break: <strong>{fmtTime(today.breakStart ?? undefined)} – {fmtTime(today.breakEnd ?? undefined)}</strong>
+                  {today.breakMinutes > 0 && ` (${today.breakMinutes}m)`}
+                </span>
+              )}
               {today.locationName && <span style={{ fontSize: 12, color: '#6B7280' }}><MapPin size={10} style={{ display: 'inline' }} /> {today.locationName.slice(0, 40)}...</span>}
               {today.minutesLate > 0 && <span style={{ fontSize: 12, color: '#D97706' }}>Late by {today.minutesLate}m</span>}
             </div>
@@ -98,11 +99,31 @@ export default function Attendance() {
               {checkIn.isPending ? 'Checking in...' : 'Check In'}
             </button>
           )}
+          {today?.checkIn && !today?.checkOut && !today?.breakStart && (
+            <button
+              onClick={() => breakStart.mutate()}
+              disabled={breakStart.isPending}
+              style={{ background: '#F59E0B', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}
+            >
+              <Coffee size={15} />
+              {breakStart.isPending ? 'Starting break...' : 'Break In'}
+            </button>
+          )}
+          {today?.checkIn && !today?.checkOut && today?.breakStart && !today?.breakEnd && (
+            <button
+              onClick={() => breakEnd.mutate()}
+              disabled={breakEnd.isPending}
+              style={{ background: '#8B5CF6', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}
+            >
+              <Coffee size={15} />
+              {breakEnd.isPending ? 'Ending break...' : 'Break Out'}
+            </button>
+          )}
           {today?.checkIn && !today?.checkOut && (
             <button
               onClick={() => checkOut.mutate()}
-              disabled={checkOut.isPending}
-              style={{ background: '#EF4444', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              disabled={checkOut.isPending || (today?.breakStart && !today?.breakEnd)}
+              style={{ background: (today?.breakStart && !today?.breakEnd) ? '#FCA5A5' : '#EF4444', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: (today?.breakStart && !today?.breakEnd) ? 'not-allowed' : 'pointer' }}
             >
               {checkOut.isPending ? 'Checking out...' : 'Check Out'}
             </button>
@@ -113,6 +134,8 @@ export default function Attendance() {
         </div>
         {gpsError && <div style={{ width: '100%', fontSize: 12, color: '#EF4444' }}>{gpsError}</div>}
         {checkIn.isError && <div style={{ width: '100%', fontSize: 12, color: '#EF4444' }}>{(checkIn.error as any)?.response?.data?.error ?? 'Check-in failed'}</div>}
+        {breakStart.isError && <div style={{ width: '100%', fontSize: 12, color: '#EF4444' }}>{(breakStart.error as any)?.response?.data?.error ?? 'Break start failed'}</div>}
+        {breakEnd.isError && <div style={{ width: '100%', fontSize: 12, color: '#EF4444' }}>{(breakEnd.error as any)?.response?.data?.error ?? 'Break end failed'}</div>}
       </div>
 
       {/* Monthly stats */}
@@ -174,13 +197,14 @@ export default function Attendance() {
               <th style={{ padding: '10px 16px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left' }}>Status</th>
               <th style={{ padding: '10px 16px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left' }}>Check In</th>
               <th style={{ padding: '10px 16px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left' }}>Check Out</th>
+              <th style={{ padding: '10px 16px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left' }}>Break</th>
               <th style={{ padding: '10px 16px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left' }}>Hours</th>
               <th style={{ padding: '10px 16px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left' }}>Location</th>
             </tr>
           </thead>
           <tbody>
             {records.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#8A8FA8', fontSize: 13 }}>No records for this period</td></tr>
+              <tr><td colSpan={8} style={{ padding: 32, textAlign: 'center', color: '#8A8FA8', fontSize: 13 }}>No records for this period</td></tr>
             ) : records.map(r => {
               const s = STATUS_STYLE[r.status] ?? STATUS_STYLE.present
               return (
@@ -193,7 +217,8 @@ export default function Attendance() {
                   </td>
                   <td style={{ padding: '10px 16px', fontSize: 13 }}>{fmtTime(r.checkIn)}</td>
                   <td style={{ padding: '10px 16px', fontSize: 13 }}>{fmtTime(r.checkOut)}</td>
-                  <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 500, color: '#5D78FF' }}>{workHours(r.checkIn, r.checkOut)}</td>
+                  <td style={{ padding: '10px 16px', fontSize: 13 }}>{r.breakMinutes > 0 ? `${r.breakMinutes}m` : '—'}</td>
+                  <td style={{ padding: '10px 16px', fontSize: 13, fontWeight: 500, color: '#5D78FF' }}>{workHours(r.checkIn, r.checkOut, r.breakMinutes)}</td>
                   <td style={{ padding: '10px 16px', fontSize: 12, color: '#6B7280', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {r.locationName ? r.locationName.split(',').slice(0, 2).join(',') : r.lat ? `${r.lat.toFixed(4)}, ${r.lng?.toFixed(4)}` : '—'}
                   </td>
@@ -204,58 +229,6 @@ export default function Attendance() {
         </table>
       </div>
 
-      {/* Admin: locations */}
-      {isAdmin && (
-        <div style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>Office / Site Locations</div>
-            <button onClick={() => setShowAddLocation(v => !v)} style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}>
-              <Plus size={13} /> Add Location
-            </button>
-          </div>
-          {showAddLocation && (
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16, padding: 14, background: '#F8F9FF', borderRadius: 10 }}>
-              {[
-                { key: 'name', label: 'Name', placeholder: 'HQ / Site A' },
-                { key: 'lat', label: 'Latitude', placeholder: '13.0827' },
-                { key: 'lng', label: 'Longitude', placeholder: '80.2707' },
-                { key: 'radiusM', label: 'Radius (m)', placeholder: '100' },
-              ].map(f => (
-                <div key={f.key}>
-                  <div style={{ fontSize: 11, color: '#8A8FA8', marginBottom: 4 }}>{f.label}</div>
-                  <input
-                    value={(locationForm as any)[f.key]}
-                    onChange={e => setLocationForm(p => ({ ...p, [f.key]: e.target.value }))}
-                    placeholder={f.placeholder}
-                    style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 140 }}
-                  />
-                </div>
-              ))}
-              <button
-                onClick={() => {
-                  createLocation.mutate({ name: locationForm.name, lat: Number(locationForm.lat), lng: Number(locationForm.lng), radiusM: Number(locationForm.radiusM), isDefault: false })
-                  setShowAddLocation(false)
-                  setLocationForm({ name: '', lat: '', lng: '', radiusM: '100' })
-                }}
-                style={{ alignSelf: 'flex-end', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-              >
-                Save
-              </button>
-            </div>
-          )}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-            {locations.map(l => (
-              <div key={l.id} style={{ background: '#F8F9FF', borderRadius: 8, padding: '8px 14px', fontSize: 12, color: '#374151', display: 'flex', gap: 8, alignItems: 'center' }}>
-                <MapPin size={12} color="#5D78FF" />
-                <strong>{l.name}</strong>
-                <span style={{ color: '#8A8FA8' }}>{l.lat.toFixed(4)}, {l.lng.toFixed(4)}</span>
-                <span style={{ color: '#8A8FA8' }}>±{l.radiusM}m</span>
-              </div>
-            ))}
-            {locations.length === 0 && <div style={{ fontSize: 13, color: '#8A8FA8' }}>No locations configured yet</div>}
-          </div>
-        </div>
-      )}
     </div>
   )
 }

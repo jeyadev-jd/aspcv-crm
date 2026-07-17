@@ -16,7 +16,7 @@ export interface Expense {
 export function useExpenses(params?: { category?: string; from?: string; to?: string }) {
   return useQuery<Expense[]>({
     queryKey: ['expenses', params],
-    queryFn: () => api.get('/expenses', { params }).then(r => r.data),
+    queryFn: () => api.get('/expenses', { params: { pageSize: 1000, ...params } }).then(r => r.data.data),
   })
 }
 

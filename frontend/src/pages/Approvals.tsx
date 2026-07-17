@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import { useAuthStore } from '@/lib/authStore'
 import {
   ClipboardCheck, CheckCircle, XCircle, Clock, UserPlus,
   AlertCircle, User, Calendar,
 } from 'lucide-react'
+import EmptyState from '@/components/shared/EmptyState'
 
 interface ApprovalReq {
   id: string
@@ -17,7 +19,12 @@ interface ApprovalReq {
   expiresAt: string | null
   requestedBy: { id: string; name: string; roleName: string }
   reviewedBy?: { id: string; name: string } | null
+  escalationTier: number
+  lastEscalatedAt: string
+  currentReviewerRole?: string
 }
+
+const TIER_LABEL = ['Manager', 'Project Head', 'Business Head', 'Super Admin']
 
 const STATUS_META: Record<string, { color: string; bg: string; Icon: React.ElementType; label: string }> = {
   pending:  { color: '#F59E0B', bg: '#FFFBEB', Icon: Clock,        label: 'Pending' },
@@ -33,11 +40,13 @@ function typeLabel(entityType: string, action: string) {
 
 export default function Approvals() {
   const qc = useQueryClient()
+  const can = useAuthStore(s => s.can)
+  const canReview = can('approval_request', 'review')
   const [filter, setFilter] = useState<'pending' | 'all'>('pending')
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
 
-  const { data: requests = [], isLoading } = useQuery<ApprovalReq[]>({
+  const { data: requests = [], isLoading, isError, refetch } = useQuery<ApprovalReq[]>({
     queryKey: ['approval-requests', filter],
     queryFn: () =>
       api.get('/approval-requests', { params: filter === 'pending' ? { status: 'pending' } : {} }).then(r => r.data),
@@ -87,6 +96,9 @@ export default function Approvals() {
 
       {isLoading ? (
         <p style={{ color: '#999', fontSize: 14 }}>Loading…</p>
+      ) : isError ? (
+        <EmptyState icon={AlertCircle} title="Failed to load approval requests" subtitle="Something went wrong fetching this data."
+          action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
       ) : requests.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 24px', background: '#fff', borderRadius: 12, border: '1px solid #f0f1f5' }}>
           <CheckCircle size={32} color="#22C55E" style={{ marginBottom: 8 }} />
@@ -139,6 +151,17 @@ export default function Approvals() {
                           <StatusIcon size={9} />
                           {sm.label}
                         </span>
+                        {req.status === 'pending' && (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20,
+                            background: req.escalationTier > 0 ? '#FEF2F2' : '#EEF2FF',
+                            color: req.escalationTier > 0 ? '#EF4444' : '#5D78FF',
+                          }}>
+                            With: {TIER_LABEL[req.escalationTier] ?? req.currentReviewerRole}
+                            {req.escalationTier > 0 && ' (escalated)'}
+                          </span>
+                        )}
                       </div>
 
                       {/* Reason / detail */}
@@ -167,10 +190,10 @@ export default function Approvals() {
                     </div>
 
                     {/* Action buttons */}
-                    {req.status === 'pending' && (
+                    {req.status === 'pending' && canReview && (
                       <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
                         <button
-                          onClick={() => approve.mutate(req.id)}
+                          onClick={() => { if (confirm(`Approve this request? ${typeLabel(req.entityType, req.action)}`)) approve.mutate(req.id) }}
                           disabled={approve.isPending}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: 5,

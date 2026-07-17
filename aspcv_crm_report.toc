@@ -17,7 +17,7 @@
 \contentsline {subsection}{\numberline {4.1.1}CRM Stack}{7}{subsection.4.1.1}%
 \contentsline {subsection}{\numberline {4.1.2}Tools / Libraries Used}{7}{subsection.4.1.2}%
 \contentsline {section}{\numberline {4.2}Implementation Details}{7}{section.4.2}%
-\contentsline {chapter}{\numberline {5}Results and Analysis}{8}{chapter.5}%
+\contentsline {chapter}{\numberline {5}Results and Discussion}{8}{chapter.5}%
 \contentsline {section}{\numberline {5.1}Monthly Revenue Performance Summary}{8}{section.5.1}%
 \contentsline {section}{\numberline {5.2}Experimental Results --- 7-Day Activity Trends}{10}{section.5.2}%
 \contentsline {section}{\numberline {5.3}Performance Comparison --- Product Accuracy}{11}{section.5.3}%

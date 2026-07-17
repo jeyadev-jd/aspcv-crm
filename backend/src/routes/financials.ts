@@ -1,22 +1,40 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
+import { parsePagination, paginate } from '../lib/pagination'
+import { z } from 'zod'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
-router.get('/', async (req, res) => {
+const financialUpdateSchema = z.object({
+  type: z.string().optional(),
+  name: z.string().optional(),
+  amount: z.number().optional(),
+  category: z.string().nullable().optional(),
+  asOf: z.string().optional(),
+  notes: z.string().nullable().optional(),
+})
+
+router.get('/', requirePermission('financial', 'read_all'), async (req, res) => {
   const { type } = req.query as Record<string, string>
-  const entries = await prisma.financialEntry.findMany({
-    where: { ...(type && { type }) },
-    orderBy: { asOf: 'desc' },
-  })
-  res.json(entries)
+  const pagination = parsePagination(req.query as Record<string, unknown>, 'asOf')
+  const where = { ...(type && { type }) }
+  const [entries, total] = await Promise.all([
+    prisma.financialEntry.findMany({
+      where,
+      orderBy: { [pagination.sort as string]: pagination.order },
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.financialEntry.count({ where }),
+  ])
+  res.json(paginate(entries, total, pagination))
 })
 
 // Summary totals
-router.get('/summary', async (_req, res) => {
+router.get('/summary', requirePermission('financial', 'read_all'), async (_req, res) => {
   const [assets, liabilities] = await Promise.all([
     prisma.financialEntry.aggregate({ where: { type: 'asset' }, _sum: { amount: true } }),
     prisma.financialEntry.aggregate({ where: { type: 'liability' }, _sum: { amount: true } }),
@@ -38,8 +56,14 @@ router.post('/', requirePermission('financial', 'create'), async (req: AuthReque
 })
 
 router.patch('/:id', requirePermission('financial', 'edit'), async (req: AuthRequest, res) => {
-  const entry = await prisma.financialEntry.update({ where: { id: req.params.id as string }, data: req.body })
-  res.json(entry)
+  try {
+    const data = financialUpdateSchema.parse(req.body)
+    const entry = await prisma.financialEntry.update({
+      where: { id: req.params.id as string },
+      data: { ...data, asOf: data.asOf ? new Date(data.asOf) : undefined },
+    })
+    res.json(entry)
+  } catch (e: any) { res.status(e?.name === 'ZodError' ? 400 : 500).json({ error: e?.name === 'ZodError' ? e.errors : 'Failed to update entry' }) }
 })
 
 router.delete('/:id', requirePermission('financial', 'delete'), async (req: AuthRequest, res) => {

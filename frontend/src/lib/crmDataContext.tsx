@@ -70,14 +70,14 @@ export function CrmDataProvider({ children }: { children: React.ReactNode }) {
 
   const { data: rawCompanies = [], isLoading: loadingCompanies } = useQuery({
     queryKey: ['companies'],
-    queryFn: () => api.get('/companies').then(r => r.data as Record<string, any>[]),
+    queryFn: () => api.get('/companies', { params: { pageSize: 1000 } }).then(r => r.data.data as Record<string, any>[]),
     enabled: hasToken,
     staleTime: 30_000,
   })
 
   const { data: rawContacts = [], isLoading: loadingContacts } = useQuery({
     queryKey: ['contacts'],
-    queryFn: () => api.get('/contacts').then(r => r.data as Record<string, any>[]),
+    queryFn: () => api.get('/contacts', { params: { pageSize: 1000 } }).then(r => r.data.data as Record<string, any>[]),
     enabled: hasToken,
     staleTime: 30_000,
   })

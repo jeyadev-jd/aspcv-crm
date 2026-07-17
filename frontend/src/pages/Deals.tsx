@@ -1,13 +1,22 @@
+import Pagination from '@/components/shared/Pagination'
+import Spinner from '@/components/shared/Spinner'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Briefcase, Trash2, Edit2, CheckCircle2, XCircle, ArrowRightCircle, Loader2, ExternalLink } from 'lucide-react'
+import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Briefcase, Trash2, Edit2, CheckCircle2, XCircle, ArrowRightCircle, Loader2, ExternalLink, AlertTriangle } from 'lucide-react'
+import EmptyState from '@/components/shared/EmptyState'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
-import { useDeals, useCreateDeal, useUpdateDeal, useUpdateDealStage, useDeleteDeal, DEAL_STAGES, stageToUI } from '@/hooks/useDeals'
+import { useDeals, useCreateDeal, useUpdateDeal, useUpdateDealStage, useDeleteDeal, useCloseWonDeal, useAssignDealSE, useAssignDealPM, DEAL_STAGES, stageToUI } from '@/hooks/useDeals'
+import { useUsers } from '@/hooks/useUsers'
+import { useAuthStore } from '@/lib/authStore'
+import { toast } from '@/lib/toast'
+import { Link, Upload } from 'lucide-react'
+import { useDepartments } from '@/hooks/useDepartments'
 import { useLead } from '@/hooks/useLeads'
 import LeadDetailPanel from '@/components/shared/LeadDetailPanel'
+import DealDetailPanel from '@/components/shared/DealDetailPanel'
 import { CsvImportExport } from '@/components/shared/CsvImportExport'
 import type { CsvColDef } from '@/components/shared/CsvImportExport'
 import type { DealAPI } from '@/hooks/useDeals'
@@ -51,7 +60,7 @@ const uiStageToAPI: Record<UIStage, string> = {
 
 const uiStages: UIStage[] = ['Lead In', 'Proposal', 'Negotiation', 'Closed Won', 'Closed Lost']
 
-const blankForm = { name: '', account: '', contact: '', stage: 'Proposal' as UIStage, amount: '', closeDate: '', probability: '', product: '' }
+const blankForm = { name: '', account: '', contact: '', stage: 'Proposal' as UIStage, amount: '', closeDate: '', probability: '', product: '', departmentId: '' }
 const PAGE_SIZE = 5
 
 export default function Deals() {
@@ -60,7 +69,8 @@ export default function Deals() {
   const { symbol } = useCurrency()
   const { accounts } = useCrmData()
 
-  const { data: rawDeals = [], isLoading } = useDeals()
+  const { data: rawDeals = [], isLoading, isError, refetch } = useDeals()
+  const { data: departments = [] } = useDepartments()
   const createDeal = useCreateDeal()
 
   async function importDeals(rows: Record<string, string>[]) {
@@ -78,6 +88,24 @@ export default function Deals() {
   const updateDeal = useUpdateDeal()
   const updateStage = useUpdateDealStage()
   const deleteDeal = useDeleteDeal()
+  const closeWon = useCloseWonDeal()
+  const assignSE = useAssignDealSE()
+  const assignPM = useAssignDealPM()
+  const authUser = useAuthStore(s => s.user)
+  const can = useAuthStore(s => s.can)
+  const { data: allUsers = [] } = useUsers(can('hr_user', 'read_all'))
+  const isManager = ['Manager', 'ProjectHead', 'SuperAdmin', 'BusinessHead', 'SalesHead'].includes(authUser?.role ?? '')
+  const engineers = allUsers.filter((u: any) => ['Engineer', 'SeniorEngineer', 'ServiceEngineer', 'Technician'].includes(u.role))
+  const projectManagers = allUsers.filter((u: any) => ['Manager', 'ProjectHead', 'SuperAdmin', 'BusinessHead'].includes(u.role))
+
+  // Handover modal state
+  const [handoverDealId, setHandoverDealId] = useState<string | null>(null)
+  const [handoverNotes, setHandoverNotes] = useState('')
+  const [handoverUrl, setHandoverUrl] = useState('')
+  const [selectedPMId, setSelectedPMId] = useState('')
+  // Assign SE modal state
+  const [assignSEDealId, setAssignSEDealId] = useState<string | null>(null)
+  const [selectedSEId, setSelectedSEId] = useState('')
 
   const [filter, setFilter] = useState<'All' | UIStage>('All')
   const [showModal, setShowModal] = useState(false)
@@ -88,6 +116,7 @@ export default function Deals() {
   const [page, setPage] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [viewLeadId, setViewLeadId] = useState<string | null>(null)
+  const [viewDeal, setViewDeal] = useState<(typeof deals)[0] | null>(null)
 
   const { data: viewLead } = useLead(viewLeadId ?? '')
 
@@ -123,6 +152,7 @@ export default function Deals() {
       closeDate: deal.closeDate ? deal.closeDate.slice(0, 10) : '',
       probability: String(deal.prob || ''),
       product: deal.productId ?? '',
+      departmentId: deal.departmentId ?? deal.department?.id ?? '',
     })
     setErrors({}); setShowModal(true)
   }
@@ -150,6 +180,7 @@ export default function Deals() {
       probability: form.probability ? Number(form.probability) : undefined,
       closeDate: form.closeDate || undefined,
       notes: undefined,
+      departmentId: form.departmentId || undefined,
     }
     if (editId) {
       await updateDeal.mutateAsync({ id: editId, ...payload })
@@ -165,17 +196,36 @@ export default function Deals() {
   }
 
   async function quickStage(id: string, uiStage: UIStage) {
-    const result = await updateStage.mutateAsync({ id, stage: uiStageToAPI[uiStage] })
     setMenuOpen(null)
-    if (uiStage === 'Closed Won' && result?.promotedProject) navigate('/projects')
+    if (uiStage === 'Closed Won') {
+      setHandoverNotes(''); setHandoverUrl(''); setSelectedPMId(''); setHandoverDealId(id)
+      return
+    }
+    await updateStage.mutateAsync({ id, stage: uiStageToAPI[uiStage] })
+  }
+
+  async function submitHandover() {
+    if (!handoverDealId || !handoverNotes.trim()) { toast.error('Handover description required'); return }
+    if (!selectedPMId) { toast.error('Please assign a Project Manager'); return }
+    const result = await closeWon.mutateAsync({ id: handoverDealId, handoverNotes, handoverAttachmentUrl: handoverUrl || undefined, assignedPMId: selectedPMId })
+    toast.success('Deal marked Closed Won — handover submitted to Project Manager')
+    setHandoverDealId(null)
+    if (result?.promotedProject) navigate('/projects')
+  }
+
+  async function submitAssignSE() {
+    if (!assignSEDealId) return
+    await assignPM.mutateAsync({ id: assignSEDealId, assignedPMId: selectedSEId || null })
+    toast.success('Project Manager assigned')
+    setAssignSEDealId(null)
   }
 
   function changeFilter(f: typeof filter) { setFilter(f); setPage(1) }
 
-  if (isLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 120px)' }}>
-      <Loader2 size={24} style={{ color: '#5D78FF', animation: 'spin 1s linear infinite' }} />
-    </div>
+  if (isLoading) return <Spinner />
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load deals" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
   )
 
   return (
@@ -226,7 +276,7 @@ export default function Deals() {
           {isMobile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
               {paginated.map(deal => (
-                <div key={deal.id} onClick={() => deal.leadId ? setViewLeadId(deal.leadId) : openEdit(deal)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div key={deal.id} onClick={() => setViewDeal(deal)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 34, height: 34, borderRadius: 8, background: stageStyle[deal.uiStage].bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -260,7 +310,7 @@ export default function Deals() {
               </thead>
               <tbody>
                 {paginated.map((deal, i) => (
-                  <tr key={deal.id} onClick={() => deal.leadId ? setViewLeadId(deal.leadId) : openEdit(deal)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
+                  <tr key={deal.id} onClick={() => setViewDeal(deal)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                     <td style={{ padding: '12px 16px' }}>
@@ -274,11 +324,27 @@ export default function Deals() {
                             ? <span style={{ fontSize: 10, color: '#5D78FF', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2 }}><ExternalLink size={9} />Origin Lead</span>
                             : <p style={{ fontSize: 10, color: '#B1B1BE' }}>No origin lead</p>
                           }
+                          {(deal.region || deal.commercialModel) && (
+                            <p style={{ fontSize: 9, color: '#9CA3AF', marginTop: 1 }}>
+                              {[deal.region?.name, deal.commercialModel?.name].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </td>
                     <td style={{ padding: '12px 16px' }}><p style={{ fontSize: 11, color: '#374557' }}>{deal.accountName}</p></td>
-                    <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: stageStyle[deal.uiStage].bg, color: stageStyle[deal.uiStage].color, whiteSpace: 'nowrap' }}>{deal.uiStage}</span></td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: stageStyle[deal.uiStage].bg, color: stageStyle[deal.uiStage].color, whiteSpace: 'nowrap' }}>{deal.uiStage}</span>
+                      {deal.uiStage === 'Closed Won' && deal.assignedPM && (
+                        <p style={{ fontSize: 10, color: '#5D78FF', marginTop: 3 }}>PM: {deal.assignedPM.name}</p>
+                      )}
+                      {deal.uiStage === 'Closed Won' && !deal.assignedPM && (
+                        <p style={{ fontSize: 10, color: '#F59E0B', marginTop: 3 }}>⚠ PM unassigned</p>
+                      )}
+                      {deal.uiStage === 'Closed Won' && deal.assignedSE && (
+                        <p style={{ fontSize: 10, color: '#2BC155', marginTop: 2 }}>SE: {deal.assignedSE.name}</p>
+                      )}
+                    </td>
                     <td style={{ padding: '12px 16px', fontSize: 12, fontWeight: 700, color: '#374557' }}>{deal.amount ? `${symbol}${deal.amount.toLocaleString()}` : '—'}</td>
                     <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>{deal.closeDate?.slice(0, 10) ?? '—'}</td>
                     <td style={{ padding: '12px 16px' }}>
@@ -296,9 +362,10 @@ export default function Deals() {
                         </button>
                         {menuOpen === deal.id && (
                           <div style={dropdownStyle}>
-                            <button onClick={() => { openEdit(deal); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
+                            <button onClick={e => { e.stopPropagation(); openEdit(deal); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
                             {deal.leadId && <button onClick={() => { setViewLeadId(deal.leadId!); setMenuOpen(null) }} style={menuItem}><ExternalLink size={12} style={{ marginRight: 8 }} />View Origin Lead</button>}
-                            <button onClick={() => quickStage(deal.id, 'Closed Won')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Closed Won</button>
+                            {deal.uiStage !== 'Closed Won' && <button onClick={() => quickStage(deal.id, 'Closed Won')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Closed Won</button>}
+                            {deal.uiStage === 'Closed Won' && isManager && <button onClick={() => { setSelectedSEId(deal.assignedSE?.id ?? ''); setAssignSEDealId(deal.id); setMenuOpen(null) }} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Assign Project Manager</button>}
                             <button onClick={() => quickStage(deal.id, 'Closed Lost')} style={menuItem}><XCircle size={12} style={{ marginRight: 6 }} />Mark Closed Lost</button>
                             <button onClick={() => quickStage(deal.id, 'Negotiation')} style={menuItem}><ArrowRightCircle size={12} style={{ marginRight: 6 }} />Move to Negotiation</button>
                             <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
@@ -313,17 +380,19 @@ export default function Deals() {
               </tbody>
             </table>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #F4F5F9' }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === 1 ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === 1 ? 'default' : 'pointer' }}><ChevronLeft size={13} /> Prev</button>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pg => (
-                <button key={pg} onClick={() => setPage(pg)} style={{ width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: page === pg ? '#5D78FF' : 'transparent', color: page === pg ? '#fff' : '#B1B1BE' }}>{pg}</button>
-              ))}
-            </div>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === totalPages ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === totalPages ? 'default' : 'pointer' }}>Next <ChevronRight size={13} /></button>
-          </div>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
+
+      {/* Deal detail panel */}
+      {viewDeal && (
+        <DealDetailPanel
+          deal={viewDeal}
+          symbol={symbol}
+          onClose={() => setViewDeal(null)}
+          onEdit={() => { openEdit(viewDeal); setViewDeal(null) }}
+        />
+      )}
 
       {/* Lead detail panel */}
       {viewLeadId && viewLead && (
@@ -343,6 +412,109 @@ export default function Deals() {
             <div style={{ display: 'flex', gap: 12 }}>
               <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={() => handleDelete(deleteConfirm)} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#FF5353', color: '#fff', cursor: 'pointer' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Handover Modal — Closed Won */}
+      {handoverDealId && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 520, boxShadow: '0 24px 64px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>Close Deal — Handover to Manager</p>
+                <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 2 }}>Provide context for the project team before marking as won</p>
+              </div>
+              <button onClick={() => setHandoverDealId(null)} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374557', display: 'block', marginBottom: 6 }}>Assign Project Manager *</label>
+                <select
+                  value={selectedPMId}
+                  onChange={e => setSelectedPMId(e.target.value)}
+                  style={{ width: '100%', border: `1.5px solid ${!selectedPMId ? '#FF9B52' : '#E8E9F0'}`, borderRadius: 10, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                >
+                  <option value="">— Select Project Manager —</option>
+                  {projectManagers.map((u: any) => (
+                    <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                  ))}
+                </select>
+                <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 4 }}>This PM will be responsible for the project created from this deal</p>
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374557', display: 'block', marginBottom: 6 }}>Handover Description *</label>
+                <textarea
+                  rows={4}
+                  value={handoverNotes}
+                  onChange={e => setHandoverNotes(e.target.value)}
+                  placeholder="Describe scope, client requirements, key commitments, timeline, any special notes for the project team…"
+                  style={{ width: '100%', border: '1.5px solid #E8E9F0', borderRadius: 10, padding: '10px 12px', fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit' }}
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#374557', display: 'block', marginBottom: 6 }}>
+                  <Link size={12} style={{ display: 'inline', marginRight: 4 }} />
+                  Attachment Link (Google Drive / OneDrive / PDF URL)
+                </label>
+                <input
+                  type="url"
+                  value={handoverUrl}
+                  onChange={e => setHandoverUrl(e.target.value)}
+                  placeholder="https://drive.google.com/... or https://1drv.ms/..."
+                  style={{ width: '100%', border: '1.5px solid #E8E9F0', borderRadius: 10, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                />
+                <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 4 }}>Paste a shareable link to any supporting document (quote, scope PDF, images, drawings)</p>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
+              <button onClick={() => setHandoverDealId(null)} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={submitHandover}
+                disabled={closeWon.isPending || !handoverNotes.trim() || !selectedPMId}
+                style={{ flex: 2, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: 'none', background: (!handoverNotes.trim() || !selectedPMId) ? '#D1FAE5' : '#2BC155', color: '#fff', cursor: (!handoverNotes.trim() || !selectedPMId) ? 'not-allowed' : 'pointer', opacity: closeWon.isPending ? 0.7 : 1 }}
+              >
+                <CheckCircle2 size={13} style={{ display: 'inline', marginRight: 6 }} />
+                {closeWon.isPending ? 'Submitting…' : 'Mark Closed Won & Assign PM'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign SE Modal — Manager only */}
+      {assignSEDealId && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+          <div style={{ background: '#fff', borderRadius: 20, padding: 28, width: '100%', maxWidth: 400, boxShadow: '0 24px 64px rgba(0,0,0,0.18)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>Assign Project Manager</p>
+                <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 2 }}>Pick the project manager responsible for this deal</p>
+              </div>
+              <button onClick={() => setAssignSEDealId(null)} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
+            </div>
+            <select
+              value={selectedSEId}
+              onChange={e => setSelectedSEId(e.target.value)}
+              style={{ width: '100%', border: '1.5px solid #E8E9F0', borderRadius: 10, padding: '10px 12px', fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}
+            >
+              <option value="">— No manager assigned —</option>
+              {projectManagers.map((u: any) => (
+                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setAssignSEDealId(null)} style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={submitAssignSE}
+                disabled={assignSE.isPending}
+                style={{ flex: 1, padding: '11px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: assignSE.isPending ? 0.7 : 1 }}
+              >
+                {assignSE.isPending ? 'Saving…' : 'Assign'}
+              </button>
             </div>
           </div>
         </div>
@@ -382,6 +554,12 @@ export default function Deals() {
               </div>
               <Field label="Expected Close Date">
                 <input value={form.closeDate} onChange={e => setForm({ ...form, closeDate: e.target.value })} type="date" style={inp(false)} />
+              </Field>
+              <Field label="Department">
+                <select value={form.departmentId} onChange={e => setForm({ ...form, departmentId: e.target.value })} style={inp(false)}>
+                  <option value="">— None —</option>
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
               </Field>
             </div>
             <div className="crm-modal-footer">

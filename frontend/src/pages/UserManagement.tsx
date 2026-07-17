@@ -7,12 +7,15 @@ import {
   UserCheck, Handshake, Contact, Building2, FolderOpen, CheckSquare,
   KanbanSquare, Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
   FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
-  MessageSquare, ClipboardCheck, Shield,
+  MessageSquare, ClipboardCheck, Shield, Briefcase, Plus, Trash2, AlertTriangle,
 } from 'lucide-react'
+import { useDepartments, useCreateDepartment, useDeleteDepartment, useDepartmentMembers } from '@/hooks/useDepartments'
+import EmptyState from '@/components/shared/EmptyState'
+import { useAuthStore } from '@/lib/authStore'
 
 interface User {
   id: string; name: string; email: string; role: string; roleName: string
-  designation: string | null; department: string | null
+  designation: string | null; department: { id: string; name: string } | null
   isActive: boolean; baseSalary: number | null; createdAt: string
 }
 
@@ -350,14 +353,106 @@ function UserPermPanel({ user, roles }: { user: User; roles: RoleDef[] }) {
   )
 }
 
+function DepartmentMemberRow({ user, departments }: { user: User; departments: { id: string; name: string }[] }) {
+  const qc = useQueryClient()
+  const reassign = useMutation({
+    mutationFn: (departmentId: string) => api.patch(`/users/${user.id}`, { departmentId: departmentId || null }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); qc.invalidateQueries({ queryKey: ['departments'] }) },
+  })
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 10px', borderRadius: 7, background: '#fafbff' }}>
+      <span style={{ fontSize: 12, color: '#374557', flex: 1 }}>{user.name} <span style={{ color: '#aaa' }}>· {user.email}</span></span>
+      <select
+        defaultValue={user.department?.id ?? ''}
+        onChange={e => reassign.mutate(e.target.value)}
+        style={{ fontSize: 11, padding: '4px 8px', border: '1px solid #ddd', borderRadius: 6, background: '#fff' }}
+      >
+        <option value="">— No department —</option>
+        {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+      </select>
+    </div>
+  )
+}
+
+function DepartmentRow({ dept, users }: { dept: { id: string; name: string }; users: User[] }) {
+  const [open, setOpen] = useState(false)
+  const deleteDept = useDeleteDepartment()
+  const { data: members = [] } = useDepartmentMembers(open ? dept.id : null)
+  const departments = useDepartments().data ?? []
+  const can = useAuthStore(s => s.can)
+  const canDeleteDept = can('hr_user', 'deactivate')
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
+        <Briefcase size={15} color="#5D78FF" />
+        <span style={{ fontSize: 13, fontWeight: 600, color: '#374557', flex: 1 }}>{dept.name}</span>
+        <span style={{ fontSize: 11, color: '#aaa' }}>{users.length} member{users.length === 1 ? '' : 's'}</span>
+        <button onClick={() => setOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: '#f4f5f9', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#555', fontWeight: 600 }}>
+          {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Members
+        </button>
+        {canDeleteDept && (
+          <button onClick={() => { if (confirm(`Delete department "${dept.name}"?`)) deleteDept.mutate(dept.id) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#EF4444', padding: 4 }}>
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div style={{ borderTop: '1px solid #f0f1f5', padding: 12, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {members.length === 0 && <p style={{ fontSize: 12, color: '#aaa', margin: 0 }}>No members yet.</p>}
+          {members.map(m => {
+            const u = users.find(x => x.id === m.id)
+            return u ? <DepartmentMemberRow key={u.id} user={u} departments={departments} /> : null
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DepartmentsPanel({ users }: { users: User[] }) {
+  const { data: departments = [], isLoading } = useDepartments()
+  const createDept = useCreateDepartment()
+  const [newName, setNewName] = useState('')
+
+  function add() {
+    if (!newName.trim()) return
+    createDept.mutate(newName.trim())
+    setNewName('')
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="New department name…" onKeyDown={e => e.key === 'Enter' && add()}
+          style={{ flex: 1, maxWidth: 280, fontSize: 12, padding: '7px 10px', border: '1px solid #ddd', borderRadius: 7 }} />
+        <button onClick={add} disabled={createDept.isPending || !newName.trim()} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 7, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer', opacity: createDept.isPending || !newName.trim() ? 0.6 : 1 }}>
+          <Plus size={13} /> Add
+        </button>
+      </div>
+      {isLoading ? (
+        <p style={{ color: '#999', fontSize: 14 }}>Loading…</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {departments.map(d => <DepartmentRow key={d.id} dept={d} users={users} />)}
+          {departments.length === 0 && <p style={{ color: '#aaa', fontSize: 13, textAlign: 'center', padding: 32 }}>No departments yet. Add one above.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function UserManagement() {
   const qc = useQueryClient()
+  const can = useAuthStore(s => s.can)
+  const canDeactivate = can('hr_user', 'deactivate')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'active' | 'pending'>('all')
+  const [view, setView] = useState<'users' | 'departments'>('users')
 
-  const { data: users = [], isLoading } = useQuery<User[]>({
+  const { data: users = [], isLoading, isError, refetch } = useQuery<User[]>({
     queryKey: ['users', 'all'],
-    queryFn: () => api.get('/users', { params: { includePending: 'true' } }).then(r => r.data),
+    queryFn: () => api.get('/users', { params: { includePending: 'true', pageSize: 1000 } }).then(r => r.data.data),
   })
 
   const { data: roles = [] } = useQuery<RoleDef[]>({
@@ -380,20 +475,36 @@ export default function UserManagement() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <Users size={20} color="#5D78FF" />
         <h1 style={{ fontSize: 18, fontWeight: 700, color: '#374557', margin: 0 }}>User Management</h1>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {(['all', 'active', 'pending'] as const).map(f => (
-            <button key={f} onClick={() => setFilter(f)} style={{
+        <div style={{ display: 'flex', gap: 6, marginLeft: 16 }}>
+          {(['users', 'departments'] as const).map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
               padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6,
               cursor: 'pointer', border: 'none',
-              background: filter === f ? '#5D78FF' : '#f4f5f9',
-              color: filter === f ? '#fff' : '#555',
+              background: view === v ? '#374557' : '#f4f5f9',
+              color: view === v ? '#fff' : '#555',
             }}>
-              {f === 'all' ? `All (${users.length})` : f === 'active' ? `Active (${users.filter(u => u.isActive).length})` : `Pending (${users.filter(u => !u.isActive).length})`}
+              {v === 'users' ? 'Users' : 'Departments'}
             </button>
           ))}
         </div>
+        {view === 'users' && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+            {(['all', 'active', 'pending'] as const).map(f => (
+              <button key={f} onClick={() => setFilter(f)} style={{
+                padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                cursor: 'pointer', border: 'none',
+                background: filter === f ? '#5D78FF' : '#f4f5f9',
+                color: filter === f ? '#fff' : '#555',
+              }}>
+                {f === 'all' ? `All (${users.length})` : f === 'active' ? `Active (${users.filter(u => u.isActive).length})` : `Pending (${users.filter(u => !u.isActive).length})`}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
+      {view === 'departments' && <DepartmentsPanel users={users} />}
+      {view === 'users' && <>
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
@@ -443,7 +554,7 @@ export default function UserManagement() {
                     <Clock size={11} /> Pending
                   </span>
                 )}
-                {user.isActive && (
+                {user.isActive && canDeactivate && (
                   <button
                     onClick={() => { if (confirm(`Deactivate ${user.name}?`)) deactivate.mutate(user.id) }}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#EF4444', background: '#FEF2F2', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}
@@ -467,6 +578,7 @@ export default function UserManagement() {
           )}
         </div>
       )}
+      </>}
     </div>
   )
 }

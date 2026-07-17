@@ -26,12 +26,33 @@ export async function createNotification(opts: {
   })
 }
 
-async function alertRecipientIds(): Promise<string[]> {
+export async function roleUserIds(roles: string[]): Promise<string[]> {
+  if (!roles.length) return []
   const users = await prisma.user.findMany({
-    where: { isActive: true, roleName: { in: ALERT_ROLES } },
+    where: { isActive: true, roleName: { in: roles } },
     select: { id: true },
   })
   return users.map(u => u.id)
+}
+
+/**
+ * Notify all active users holding any of the given roles. Resolves roles → userIds
+ * then writes one notification row per user. No-op if no user holds the roles.
+ */
+export async function notifyRoles(roles: string[], opts: {
+  type: string
+  severity?: 'info' | 'warning' | 'critical'
+  title: string
+  message: string
+  entityType?: string
+  entityId?: string
+}) {
+  const userIds = await roleUserIds(roles)
+  await createNotification({ userIds, ...opts })
+}
+
+async function alertRecipientIds(): Promise<string[]> {
+  return roleUserIds(ALERT_ROLES)
 }
 
 /**

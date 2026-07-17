@@ -7,7 +7,7 @@ import {
   UserCheck, Handshake, Contact, Building2, FolderOpen, CheckSquare,
   KanbanSquare, Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
   FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
-  MessageSquare, ClipboardCheck, Shield,
+  MessageSquare, ClipboardCheck, Shield, Store,
 } from 'lucide-react'
 
 interface RoleDef {
@@ -28,6 +28,7 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
   { label: 'Deals', Icon: Handshake, perms: [
     { key: 'deal:create', label: 'Add new deals' }, { key: 'deal:read_own', label: 'View own deals' },
     { key: 'deal:read_all', label: 'View all deals' }, { key: 'deal:edit', label: 'Edit deals' }, { key: 'deal:delete', label: 'Delete deals' },
+    { key: 'deal:assign_pm', label: 'Assign Project Manager' }, { key: 'deal:assign_se', label: 'Assign Service Engineer' },
   ]},
   { label: 'Contacts', Icon: Contact, perms: [
     { key: 'contact:create', label: 'Add contacts' }, { key: 'contact:read_own', label: 'View own contacts' },
@@ -96,9 +97,17 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
   { label: 'Discussions', Icon: MessageSquare, perms: [
     { key: 'discussion:create', label: 'Start discussions' }, { key: 'discussion:read_all', label: 'Read all discussions' },
     { key: 'discussion:edit_own', label: 'Edit own comments' }, { key: 'discussion:delete_own', label: 'Delete own comments' },
+    { key: 'attachment:create', label: 'Upload attachments' }, { key: 'attachment:read_all', label: 'View/download attachments' },
+    { key: 'attachment:delete', label: 'Delete attachments' },
   ]},
   { label: 'Approvals', Icon: ClipboardCheck, perms: [
     { key: 'approval_request:create', label: 'Submit approval requests' }, { key: 'approval_request:review', label: 'Approve or reject requests' },
+  ]},
+  { label: 'Dealers & Items', Icon: Store, perms: [
+    { key: 'dealer:create', label: 'Add dealers' }, { key: 'dealer:read_all', label: 'View dealers' },
+    { key: 'dealer:edit', label: 'Edit dealers' }, { key: 'dealer:delete', label: 'Delete dealers' },
+    { key: 'dealer_item:create', label: 'Add dealer items' }, { key: 'dealer_item:read_all', label: 'View dealer items' },
+    { key: 'dealer_item:edit', label: 'Edit dealer items' }, { key: 'dealer_item:delete', label: 'Delete dealer items' },
   ]},
   { label: 'Admin', Icon: Shield, perms: [
     { key: 'role_admin:manage', label: 'Manage roles & permissions' },

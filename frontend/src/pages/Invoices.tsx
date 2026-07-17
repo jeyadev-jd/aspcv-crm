@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
-import { MoreHorizontal, X, Paperclip, ChevronLeft, ChevronRight, Plus, FileText, Download, Star, Trash2 } from 'lucide-react'
+import { MoreHorizontal, X, Paperclip, ChevronLeft, ChevronRight, Plus, FileText, Download, Star, Trash2, Pencil, AlertTriangle } from 'lucide-react'
+import EmptyState from '@/components/shared/EmptyState'
 import { useCurrency } from '@/lib/currencyContext'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
@@ -10,6 +11,7 @@ import { api } from '@/lib/api'
 import { PDFDownloadLink } from '@react-pdf/renderer'
 import { InvoicePDF } from '@/components/pdf/InvoicePDF'
 import { useSignatories, useCreateSignatory, useUpdateSignatory, useDeleteSignatory } from '@/hooks/useSignatories'
+import { useBankAccounts, useCreateBankAccount, useUpdateBankAccount, useDeleteBankAccount } from '@/hooks/useBankAccounts'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface InvoiceItem { id: string; item: string; hsnCode?: string; rate?: number; hours?: number; amount: number }
@@ -19,6 +21,7 @@ interface Invoice {
   customerGstin?: string; customerState?: string; placeOfSupply?: string
   typeOfSupply?: string; poNo?: string; poDate?: string; gstRate?: number; paymentTerms?: string
   signatoryId?: string
+  bankAccountId?: string
   items: InvoiceItem[]
   activities: { id?: string; text: string; createdAt?: string }[]
 }
@@ -27,13 +30,20 @@ interface Invoice {
 function useInvoices() {
   return useQuery<Invoice[]>({
     queryKey: ['invoices'],
-    queryFn: () => api.get('/invoices').then(r => r.data),
+    queryFn: () => api.get('/invoices', { params: { pageSize: 1000 } }).then(r => r.data.data),
   })
 }
 function useCreateInvoice() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => api.post('/invoices', data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
+  })
+}
+function useUpdateInvoice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...data }: { id: string } & Record<string, unknown>) => api.put(`/invoices/${id}`, data).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['invoices'] }),
   })
 }
@@ -89,8 +99,9 @@ const blankPdfForm = {
 
 function PdfModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
   const [form, setForm] = useState({ ...blankPdfForm, placeOfSupply: inv.customerState ?? '', customerState: inv.customerState ?? '', customerGstin: inv.customerGstin ?? '', poNo: inv.poNo ?? '', paymentTerms: inv.paymentTerms ?? '', gstRate: String(inv.gstRate ?? 9) })
-  const [signId, setSignId] = useState<string | null>(null)
+  const [signId, setSignId] = useState<string | null>(inv.signatoryId ?? null)
   const [showSigForm, setShowSigForm] = useState(false)
+  const updateInvoice = useUpdateInvoice()
   const [sigForm, setSigForm] = useState({ name: '', designation: '', signatureData: '' })
   const sigFileRef = useRef<HTMLInputElement>(null)
 
@@ -101,6 +112,44 @@ function PdfModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
 
   const selectedSig = signatories.find(s => s.id === signId) ?? signatories.find(s => s.isDefault) ?? null
 
+  const [bankId, setBankId] = useState<string | null>(inv.bankAccountId ?? null)
+  const [showBankForm, setShowBankForm] = useState(false)
+  const [editingBankId, setEditingBankId] = useState<string | null>(null)
+  const [bankForm, setBankForm] = useState({ bankName: '', accountNumber: '', ifscCode: '' })
+
+  const { data: bankAccounts = [] } = useBankAccounts()
+  const createBank = useCreateBankAccount()
+  const updateBank = useUpdateBankAccount()
+  const deleteBank = useDeleteBankAccount()
+
+  const selectedBank = bankAccounts.find(b => b.id === bankId) ?? bankAccounts.find(b => b.isDefault) ?? null
+
+  function selectBank(id: string) {
+    setBankId(id)
+    updateInvoice.mutate({ id: inv.id, bankAccountId: id })
+  }
+
+  async function addBankAccount() {
+    if (!bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim()) return
+    const row = await createBank.mutateAsync({ ...bankForm })
+    selectBank(row.id)
+    setBankForm({ bankName: '', accountNumber: '', ifscCode: '' })
+    setShowBankForm(false)
+  }
+
+  function startEditBank(b: { id: string; bankName: string; accountNumber: string; ifscCode: string }) {
+    setEditingBankId(b.id)
+    setBankForm({ bankName: b.bankName, accountNumber: b.accountNumber, ifscCode: b.ifscCode })
+    setShowBankForm(false)
+  }
+
+  async function saveBankEdit() {
+    if (!editingBankId || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim()) return
+    await updateBank.mutateAsync({ id: editingBankId, ...bankForm })
+    setEditingBankId(null)
+    setBankForm({ bankName: '', accountNumber: '', ifscCode: '' })
+  }
+
   function handleSigUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
@@ -109,10 +158,15 @@ function PdfModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
     reader.readAsDataURL(file)
   }
 
+  function selectSig(id: string) {
+    setSignId(id)
+    updateInvoice.mutate({ id: inv.id, signatoryId: id })
+  }
+
   async function addSignatory() {
     if (!sigForm.name.trim()) return
     const row = await createSig.mutateAsync({ ...sigForm })
-    setSignId(row.id)
+    selectSig(row.id)
     setSigForm({ name: '', designation: '', signatureData: '' })
     setShowSigForm(false)
   }
@@ -130,6 +184,7 @@ function PdfModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
     items,
     signatoryName: selectedSig?.name, signatoryDesignation: selectedSig?.designation ?? undefined,
     signatureData: selectedSig?.signatureData ?? undefined,
+    bankName: selectedBank?.bankName, bankAccountNumber: selectedBank?.accountNumber, bankIfsc: selectedBank?.ifscCode,
   }
 
   const inp: React.CSSProperties = { width: '100%', padding: '6px 10px', borderRadius: 7, border: '1px solid #F0F1F5', fontSize: 11, outline: 'none', boxSizing: 'border-box', color: '#374557', background: '#fafafa' }
@@ -184,7 +239,7 @@ function PdfModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
             {signatories.map(s => {
               const active = signId === s.id || (!signId && s.isDefault)
               return (
-                <div key={s.id} onClick={() => setSignId(s.id)}
+                <div key={s.id} onClick={() => selectSig(s.id)}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, border: `2px solid ${active ? '#5D78FF' : '#F0F1F5'}`, cursor: 'pointer', background: active ? '#F0F4FF' : '#fff' }}>
                   {s.signatureData
                     ? <img src={s.signatureData} alt="" style={{ height: 34, width: 80, objectFit: 'contain', borderRadius: 4, border: '1px solid #F0F1F5', background: '#fff' }} />
@@ -244,6 +299,80 @@ function PdfModal({ inv, onClose }: { inv: Invoice; onClose: () => void }) {
             ) : signatories.length === 0 ? (
               <p style={{ fontSize: 11, color: '#B1B1BE' }}>No signatories yet. Add one to include a signature in the PDF.</p>
             ) : null}
+
+            <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginTop: 8, marginBottom: 2 }}>Bank Account</p>
+
+            {bankAccounts.map(b => {
+              const active = bankId === b.id || (!bankId && b.isDefault)
+              if (editingBankId === b.id) {
+                return (
+                  <div key={b.id} style={{ background: '#FAFBFF', borderRadius: 8, border: '1px solid #F0F1F5', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <input value={bankForm.bankName} onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))} placeholder="Bank name & branch *" style={inp} />
+                    <input value={bankForm.accountNumber} onChange={e => setBankForm(f => ({ ...f, accountNumber: e.target.value }))} placeholder="A/C number *" style={inp} />
+                    <input value={bankForm.ifscCode} onChange={e => setBankForm(f => ({ ...f, ifscCode: e.target.value }))} placeholder="IFSC code *" style={inp} />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={saveBankEdit} disabled={updateBank.isPending || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim()}
+                        style={{ padding: '6px 12px', borderRadius: 7, fontSize: 11, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer', opacity: updateBank.isPending || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim() ? 0.6 : 1 }}>
+                        {updateBank.isPending ? 'Saving...' : 'Save Changes'}
+                      </button>
+                      <button onClick={() => { setEditingBankId(null); setBankForm({ bankName: '', accountNumber: '', ifscCode: '' }) }}
+                        style={{ padding: '6px 12px', borderRadius: 7, fontSize: 11, fontWeight: 600, background: '#F4F5F9', color: '#374557', border: 'none', cursor: 'pointer' }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )
+              }
+              return (
+                <div key={b.id} onClick={() => selectBank(b.id)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, border: `2px solid ${active ? '#5D78FF' : '#F0F1F5'}`, cursor: 'pointer', background: active ? '#F0F4FF' : '#fff' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.bankName}</p>
+                    <p style={{ fontSize: 10, color: '#B1B1BE' }}>A/C {b.accountNumber} · {b.ifscCode}</p>
+                    {b.isDefault && <span style={{ fontSize: 9, background: '#E8EDFF', color: '#5D78FF', padding: '1px 6px', borderRadius: 10 }}>Default</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
+                    <button title="Set default" onClick={e => { e.stopPropagation(); updateBank.mutate({ id: b.id, isDefault: true }) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: b.isDefault ? '#5D78FF' : '#D5D5D5', padding: 3 }}>
+                      <Star size={12} fill={b.isDefault ? '#5D78FF' : 'none'} />
+                    </button>
+                    <button title="Edit" onClick={e => { e.stopPropagation(); startEditBank(b) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE', padding: 3 }}>
+                      <Pencil size={12} />
+                    </button>
+                    <button title="Delete" onClick={e => { e.stopPropagation(); if (window.confirm(`Delete bank account "${b.bankName}"?`)) deleteBank.mutate(b.id) }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FF5353', padding: 3 }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+
+            <button onClick={() => { setShowBankForm(s => !s); setEditingBankId(null) }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: '#F4F5F9', color: '#374557', border: 'none', cursor: 'pointer' }}>
+              <Plus size={12} /> {showBankForm ? 'Cancel' : 'Add Bank Account'}
+            </button>
+
+            {showBankForm && (
+              <div style={{ background: '#FAFBFF', borderRadius: 8, border: '1px solid #F0F1F5', padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <input value={bankForm.bankName} onChange={e => setBankForm(f => ({ ...f, bankName: e.target.value }))} placeholder="Bank name & branch *" style={inp} />
+                <input value={bankForm.accountNumber} onChange={e => setBankForm(f => ({ ...f, accountNumber: e.target.value }))} placeholder="A/C number *" style={inp} />
+                <input value={bankForm.ifscCode} onChange={e => setBankForm(f => ({ ...f, ifscCode: e.target.value }))} placeholder="IFSC code *" style={inp} />
+                <button onClick={addBankAccount} disabled={createBank.isPending || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim()}
+                  style={{ padding: '6px 12px', borderRadius: 7, fontSize: 11, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer', opacity: createBank.isPending || !bankForm.bankName.trim() || !bankForm.accountNumber.trim() || !bankForm.ifscCode.trim() ? 0.6 : 1 }}>
+                  {createBank.isPending ? 'Saving...' : 'Save Bank Account'}
+                </button>
+              </div>
+            )}
+
+            {selectedBank ? (
+              <div style={{ padding: '10px 12px', background: '#E7FAF0', borderRadius: 8, fontSize: 11, color: '#2BC155' }}>
+                PDF beneficiary: <strong>{selectedBank.bankName}</strong> · A/C {selectedBank.accountNumber}
+              </div>
+            ) : bankAccounts.length === 0 ? (
+              <p style={{ fontSize: 11, color: '#B1B1BE' }}>No bank accounts yet. Add one to set the invoice beneficiary.</p>
+            ) : null}
           </div>
         </div>
 
@@ -279,7 +408,7 @@ export default function Invoices() {
   const isMobile = useIsMobile()
   const { symbol, currency } = useCurrency()
 
-  const { data: invoices = [], isLoading } = useInvoices()
+  const { data: invoices = [], isLoading, isError, refetch } = useInvoices()
   const createInvoice = useCreateInvoice()
 
   const [tab, setTab]           = useState<'All' | 'Draft' | 'Scheduled' | 'Paid'>('All')
@@ -425,6 +554,9 @@ export default function Invoices() {
         <div className="crm-table-wrap" style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflowX: 'auto', minHeight: 'calc(100vh - 200px)' }}>
           {isLoading ? (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: '#B1B1BE', fontSize: 12 }}>Loading invoices…</div>
+          ) : isError ? (
+            <EmptyState icon={AlertTriangle} title="Failed to load invoices" subtitle="Something went wrong fetching this data."
+              action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
           ) : filtered.length === 0 ? (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: '#B1B1BE', fontSize: 12 }}>No invoices — click "New Invoice" to create one</div>
           ) : isMobile ? (

@@ -1,10 +1,11 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 import { invalidate } from '../services/permissions-cache'
+import { rejectIfInactive } from '../lib/softDelete'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 router.use(requirePermission('role_admin', 'manage'))
 
@@ -28,6 +29,8 @@ router.post('/', async (req, res) => {
 
 // PATCH /:id — rename displayName / reorder (name immutable)
 router.patch('/:id', async (req, res) => {
+  const existing = await prisma.roleDefinition.findUnique({ where: { id: req.params.id } })
+  if (!rejectIfInactive(existing, res)) return
   const { displayName, sortOrder } = req.body as { displayName?: string; sortOrder?: number }
   const rd = await prisma.roleDefinition.update({
     where: { id: req.params.id },
@@ -41,8 +44,16 @@ router.delete('/:id', async (req, res) => {
   const rd = await prisma.roleDefinition.findUnique({ where: { id: req.params.id } })
   if (!rd) { res.status(404).json({ error: 'Not found' }); return }
   if (rd.isSystem) { res.status(400).json({ error: 'Cannot delete system role' }); return }
+  if (rd.isActive === false) { res.status(204).end(); return } // idempotent
   await prisma.roleDefinition.update({ where: { id: req.params.id }, data: { isActive: false } })
   res.status(204).end()
+})
+
+router.post('/:id/restore', async (req, res) => {
+  const rd = await prisma.roleDefinition.findUnique({ where: { id: req.params.id } })
+  if (!rd) { res.status(404).json({ error: 'Not found' }); return }
+  const restored = await prisma.roleDefinition.update({ where: { id: req.params.id }, data: { isActive: true } })
+  res.json(restored)
 })
 
 // PUT /:id/permissions — replace full permission set

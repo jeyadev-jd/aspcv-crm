@@ -1,9 +1,9 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 router.get('/:contactId/events', async (req, res) => {

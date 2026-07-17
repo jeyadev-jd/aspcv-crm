@@ -25,10 +25,10 @@ export const INSTALL_STATUS_LABEL: Record<InstallationAPI['status'], string> = {
 export const INSTALL_STATUSES = Object.keys(INSTALL_STATUS_LABEL) as InstallationAPI['status'][]
 
 export function useInstallations(params?: Record<string, string>) {
-  const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+  const qs = '?' + new URLSearchParams({ pageSize: '1000', ...params }).toString()
   return useQuery<InstallationAPI[]>({
     queryKey: ['installations', params],
-    queryFn: () => api.get(`/installations${qs}`).then(r => r.data),
+    queryFn: () => api.get(`/installations${qs}`).then(r => r.data.data),
     staleTime: 30_000,
   })
 }

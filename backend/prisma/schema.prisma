@@ -27,7 +27,16 @@ model Signatory {
   id            String   @id @default(cuid())
   name          String
   designation   String?
-  signatureData String?  // base64 PNG
+  signatureData String? // base64 PNG
+  isDefault     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+}
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  bankName      String // e.g. "Yes Bank - Nungambakkam"
+  accountNumber String
+  ifscCode      String
   isDefault     Boolean  @default(false)
   createdAt     DateTime @default(now())
 }
@@ -38,7 +47,12 @@ model Invoice {
   date          DateTime
   customer      String
   status        InvoiceStatus @default(Unpaid)
+  paidAt        DateTime?
   amount        Float
+  paidAmount    Float         @default(0)
+  dueDate       DateTime?
+  project       Project?      @relation(fields: [projectId], references: [id])
+  projectId     String?
   fromName      String?
   fromAddr      String?
   toName        String?
@@ -50,13 +64,26 @@ model Invoice {
   typeOfSupply  String?
   poNo          String?
   poDate        DateTime?
-  gstRate       Float?        @default(9)   // each leg: SGST + CGST
+  gstRate       Float?        @default(9) // each leg: SGST + CGST
   paymentTerms  String?
   signatoryId   String?
+  bankAccountId String?
   items         InvoiceItem[]
   activities    Activity[]
+  payments      Payment[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
+}
+
+model Payment {
+  id           String   @id @default(cuid())
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoiceId    String
+  amount       Float
+  method       String?
+  paidAt       DateTime @default(now())
+  recordedById String?
+  notes        String?
 }
 
 model InvoiceItem {
@@ -79,43 +106,216 @@ model Activity {
 }
 
 model Task {
-  id          String     @id @default(cuid())
+  id          String       @id @default(cuid())
   title       String
-  status      TaskStatus @default(Pending)
-  subtasks    Int        @default(0)
-  completed   Int        @default(0)
-  comments    Int        @default(0)
-  attachments Int        @default(0)
-  checked     Boolean    @default(false)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  description String?
+  status      TaskStatus   @default(Pending)
+  // Assignment
+  assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeId  String?
+  department  Department?  @relation(fields: [departmentId], references: [id])
+  departmentId String?
+  createdById String?
+  // Polymorphic mapping — a task can attach to any entity (project/lead/deal/installation/invoice/...)
+  entityType  String?
+  entityId    String?
+  // Duration
+  startDate   DateTime?
+  dueDate     DateTime?
+  // Submission (simple URL, no file storage)
+  submissionUrl String?
+  submittedAt DateTime?
+  completedAt DateTime?
+  subtasks    Int          @default(0)
+  completed   Int          @default(0)
+  comments    Int          @default(0)
+  attachments Int          @default(0)
+  checked     Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  kanbanCards KanbanCard[]
+}
+
+// ─── Kanban (enterprise, multi-board, relational — no JSON blobs) ────────────
+// Comments/attachments reuse the existing polymorphic Discussion/Attachment
+// models (entityType='KanbanCard'); status changes reuse appendEvent/timeline.
+
+model KanbanBoard {
+  id           String         @id @default(cuid())
+  name         String
+  description  String?
+  boardType    String         @default("Custom") // Custom | ProjectBoard | SalesPipeline | PurchaseWorkflow | ManufacturingWorkflow | ServiceWorkflow | HRRecruitment
+  isArchived   Boolean        @default(false)
+  isDefault    Boolean        @default(false)
+  department   Department?    @relation(fields: [departmentId], references: [id])
+  departmentId String?
+  createdById  String?
+  createdBy    User?          @relation("KanbanBoardCreatedBy", fields: [createdById], references: [id])
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  columns      KanbanColumn[]
+  labels       KanbanLabel[]
+
+  @@index([boardType])
+  @@index([departmentId])
+}
+
+model KanbanColumn {
+  id           String       @id @default(cuid())
+  board        KanbanBoard  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  boardId      String
+  title        String
+  color        String       @default("#5D78FF")
+  order        Int          @default(0)
+  wipLimit     Int?
+  isDoneColumn Boolean      @default(false)
+  isArchived   Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  cards        KanbanCard[]
+
+  @@index([boardId, order])
 }
 
 model KanbanCard {
-  id          String   @id @default(cuid())
-  title       String
-  category    String
-  progress    Int      @default(0)
-  total       Int      @default(1)
-  date        String
-  comments    Int      @default(0)
-  attachments Int      @default(0)
-  columnId    String
-  order       Int      @default(0)
+  id             String       @id @default(cuid())
+  column         KanbanColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  columnId       String
+  title          String
+  description    String?
+  priority       String       @default("Medium") // High | Medium | Low
+  status         String       @default("Open") // Open | Blocked | Done | Archived
+  dueDate        DateTime?
+  startDate      DateTime?
+  estimatedHours Float?
+  actualHours    Float?
+  progress       Int          @default(0)
+  total          Int          @default(1)
+  color          String       @default("#5D78FF")
+  order          Int          @default(0)
+  isArchived     Boolean      @default(false)
+
+  // Cross-ERP entity linking — a card can relate to any one of these
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+  taskId    String?
+  task      Task?    @relation(fields: [taskId], references: [id])
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id])
+  leadId    String?
+  lead      Lead?    @relation(fields: [leadId], references: [id])
+  dealId    String?
+  deal      Deal?    @relation(fields: [dealId], references: [id])
+
+  department   Department? @relation(fields: [departmentId], references: [id])
+  departmentId String?
+
+  createdById String?
+  createdBy   User?    @relation("KanbanCardCreatedBy", fields: [createdById], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  assignees KanbanCardAssignee[]
+  labels    KanbanCardLabel[]
+  checklist KanbanChecklistItem[]
+
+  @@index([columnId, order])
+  @@index([projectId])
+  @@index([taskId])
+  @@index([companyId])
+  @@index([leadId])
+  @@index([dealId])
+  @@index([dueDate])
+}
+
+model KanbanCardAssignee {
+  id         String     @id @default(cuid())
+  card       KanbanCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  cardId     String
+  user       User       @relation("KanbanCardAssignments", fields: [userId], references: [id])
+  userId     String
+  assignedAt DateTime   @default(now())
+
+  @@unique([cardId, userId])
+  @@index([userId])
+}
+
+model KanbanLabel {
+  id      String            @id @default(cuid())
+  board   KanbanBoard       @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  boardId String
+  name    String
+  color   String            @default("#5D78FF")
+  cards   KanbanCardLabel[]
+
+  @@unique([boardId, name])
+}
+
+model KanbanCardLabel {
+  id      String      @id @default(cuid())
+  card    KanbanCard  @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  cardId  String
+  label   KanbanLabel @relation(fields: [labelId], references: [id], onDelete: Cascade)
+  labelId String
+
+  @@unique([cardId, labelId])
+  @@index([labelId])
+}
+
+model KanbanChecklistItem {
+  id        String     @id @default(cuid())
+  card      KanbanCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  cardId    String
+  text      String
+  done      Boolean    @default(false)
+  order     Int        @default(0)
+  createdAt DateTime   @default(now())
+
+  @@index([cardId, order])
+}
+
+// Phase 2a: category of what triggered/describes a calendar event — replaces free-string
+// tagging so business-object sync logic (installations.ts, projects.ts, etc.) can match
+// reliably instead of string-comparing.
+enum CalendarEventCategory {
+  FollowUp
+  Meeting
+  Installation
+  Commissioning
+  EngineerVisit
+  WarrantyExpiry
+  AMCRenewal
+  ServiceVisit
+  CustomerReview
+  ProjectMilestone
+  Other
+}
+
+enum CalendarEventSource {
+  Manual // created directly by a user on the Calendar page
+  Auto   // synced from a business object (Installation date, Project warranty end, ...)
 }
 
 model CalendarEvent {
-  id          String   @id @default(cuid())
+  id          String                 @id @default(cuid())
   title       String
   description String?
   date        DateTime
   startTime   String
   endTime     String
-  color       String   @default("blue")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  color       String                 @default("blue")
+  // Phase 2a: polymorphic link to the business object this event represents, matching the
+  // entityType/entityId pattern already used by Attachment/TimelineEvent/Discussion/Notification.
+  entityType  String?
+  entityId    String?
+  category    CalendarEventCategory?
+  source      CalendarEventSource    @default(Manual)
+  createdById String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  @@index([entityType, entityId])
+  @@index([date])
 }
 
 // ─── New enterprise models ───────────────────────────────────────────────────
@@ -134,103 +334,324 @@ model Industry {
   createdAt DateTime @default(now())
 }
 
-model User {
-  id              String       @id @default(cuid())
-  name            String
-  email           String       @unique
-  passwordHash    String
-  role            Role         @default(Viewer)
-  roleName        String       @default("Viewer")
-  designation     Designation? @relation(fields: [designationId], references: [id])
-  designationId   String?
-  isActive        Boolean      @default(true)
-  createdById     String?
-  // HR fields
-  dateOfBirth     DateTime?
-  joiningDate     DateTime?
-  department      String?
-  baseSalary      Float?
-  hra             Float?       @default(0)
-  allowances      Float?       @default(0)
-  pfApplicable    Boolean      @default(true)
-  esiApplicable   Boolean      @default(true)
-  pan             String?
-  bankAccount     String?
-  ifsc            String?
-  bankName        String?
-  emergencyContact String?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  leadOwners      LeadOwner[]
-  dealOwners      DealOwner[]
-  discussionParticipants DiscussionParticipant[]
-  attachments     Attachment[]
-  attendanceRecords AttendanceRecord[]
-  salaryRecords   SalaryRecord[]
-  materialRequestsRaised MaterialRequest[] @relation("MRRequested")
-  permissionOverrides    UserPermissionOverride[] @relation("UserOverrides")
-  grantedOverrides       UserPermissionOverride[] @relation("GrantedByUser")
-  approvalRequestsMade   ApprovalRequest[]        @relation("ARRequested")
-  approvalRequestsReviewed ApprovalRequest[]      @relation("ARReviewed")
-}
-
-
-model Company {
-  id           String       @id @default(cuid())
-  name         String
-  nickname     String?      // short account name for ref number (e.g. HMML)
-  industry     String?
-  customerType CustomerType @default(Indian)
-  // India: region + state + city + area; International: country + city + area
-  region       String?      // North/West/South/East (India only)
-  country      String?      // manual entry (International)
-  state        String?      // dropdown list (India) or null
-  city         String?      // manual entry
-  area         String?      // manual entry
-  stateCode    String?      // 2-letter state code override for ref number
-  areaCode     String?      // area nickname for ref number (e.g. SR)
-  cityCode     String?      // city nickname for ref number (e.g. CH)
-  website      String?
-  phone        String?
-  email        String?
-  gstNumber    String?
-  isActive     Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  contacts     Contact[]
+model Department {
+  id           String        @id @default(cuid())
+  name         String        @unique
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  members      User[]
   leads        Lead[]
   deals        Deal[]
   projects     Project[]
-  installations Installation[]
+  kanbanCards  KanbanCard[]
+  kanbanBoards KanbanBoard[]
+  tasks        Task[]
+}
+
+// ─── ERP Phase 1: Master Data ────────────────────────────────────────────────
+// All mirror the Department pattern (id/name-unique/isActive/createdAt) plus
+// displayOrder/code/description for richer lookup UX. Simple CRUD, no free-text
+// business data anywhere downstream — every module references these by FK.
+
+model Region {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  code        String?
+  description String?
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  leads       Lead[]
+  deals       Deal[]
+}
+
+model Country {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  code        String?
+  description String?
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model CommercialModel {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  code        String?
+  description String?
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  leads       Lead[]
+  deals       Deal[]
+}
+
+model LeadSourceMaster {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  code        String?
+  description String?
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  leads       Lead[]
+}
+
+model ReasonCode {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  code        String?
+  description String?
+  category    String? // e.g. 'lost_reason' | 'drop_reason' | 'hold_reason'
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model CapacityUnit {
+  id          String    @id @default(cuid())
+  name        String    @unique // kW, MW, TR, TPD, LPH, Nm3/hr, kg/hr, ...
+  code        String?
+  description String?
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  leads       Lead[]
+}
+
+model SolutionCategory {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  code        String?
+  description String?
+  displayOrder Int       @default(0)
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  solutions   Solution[]
+}
+
+model Solution {
+  id          String            @id @default(cuid())
+  category    SolutionCategory  @relation(fields: [categoryId], references: [id])
+  categoryId  String
+  name        String // subcategory / model name
+  code        String?
+  description String?
+  displayOrder Int              @default(0)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  leadSolutions LeadSolution[]
+
+  @@unique([categoryId, name])
+}
+
+model SolutionAccessory {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  code        String?
+  description String?
+  displayOrder Int      @default(0)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  leadSolutions LeadSolutionAccessory[]
+}
+
+// Join: a Lead's chosen solution configuration + selected accessories.
+model LeadSolution {
+  id            String                   @id @default(cuid())
+  lead          Lead                     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId        String                   @unique
+  solution      Solution                 @relation(fields: [solutionId], references: [id])
+  solutionId    String
+  configuration String?
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+  accessories   LeadSolutionAccessory[]
+}
+
+model LeadSolutionAccessory {
+  id           String            @id @default(cuid())
+  leadSolution LeadSolution      @relation(fields: [leadSolutionId], references: [id], onDelete: Cascade)
+  leadSolutionId String
+  accessory    SolutionAccessory @relation(fields: [accessoryId], references: [id])
+  accessoryId  String
+
+  @@unique([leadSolutionId, accessoryId])
+}
+
+// One row per Lead.pipelineStage transition — the durable audit trail the spec asks for.
+model LeadStageHistory {
+  id         String             @id @default(cuid())
+  lead       Lead               @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId     String
+  stage      LeadPipelineStage
+  enteredAt  DateTime           @default(now())
+  exitedAt   DateTime?
+  remarks    String?
+  changedBy  String?
+
+  @@index([leadId])
+}
+
+model RevenueTarget {
+  id           String   @id @default(cuid())
+  month        Int // 1-12
+  year         Int
+  targetAmount Float
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([month, year])
+  @@index([year, month])
+}
+
+model User {
+  id                       String                   @id @default(cuid())
+  name                     String
+  email                    String                   @unique
+  passwordHash             String
+  role                     Role                     @default(Viewer)
+  roleName                 String                   @default("Viewer")
+  designation              Designation?             @relation(fields: [designationId], references: [id])
+  designationId            String?
+  isActive                 Boolean                  @default(true)
+  createdById              String?
+  // HR fields
+  dateOfBirth              DateTime?
+  joiningDate              DateTime?
+  department               Department?              @relation(fields: [departmentId], references: [id])
+  departmentId             String?
+  baseSalary               Float?
+  hra                      Float?                   @default(0)
+  allowances               Float?                   @default(0)
+  pfApplicable             Boolean                  @default(true)
+  esiApplicable            Boolean                  @default(true)
+  pan                      String?
+  bankAccount              String?
+  ifsc                     String?
+  bankName                 String?
+  emergencyContact         String?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  leadOwners               LeadOwner[]
+  dealOwners               DealOwner[]
+  discussionParticipants   DiscussionParticipant[]
+  attachments              Attachment[]
+  attendanceRecords        AttendanceRecord[]
+  salaryRecords            SalaryRecord[]
+  materialRequestsRaised   MaterialRequest[]        @relation("MRRequested")
+  permissionOverrides      UserPermissionOverride[] @relation("UserOverrides")
+  grantedOverrides         UserPermissionOverride[] @relation("GrantedByUser")
+  approvalRequestsMade     ApprovalRequest[]        @relation("ARRequested")
+  approvalRequestsReviewed ApprovalRequest[]        @relation("ARReviewed")
+  assignedDealsAsSE        Deal[]                   @relation("DealAssignedSE")
+  assignedDealsAsPM        Deal[]                   @relation("DealAssignedPM")
+  assignedProjectsAsPM     Project[]                @relation("ProjectAssignedPM")
+  assignedProjectsAsSE     Project[]                @relation("ProjectAssignedSE")
+  kanbanBoardsCreated      KanbanBoard[]            @relation("KanbanBoardCreatedBy")
+  kanbanCardsCreated       KanbanCard[]             @relation("KanbanCardCreatedBy")
+  kanbanCardAssignments    KanbanCardAssignee[]     @relation("KanbanCardAssignments")
+  tasksAssigned            Task[]                   @relation("TaskAssignee")
+  leadsAsPrimaryOwner      Lead[]                   @relation("LeadPrimaryOwner")
+  leadsAsSecondaryOwner    Lead[]                   @relation("LeadSecondaryOwner")
+  leadsAsSalesManager      Lead[]                   @relation("LeadSalesManager")
+  leadsAsBusinessHead      Lead[]                   @relation("LeadBusinessHead")
+}
+
+model Company {
+  id             String          @id @default(cuid())
+  name           String
+  nickname       String? // short account name for ref number (e.g. HMML)
+  industry       String?
+  customerType   CustomerType    @default(Indian)
+  // India: region + state + city + area; International: country + city + area
+  region         String? // North/West/South/East (India only)
+  country        String? // manual entry (International)
+  state          String? // dropdown list (India) or null
+  city           String? // manual entry
+  area           String? // manual entry
+  stateCode      String? // 2-letter state code override for ref number
+  areaCode       String? // area nickname for ref number (e.g. SR)
+  cityCode       String? // city nickname for ref number (e.g. CH)
+  website        String?
+  phone          String?
+  email          String?
+  gstNumber      String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  contacts       Contact[]
+  leads          Lead[]
+  deals          Deal[]
+  projects       Project[]
+  installations  Installation[]
   supportTickets SupportTicket[]
+  quotations     Quotation[]
+  salesOrders    SalesOrder[]
+  kanbanCards    KanbanCard[]
+  healthSnapshots CustomerHealthSnapshot[]
+}
+
+// Phase 2a: schema only — no scoring logic wired yet (deferred to Phase 2b). Storing the
+// shape now so history isn't lost once scoring lands: each computation appends a row rather
+// than overwriting, so Reports/Dashboard can show a trend, not just a current value.
+enum CustomerHealthBand {
+  Excellent
+  Good
+  Average
+  AtRisk
+  Critical
+}
+
+model CustomerHealthSnapshot {
+  id         String              @id @default(cuid())
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId  String
+  band       CustomerHealthBand?
+  score      Int?
+  factors    Json? // { totalProjects, completedProjects, overdueInvoices, ... } — snapshot of inputs used
+  computedAt DateTime            @default(now())
+  createdAt  DateTime            @default(now())
+
+  @@index([companyId, computedAt])
 }
 
 model Contact {
-  id          String   @id @default(cuid())
-  company     Company  @relation(fields: [companyId], references: [id])
-  companyId   String
-  name        String
-  designation String?
-  email       String?
-  phone       String?
-  whatsapp    String?
-  notes       String?
-  isActive    Boolean  @default(true)
-  createdById String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                     String                  @id @default(cuid())
+  company                Company                 @relation(fields: [companyId], references: [id])
+  companyId              String
+  name                   String
+  designation            String?
+  email                  String?
+  phone                  String?
+  whatsapp               String?
+  notes                  String?
+  isActive               Boolean                 @default(true)
+  createdById            String?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
   discussionParticipants DiscussionParticipant[]
-  supportTickets SupportTicket[]
-  events      ContactEvent[]
+  supportTickets         SupportTicket[]
+  events                 ContactEvent[]
 
   @@unique([companyId, email])
+  @@index([createdById])
 }
 
 model ContactEvent {
   id        String   @id @default(cuid())
   contactId String
   contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  type      String   // 'birthday' | 'anniversary' | 'custom'
+  type      String // 'birthday' | 'anniversary' | 'custom'
   title     String
   eventDate DateTime
   recurring Boolean  @default(true)
@@ -239,31 +660,71 @@ model ContactEvent {
 }
 
 model Lead {
-  id              String         @id @default(cuid())
-  company         Company        @relation(fields: [companyId], references: [id])
-  companyId       String
-  title           String
-  source          String         // kept for backward compat; new leads use LeadSource[]
-  region          String
-  commercialType  String
-  productId       String?
-  estimatedValue  Float?
-  closeDate       DateTime?
-  stage           LifecycleStage @default(Lead)
-  status          LeadStatus     @default(Enquiry)
-  notes           String?
-  leadDate        DateTime       @default(now())
-  serialNo        Int?
-  refNumber       String?        @unique
-  monthlyRemarks  String?
-  isActive        Boolean        @default(true)
-  createdById     String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  owners          LeadOwner[]
-  contacts        LeadContact[]
-  sources         LeadSource[]
-  deals           Deal[]
+  id             String         @id @default(cuid())
+  company        Company        @relation(fields: [companyId], references: [id])
+  companyId      String
+  title          String
+  // ── Master-data FK fields (Phase 1) — sole source of truth; legacy free-text
+  // region/commercialType/source columns removed after full regression + frontend cutover. ──
+  regionRef         Region?           @relation(fields: [regionId], references: [id])
+  regionId          String?
+  commercialModel   CommercialModel?  @relation(fields: [commercialModelId], references: [id])
+  commercialModelId String?
+  leadSourceRef     LeadSourceMaster? @relation(fields: [leadSourceId], references: [id])
+  leadSourceId      String?
+  productId      String?
+  estimatedValue Float?
+  closeDate      DateTime?
+  stage          LifecycleStage @default(Lead)
+  status         LeadStatus     @default(Enquiry)
+  notes          String?
+  leadDate       DateTime       @default(now())
+  serialNo       Int?
+  refNumber      String?        @unique
+  leadNumber     String?        @unique
+  monthlyRemarks String?
+  department     Department?    @relation(fields: [departmentId], references: [id])
+  departmentId   String?
+  isActive       Boolean        @default(true)
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  owners         LeadOwner[]
+  contacts       LeadContact[]
+  sources        LeadSource[]
+  deals          Deal[]
+  kanbanCards    KanbanCard[]
+
+  // ── Phase 1: sales pipeline (separate from `status`/`stage` — see model comment) ──
+  pipelineStage  LeadPipelineStage @default(Initial)
+  stageHistory   LeadStageHistory[]
+
+  // ── Phase 1: explicit ownership tiers (LeadOwner[] above stays as legacy multi-owner log) ──
+  primaryOwner    User?     @relation("LeadPrimaryOwner", fields: [primaryOwnerId], references: [id])
+  primaryOwnerId  String?
+  secondaryOwner  User?     @relation("LeadSecondaryOwner", fields: [secondaryOwnerId], references: [id])
+  secondaryOwnerId String?
+  salesManager    User?     @relation("LeadSalesManager", fields: [salesManagerId], references: [id])
+  salesManagerId  String?
+  businessHead    User?     @relation("LeadBusinessHead", fields: [businessHeadId], references: [id])
+  businessHeadId  String?
+  ownerAssignedAt DateTime?
+  ownerChangedBy  String?
+
+  // ── Phase 1: capacity / temperature / solution configuration ──
+  capacityValue  Float?
+  capacityUnit   CapacityUnit? @relation(fields: [capacityUnitId], references: [id])
+  capacityUnitId String?
+  tempRangeMin   Float?
+  tempRangeMax   Float?
+  solution       LeadSolution?
+
+  @@index([companyId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([pipelineStage])
+  @@index([regionId])
+  @@index([commercialModelId])
 }
 
 model LeadSource {
@@ -276,25 +737,25 @@ model LeadSource {
 }
 
 model LeadContact {
-  id           String   @id @default(cuid())
-  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  leadId       String
-  name         String
-  designation  String?
-  email        String?
-  phone        String?
-  whatsapp     String?
-  isPrimary    Boolean  @default(false)
-  createdAt    DateTime @default(now())
+  id          String   @id @default(cuid())
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId      String
+  name        String
+  designation String?
+  email       String?
+  phone       String?
+  whatsapp    String?
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
 }
 
 model LeadOwner {
-  id      String @id @default(cuid())
-  lead    Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  leadId  String
-  user    User   @relation(fields: [userId], references: [id])
-  userId  String
-  role    String @default("primary")
+  id     String @id @default(cuid())
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  leadId String
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+  role   String @default("primary")
 
   @@unique([leadId, userId])
 }
@@ -302,19 +763,19 @@ model LeadOwner {
 // ─── Polymorphic Discussion (entityType + entityId attaches to ANY module) ──
 
 model Discussion {
-  id           String       @id @default(cuid())
+  id           String                  @id @default(cuid())
   entityType   String
   entityId     String
   type         DiscussionType
-  category     String?      // General | Enquiry | ProspectiveLead | ProjectHold | Hibernated | OrderWon | OrderLost
+  category     String? // General | Enquiry | ProspectiveLead | ProjectHold | Hibernated | OrderWon | OrderLost
   title        String
   scheduledAt  DateTime?
   summary      String?
   decisions    String?
   nextActions  String?
   followUpAt   DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
   participants DiscussionParticipant[]
   attachments  Attachment[]
 
@@ -322,31 +783,70 @@ model Discussion {
 }
 
 model DiscussionParticipant {
-  id           String      @id @default(cuid())
-  discussion   Discussion  @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  id           String     @id @default(cuid())
+  discussion   Discussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
   discussionId String
-  user         User?       @relation(fields: [userId], references: [id])
+  user         User?      @relation(fields: [userId], references: [id])
   userId       String?
-  contact      Contact?    @relation(fields: [contactId], references: [id])
+  contact      Contact?   @relation(fields: [contactId], references: [id])
   contactId    String?
 }
 
 // ─── Polymorphic Attachment (attaches to Discussion OR any entity) ───────────
 
-model Attachment {
-  id           String      @id @default(cuid())
-  entityType   String?
-  entityId     String?
-  discussion   Discussion? @relation(fields: [discussionId], references: [id], onDelete: Cascade)
-  discussionId String?
-  fileName     String
-  mimeType     String
-  storageKey   String      @unique
-  sizeBytes    Int?
-  uploadedBy   User        @relation(fields: [uploadedById], references: [id])
-  uploadedById String
-  createdAt    DateTime    @default(now())
+// Phase 2a: enums replace what were free strings, so document classification is
+// consistent and queryable across every module instead of drifting per-caller.
+enum DocumentType {
+  Proposal
+  Contract
+  DrawingDesign
+  Invoice
+  PurchaseOrder
+  WorkOrder
+  ServiceReport
+  Photo
+  Warranty
+  Other
+}
 
+enum RelatedModule {
+  Lead
+  Deal
+  Project
+  Procurement
+  Manufacturing
+  Installation
+  Finance
+  Service
+  Company
+  Discussion
+  Other
+}
+
+model Attachment {
+  id             String        @id @default(cuid())
+  entityType     String?
+  entityId       String?
+  discussion     Discussion?   @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  discussionId   String?
+  fileName       String
+  mimeType       String
+  storageKey     String        @unique
+  sizeBytes      Int?
+  uploadedBy     User          @relation(fields: [uploadedById], references: [id])
+  uploadedById   String
+  // Phase 2a: metadata + version history. A new version keeps the same rootAttachmentId
+  // (the id of the first upload in the chain) so GET /attachments/:id/versions can list
+  // every revision together without a separate join table.
+  documentType   DocumentType?
+  relatedModule  RelatedModule?
+  version        Int            @default(1)
+  rootAttachment   Attachment?  @relation("AttachmentVersions", fields: [rootAttachmentId], references: [id])
+  rootAttachmentId String?
+  versions         Attachment[] @relation("AttachmentVersions")
+  createdAt        DateTime     @default(now())
+
+  @@index([rootAttachmentId])
   @@index([entityType, entityId])
 }
 
@@ -365,6 +865,64 @@ model TimelineEvent {
   @@index([entityType, entityId])
 }
 
+// ─── Audit Log (immutable, compliance-grade — who changed what, when, from where) ──
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  userName  String? // denormalized snapshot — survives user deletion/renaming
+  roleName  String?
+  action    String // create | update | delete | approve | reject | login | login_failed | export
+  module    String // Deal | Lead | Project | PurchaseOrder | User | ... (entity/resource name)
+  entityId  String?
+  oldValue  Json?
+  newValue  Json?
+  reason    String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([module, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@index([action])
+}
+
+// ─── Business Rules Engine (config-driven alerts — no hardcoded thresholds) ──
+// One row per rule. `config` shape depends on `key` (each rule handler in
+// businessRules.ts reads its own fields), but every rule shares: enabled,
+// severity-by-tier, recipientRoles, cooldownHours. Admin editable via
+// /api/business-rules, never requires a code change to retune.
+
+model BusinessRule {
+  id          String   @id @default(cuid())
+  key         String   @unique // stable code, e.g. "project_budget_tier"
+  name        String
+  module      String // Project | Finance | Inventory | Procurement
+  description String?
+  enabled     Boolean  @default(true)
+  config      Json // { thresholds:[...], severity:{...}, recipientRoles:[...], cooldownHours, ...rule-specific }
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  triggers RuleTriggerLog[]
+}
+
+model RuleTriggerLog {
+  id         String       @id @default(cuid())
+  rule       BusinessRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ruleId     String
+  entityType String
+  entityId   String
+  tierKey    String // which threshold/tier fired, e.g. "75", "overdue_15d" — used for cooldown+escalation dedup
+  severity   String
+  message    String
+  firedAt    DateTime     @default(now())
+
+  @@index([ruleId, entityType, entityId, tierKey])
+  @@index([firedAt])
+}
+
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
 enum InvoiceStatus {
@@ -372,12 +930,19 @@ enum InvoiceStatus {
   Unpaid
   Scheduled
   Processing
+  Draft
+  Sent
+  PartiallyPaid
+  Overdue
+  Cancelled
 }
 
 enum TaskStatus {
   Done
   Pending
   OnHold
+  InProgress
+  Submitted
 }
 
 enum Role {
@@ -401,6 +966,25 @@ enum LeadStatus {
   Hibernated
   OrderWon
   OrderLost
+}
+
+// Phase 1 sales pipeline — separate from LeadStatus/LifecycleStage above (those are
+// relied on by Deal/Project/reports and are NOT modified). OrderWon/ProjectDropped
+// here one-way sync LeadStatus to OrderWon/OrderLost so existing consumers keep working.
+enum LeadPipelineStage {
+  Initial
+  QuestionnaireSent
+  QuestionnaireFollowUp
+  QuestionnaireValidation
+  TechnicalDiscussion
+  Costing
+  ProposalPreparation
+  ProposalSubmitted
+  Prospective
+  HighlyProspective
+  Negotiation
+  OrderWon
+  ProjectDropped
 }
 
 enum CustomerType {
@@ -439,9 +1023,15 @@ enum DealStage {
 
 enum ProjectStatus {
   Planning
+  Engineering
+  Procurement
+  Manufacturing
+  Installation
+  Testing
+  Completed
+  Cancelled
   Active
   OnHold
-  Completed
 }
 
 enum InstallationStatus {
@@ -466,58 +1056,112 @@ enum TicketStatus {
 }
 
 model Deal {
-  id          String    @id @default(cuid())
-  lead        Lead?     @relation(fields: [leadId], references: [id])
-  leadId      String?
-  company     Company   @relation(fields: [companyId], references: [id])
-  companyId   String
-  title       String
-  stage       DealStage @default(Proposal)
-  value       Float?
-  probability Int?      @default(50)
-  closeDate   DateTime?
-  productId   String?
-  notes       String?
-  isActive    Boolean   @default(true)
-  createdById String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  owners      DealOwner[]
-  projects    Project[]
+  id                    String       @id @default(cuid())
+  lead                  Lead?        @relation(fields: [leadId], references: [id])
+  leadId                String?
+  company               Company      @relation(fields: [companyId], references: [id])
+  companyId             String
+  title                 String
+  stage                 DealStage    @default(Proposal)
+  value                 Float?
+  probability           Int?         @default(50)
+  closeDate             DateTime?
+  productId             String?
+  notes                 String?
+  department            Department?  @relation(fields: [departmentId], references: [id])
+  departmentId          String?
+  // Phase 1: inherited from Lead automatically on Order-Won promotion
+  region                Region?          @relation(fields: [regionId], references: [id])
+  regionId              String?
+  commercialModel       CommercialModel? @relation(fields: [commercialModelId], references: [id])
+  commercialModelId     String?
+  isActive              Boolean      @default(true)
+  createdById           String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  // Closed-Won handover fields
+  handoverNotes         String?
+  handoverAttachmentUrl String?
+  handoverSubmittedAt   DateTime?
+  assignedPMId          String?
+  assignedPM            User?        @relation("DealAssignedPM", fields: [assignedPMId], references: [id])
+  assignedSEId          String?
+  assignedSE            User?        @relation("DealAssignedSE", fields: [assignedSEId], references: [id])
+  owners                DealOwner[]
+  projects              Project[]
+  kanbanCards           KanbanCard[]
+
+  @@index([companyId])
+  @@index([leadId])
+  @@index([stage])
+  @@index([createdAt])
 }
 
 model DealOwner {
-  id      String @id @default(cuid())
-  deal    Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
-  dealId  String
-  user    User   @relation(fields: [userId], references: [id])
-  userId  String
-  role    String @default("primary")
+  id     String @id @default(cuid())
+  deal   Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  dealId String
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+  role   String @default("primary")
 
   @@unique([dealId, userId])
 }
 
 model Project {
-  id          String        @id @default(cuid())
-  deal        Deal?         @relation(fields: [dealId], references: [id])
-  dealId      String?
-  company     Company       @relation(fields: [companyId], references: [id])
-  companyId   String
-  title       String
-  status      ProjectStatus @default(Planning)
-  startDate   DateTime?
-  endDate     DateTime?
-  budget      Float?        // planned budget / PO value
-  actualBudget Float?       @default(0) // actual spend so far
-  progress    Int?          @default(0) // 0-100 % complete
-  alertTier   Int?          @default(0) // highest overrun tier fired: 0|50|75|100
-  notes       String?
-  isActive    Boolean       @default(true)
-  createdById String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  installations Installation[]
-  materialRequests MaterialRequest[]
+  id                     String                @id @default(cuid())
+  deal                   Deal?                 @relation(fields: [dealId], references: [id])
+  dealId                 String?
+  company                Company               @relation(fields: [companyId], references: [id])
+  companyId              String
+  title                  String
+  status                 ProjectStatus         @default(Planning)
+  startDate              DateTime?
+  endDate                DateTime?
+  expectedCompletionDate DateTime?
+  budget                 Float?
+  remainingBudget        Float?                @default(0)
+  actualBudget           Float?                @default(0)
+  purchaseCost           Float?                @default(0)
+  manufacturingCost      Float?                @default(0)
+  serviceCost            Float?                @default(0)
+  labourCost             Float?                @default(0)
+  installationCost       Float?                @default(0)
+  totalExpenses          Float?                @default(0)
+  profit                 Float?                @default(0)
+  warrantyPeriod         Int? // months
+  warrantyStart          DateTime?
+  warrantyEnd            DateTime?
+  progress               Int?                  @default(0)
+  alertTier              Int?                  @default(0)
+  isLocked               Boolean               @default(false)
+  completedAt            DateTime?
+  assignedPMId           String?
+  assignedPM             User?                 @relation("ProjectAssignedPM", fields: [assignedPMId], references: [id])
+  assignedSEId           String?
+  assignedSE             User?                 @relation("ProjectAssignedSE", fields: [assignedSEId], references: [id])
+  notes                  String?
+  department             Department?           @relation(fields: [departmentId], references: [id])
+  departmentId           String?
+  isActive               Boolean               @default(true)
+  createdById            String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  installations          Installation[]
+  materialRequests       MaterialRequest[]
+  boms                   BOM[]
+  workOrders             WorkOrder[]
+  inventoryAllocations   InventoryAllocation[]
+  serviceRecord          ServiceRecord?
+  salesOrder             SalesOrder?           @relation(fields: [salesOrderId], references: [id])
+  salesOrderId           String?               @unique
+  kanbanCards            KanbanCard[]
+  invoices               Invoice[]
+
+  @@index([companyId])
+  @@index([dealId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Installation {
@@ -535,24 +1179,30 @@ model Installation {
   createdById   String?
   createdAt     DateTime           @default(now())
   updatedAt     DateTime           @updatedAt
+
+  @@index([projectId])
+  @@index([companyId])
 }
 
 // ─── HR / Attendance / Payroll ───────────────────────────────────────────────
 
 model AttendanceRecord {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   userId       String
-  user         User     @relation(fields: [userId], references: [id])
+  user         User      @relation(fields: [userId], references: [id])
   date         DateTime
   checkIn      DateTime?
   checkOut     DateTime?
+  breakStart   DateTime?
+  breakEnd     DateTime?
+  breakMinutes Int       @default(0)
   lat          Float?
   lng          Float?
   locationName String?
-  status       String   @default("present") // present | late | absent | half_day | leave
-  minutesLate  Int      @default(0)
+  status       String    @default("present") // present | late | absent | half_day | leave
+  minutesLate  Int       @default(0)
   notes        String?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime  @default(now())
 
   @@unique([userId, date])
 }
@@ -569,31 +1219,31 @@ model AttendanceLocation {
 }
 
 model SalaryRecord {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
-  user           User     @relation(fields: [userId], references: [id])
+  user           User      @relation(fields: [userId], references: [id])
   month          Int
   year           Int
   baseSalary     Float
-  hra            Float    @default(0)
-  allowances     Float    @default(0)
+  hra            Float     @default(0)
+  allowances     Float     @default(0)
   grossSalary    Float
-  pfEmployee     Float    @default(0)
-  pfEmployer     Float    @default(0)
-  esiEmployee    Float    @default(0)
-  esiEmployer    Float    @default(0)
-  tds            Float    @default(0)
-  lateDeduction  Float    @default(0)
-  otherDeduction Float    @default(0)
+  pfEmployee     Float     @default(0)
+  pfEmployer     Float     @default(0)
+  esiEmployee    Float     @default(0)
+  esiEmployer    Float     @default(0)
+  tds            Float     @default(0)
+  lateDeduction  Float     @default(0)
+  otherDeduction Float     @default(0)
   netSalary      Float
-  daysPresent    Int      @default(0)
-  daysAbsent     Int      @default(0)
-  lateDays       Int      @default(0)
-  halfDayCuts    Int      @default(0)
-  fullDayCuts    Int      @default(0)
-  status         String   @default("draft")
+  daysPresent    Int       @default(0)
+  daysAbsent     Int       @default(0)
+  lateDays       Int       @default(0)
+  halfDayCuts    Int       @default(0)
+  fullDayCuts    Int       @default(0)
+  status         String    @default("draft")
   paidAt         DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   @@unique([userId, month, year])
 }
@@ -621,6 +1271,10 @@ model MaterialRequest {
   totalEstimated         Float?
   notes                  String?
   createdAt              DateTime              @default(now())
+
+  @@index([requestedById])
+  @@index([projectId])
+  @@index([status])
 }
 
 model MaterialRequestItem {
@@ -638,50 +1292,53 @@ model MaterialRequestItem {
 // ─── Raw Components Inventory ────────────────────────────────────────────────
 
 model RawComponent {
-  id             String              @id @default(cuid())
-  refNumber      String              @unique
-  name           String
-  category       String?
-  warrantyMonths Int?
-  receivedAt     DateTime            @default(now())
-  status         String              @default("in_stock")
-  assignedToType String?
-  assignedToId   String?
-  assignedAt     DateTime?
+  id                   String                @id @default(cuid())
+  refNumber            String                @unique
+  name                 String
+  category             String?
+  warrantyMonths       Int?
+  receivedAt           DateTime              @default(now())
+  status               String                @default("in_stock")
+  assignedToType       String?
+  assignedToId         String?
+  assignedAt           DateTime?
   // dealer / purchase details
-  dealerId       String?
-  dealerName     String?
-  price          Float?
-  gstPercent     Float?
-  hsnCode        String?
-  unit           String?
-  quantity       Int?                @default(1)
-  customFields   Json?
-  notes          String?
-  movements      ComponentMovement[]
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
+  dealerId             String?
+  dealerName           String?
+  price                Float?
+  gstPercent           Float?
+  hsnCode              String?
+  unit                 String?
+  quantity             Int?                  @default(1)
+  customFields         Json?
+  notes                String?
+  movements            ComponentMovement[]
+  inventoryAllocations InventoryAllocation[]
+  materialConsumptions MaterialConsumption[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 }
 
 // ─── Dealers / Suppliers ─────────────────────────────────────────────────────
 
 model Dealer {
-  id         String          @id @default(cuid())
-  name       String
-  company    String?
-  gstNumber  String?
-  phone      String?
-  email      String?
-  address    String?
-  city       String?
-  state      String?
-  category   String?         // what they supply
-  notes      String?
-  isActive   Boolean         @default(true)
-  contacts   DealerContact[]
+  id          String          @id @default(cuid())
+  name        String
+  company     String?
+  gstNumber   String?
+  phone       String?
+  email       String?
+  address     String?
+  city        String?
+  state       String?
+  category    String? // what they supply
+  notes       String?
+  isActive    Boolean         @default(true)
+  contacts    DealerContact[]
+  items       DealerItem[]
   createdById String?
-  createdAt  DateTime        @default(now())
-  updatedAt  DateTime        @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
 model DealerContact {
@@ -696,12 +1353,32 @@ model DealerContact {
   isPrimary   Boolean @default(false)
 }
 
+model DealerItem {
+  id            String   @id @default(cuid())
+  dealerId      String
+  dealer        Dealer   @relation(fields: [dealerId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  specification String?
+  unit          String?
+  quantity      Int?     @default(0)
+  price         Float?
+  currency      String   @default("INR")
+  partNumber    String?
+  brand         String?
+  category      String?
+  inStock       Boolean  @default(true)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
 // ─── Notifications ───────────────────────────────────────────────────────────
 
 model Notification {
   id         String   @id @default(cuid())
-  userId     String   // recipient (scalar, no FK)
-  type       String   // project_overrun | info | warning
+  userId     String // recipient (scalar, no FK)
+  type       String // project_overrun | info | warning
   severity   String   @default("info") // info | warning | critical
   title      String
   message    String
@@ -717,7 +1394,7 @@ model ComponentMovement {
   id            String       @id @default(cuid())
   componentId   String
   component     RawComponent @relation(fields: [componentId], references: [id])
-  type          String       // received | assigned | returned | disposed
+  type          String // received | assigned | returned | disposed
   toEntityType  String?
   toEntityId    String?
   toEntityName  String?
@@ -732,7 +1409,7 @@ model Expense {
   id         String   @id @default(cuid())
   title      String
   amount     Float
-  category   String   // travel | utilities | salary | materials | other
+  category   String // travel | utilities | salary | materials | other
   entityType String?
   entityId   String?
   date       DateTime
@@ -742,7 +1419,7 @@ model Expense {
 
 model FinancialEntry {
   id        String   @id @default(cuid())
-  type      String   // 'asset' | 'liability'
+  type      String // 'asset' | 'liability'
   name      String
   amount    Float
   category  String?
@@ -754,14 +1431,14 @@ model FinancialEntry {
 // ─── Dynamic RBAC ────────────────────────────────────────────────────────────
 
 model RoleDefinition {
-  id          String   @id @default(cuid())
-  name        String   @unique
+  id          String           @id @default(cuid())
+  name        String           @unique
   displayName String
-  isSystem    Boolean  @default(false)
-  isActive    Boolean  @default(true)
-  sortOrder   Int      @default(99)
+  isSystem    Boolean          @default(false)
+  isActive    Boolean          @default(true)
+  sortOrder   Int              @default(99)
   permissions RolePermission[]
-  createdAt   DateTime @default(now())
+  createdAt   DateTime         @default(now())
 }
 
 model RolePermission {
@@ -771,6 +1448,7 @@ model RolePermission {
   resource         String
   action           String
   allowed          Boolean        @default(true)
+
   @@unique([roleDefinitionId, resource, action])
 }
 
@@ -785,25 +1463,32 @@ model UserPermissionOverride {
   grantedBy   User     @relation("GrantedByUser", fields: [grantedById], references: [id])
   reason      String?
   createdAt   DateTime @default(now())
+
   @@unique([userId, resource, action])
 }
 
 model ApprovalRequest {
-  id             String    @id @default(cuid())
-  requestedById  String
-  requestedBy    User      @relation("ARRequested", fields: [requestedById], references: [id])
-  entityType     String
-  entityId       String
-  action         String
-  payload        Json?
-  status         String    @default("pending")
-  reviewedById   String?
-  reviewedBy     User?     @relation("ARReviewed", fields: [reviewedById], references: [id])
-  reviewedAt     DateTime?
-  expiresAt      DateTime?
-  reason         String?
-  rejectReason   String?
-  createdAt      DateTime  @default(now())
+  id              String    @id @default(cuid())
+  requestedById   String
+  requestedBy     User      @relation("ARRequested", fields: [requestedById], references: [id])
+  entityType      String
+  entityId        String
+  action          String
+  payload         Json?
+  status          String    @default("pending")
+  reviewedById    String?
+  reviewedBy      User?     @relation("ARReviewed", fields: [reviewedById], references: [id])
+  reviewedAt      DateTime?
+  expiresAt       DateTime?
+  reason          String?
+  rejectReason    String?
+  // Escalation chain: 0=Manager/PM, 1=ProjectHead, 2=BusinessHead, 3=SuperAdmin.
+  // Auto-escalates when no action is taken within the tier's SLA window.
+  escalationTier  Int       @default(0)
+  lastEscalatedAt DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  @@index([status, escalationTier])
 }
 
 model SupportTicket {
@@ -821,4 +1506,353 @@ model SupportTicket {
   isActive    Boolean        @default(true)
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
+
+  @@index([companyId])
+  @@index([status])
 }
+
+// ─── ERP: Sales ──────────────────────────────────────────────────────────────
+
+enum QuotationStatus {
+  Draft
+  Sent
+  Accepted
+  Rejected
+  Expired
+}
+
+enum SalesOrderStatus {
+  Draft
+  Confirmed
+  Won
+  Lost
+}
+
+model Quotation {
+  id             String          @id @default(cuid())
+  refNumber      String          @unique
+  company        Company         @relation(fields: [companyId], references: [id])
+  companyId      String
+  contactName    String?
+  title          String
+  status         QuotationStatus @default(Draft)
+  validUntil     DateTime?
+  subtotal       Float           @default(0)
+  taxPercent     Float           @default(18)
+  totalAmount    Float           @default(0)
+  warrantyPeriod Int?
+  deliveryDate   DateTime?
+  scope          String?
+  notes          String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  items          QuotationItem[]
+  salesOrders    SalesOrder[]
+}
+
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  quotationId String
+  description String
+  quantity    Float     @default(1)
+  unit        String?
+  unitPrice   Float     @default(0)
+  amount      Float     @default(0)
+}
+
+model SalesOrder {
+  id             String            @id @default(cuid())
+  refNumber      String            @unique
+  quotation      Quotation?        @relation(fields: [quotationId], references: [id])
+  quotationId    String?
+  company        Company           @relation(fields: [companyId], references: [id])
+  companyId      String
+  title          String
+  status         SalesOrderStatus  @default(Draft)
+  budget         Float?
+  warrantyPeriod Int? // months
+  deliveryDate   DateTime?
+  scope          String?
+  productDetails String?
+  notes          String?
+  wonAt          DateTime?
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  project        Project?
+  handoverDoc    HandoverDocument?
+}
+
+model HandoverDocument {
+  id              String     @id @default(cuid())
+  refNumber       String     @unique
+  salesOrder      SalesOrder @relation(fields: [salesOrderId], references: [id])
+  salesOrderId    String     @unique
+  projectName     String
+  customerDetails String?
+  budget          Float?
+  warrantyPeriod  Int?
+  productDetails  String?
+  deliveryDate    DateTime?
+  scope           String?
+  attachments     String? // JSON array of file keys
+  notes           String?
+  status          String     @default("pending") // pending | accepted | rejected
+  acceptedById    String?
+  acceptedAt      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+// ─── ERP: BOM ────────────────────────────────────────────────────────────────
+
+enum BOMStatus {
+  Draft
+  Submitted
+  Approved
+  Rejected
+  SentToProcurement
+}
+
+model BOM {
+  id             String          @id @default(cuid())
+  refNumber      String          @unique
+  project        Project         @relation(fields: [projectId], references: [id])
+  projectId      String
+  status         BOMStatus       @default(Draft)
+  createdById    String?
+  verifiedById   String?
+  verifiedAt     DateTime?
+  notes          String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  items          BOMItem[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([projectId])
+}
+
+model BOMItem {
+  id            String  @id @default(cuid())
+  bom           BOM     @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  bomId         String
+  itemName      String
+  description   String?
+  quantity      Float   @default(1)
+  unit          String?
+  estimatedCost Float?
+  supplier      String?
+  remarks       String?
+}
+
+// ─── ERP: Procurement ────────────────────────────────────────────────────────
+
+enum POStatus {
+  Draft
+  Sent
+  Approved
+  Delivered
+  Closed
+}
+
+model PurchaseOrder {
+  id               String         @id @default(cuid())
+  refNumber        String         @unique
+  bom              BOM?           @relation(fields: [bomId], references: [id])
+  bomId            String?
+  supplierId       String?
+  supplierName     String
+  supplierEmail    String?
+  supplierPhone    String?
+  supplierAddress  String?
+  status           POStatus       @default(Draft)
+  expectedDelivery DateTime?
+  deliveredAt      DateTime?
+  subtotal         Float          @default(0)
+  taxPercent       Float          @default(18)
+  totalAmount      Float          @default(0)
+  approvedById     String?
+  approvedAt       DateTime?
+  vendorPaidAt     DateTime?
+  notes            String?
+  createdById      String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  items            POItem[]
+  goodsReceipts    GoodsReceipt[]
+
+  @@index([bomId])
+  @@index([status])
+}
+
+model POItem {
+  id              String        @id @default(cuid())
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrderId String
+  itemName        String
+  description     String?
+  quantity        Float         @default(1)
+  unit            String?
+  unitPrice       Float         @default(0)
+  amount          Float         @default(0)
+  receivedQty     Float         @default(0)
+}
+
+model GoodsReceipt {
+  id              String             @id @default(cuid())
+  refNumber       String             @unique
+  purchaseOrder   PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id])
+  purchaseOrderId String
+  receivedById    String?
+  receivedAt      DateTime           @default(now())
+  notes           String?
+  createdAt       DateTime           @default(now())
+  items           GoodsReceiptItem[]
+
+  @@index([purchaseOrderId])
+}
+
+model GoodsReceiptItem {
+  id             String       @id @default(cuid())
+  goodsReceipt   GoodsReceipt @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  goodsReceiptId String
+  itemName       String
+  description    String?
+  quantity       Float        @default(1)
+  unit           String?
+  unitPrice      Float        @default(0)
+  // FK to RawComponent created on receipt
+  rawComponentId String?
+}
+
+// ─── ERP: Inventory Allocation ───────────────────────────────────────────────
+
+model InventoryAllocation {
+  id             String       @id @default(cuid())
+  rawComponent   RawComponent @relation(fields: [rawComponentId], references: [id])
+  rawComponentId String
+  project        Project      @relation(fields: [projectId], references: [id])
+  projectId      String
+  quantity       Float        @default(1)
+  allocatedById  String?
+  allocatedAt    DateTime     @default(now())
+  notes          String?
+
+  @@index([rawComponentId])
+  @@index([projectId])
+}
+
+// ─── ERP: Manufacturing ──────────────────────────────────────────────────────
+
+enum WorkOrderStatus {
+  Waiting
+  InProduction
+  Assembly
+  Testing
+  Finished
+  Cancelled
+}
+
+model WorkOrder {
+  id                   String                @id @default(cuid())
+  refNumber            String                @unique
+  project              Project               @relation(fields: [projectId], references: [id])
+  projectId            String
+  title                String
+  status               WorkOrderStatus       @default(Waiting)
+  labourCost           Float                 @default(0)
+  materialCost         Float                 @default(0)
+  totalCost            Float                 @default(0)
+  startedAt            DateTime?
+  finishedAt           DateTime?
+  notes                String?
+  createdById          String?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  logs                 ProductionLog[]
+  materialConsumptions MaterialConsumption[]
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model ProductionLog {
+  id          String    @id @default(cuid())
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrderId String
+  entry       String
+  actorId     String?
+  actorName   String?
+  createdAt   DateTime  @default(now())
+}
+
+model MaterialConsumption {
+  id             String       @id @default(cuid())
+  workOrder      WorkOrder    @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  workOrderId    String
+  rawComponent   RawComponent @relation(fields: [rawComponentId], references: [id])
+  rawComponentId String
+  quantity       Float
+  unitCost       Float?
+  totalCost      Float?
+  consumedById   String?
+  consumedAt     DateTime     @default(now())
+  notes          String?
+}
+
+// ─── ERP: Service & Warranty ─────────────────────────────────────────────────
+
+enum ServiceRequestStatus {
+  Open
+  InProgress
+  Resolved
+  Closed
+}
+
+model ServiceRecord {
+  id                 String           @id @default(cuid())
+  project            Project          @relation(fields: [projectId], references: [id])
+  projectId          String           @unique
+  companyId          String?
+  productDescription String?
+  installationDate   DateTime?
+  warrantyStart      DateTime?
+  warrantyEnd        DateTime?
+  warrantyMonths     Int?
+  amcEnd             DateTime?
+  serviceEngineerId  String?
+  serviceCost        Float            @default(0)
+  notes              String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  serviceRequests    ServiceRequest[]
+
+  @@index([companyId])
+}
+
+model ServiceRequest {
+  id                 String               @id @default(cuid())
+  refNumber          String               @unique
+  serviceRecord      ServiceRecord        @relation(fields: [serviceRecordId], references: [id])
+  serviceRecordId    String
+  type               String               @default("complaint") // complaint | maintenance | inspection
+  title              String
+  description        String?
+  status             ServiceRequestStatus @default(Open)
+  priority           String               @default("Medium")
+  slaDeadline        DateTime?
+  engineerId         String?
+  engineerName       String?
+  engineerAcceptedAt DateTime?
+  spareParts         String? // JSON array
+  cost               Float                @default(0)
+  resolvedAt         DateTime?
+  createdById        String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+}
+
+// ─── Extend RawComponent with ERP relations ──────────────────────────────────
+// (inventory category enum + allocation/consumption relations added via schema)

@@ -25,7 +25,7 @@ const KEY = 'companies'
 export function useCompanies(params?: { q?: string; customerType?: string }) {
   return useQuery<Company[]>({
     queryKey: [KEY, params],
-    queryFn: () => api.get('/companies', { params }).then(r => r.data),
+    queryFn: () => api.get('/companies', { params: { pageSize: 1000, ...params } }).then(r => r.data.data),
   })
 }
 

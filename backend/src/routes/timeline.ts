@@ -1,8 +1,8 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate } from '../middleware/auth'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 router.get('/', async (req, res) => {

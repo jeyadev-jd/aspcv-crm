@@ -93,6 +93,11 @@
   \end{tcolorbox}
 }
 
+% Prevent hyphenation globally and push words to the next line
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\sloppy
+
 % ══════════════════════════════════════════════════════════
 \begin{document}
 
@@ -153,7 +158,7 @@ This report presents a comprehensive performance analysis of ASPCV (Aspiration C
 
 Key headline results: Revenue YTD of \textbf{\rupee{}3.9Cr}, exceeding aggregate target by \textbf{+12\%}. Active pipeline stands at \textbf{\rupee{}6.2Cr} with a win rate of \textbf{22\%}. The ASHP 8kW and GSHP 12kW product lines account for \textbf{57\%} of total revenue.
 
-The report is structured in six chapters, mirroring the academic internship report format: Introduction and Background, Literature / Market Context, Proposed Methodology (CRM pipeline), System Implementation (data), Results and Analysis, and Conclusion with strategic recommendations.
+The report is structured in six chapters, mirroring the academic internship report format: Introduction and Background, Literature / Market Context, Proposed Methodology (CRM pipeline), System Implementation (data), Results and Discussion, and Conclusion with strategic recommendations.
 \end{mdframed}
 
 \vspace{10mm}
@@ -315,7 +320,7 @@ The CRM is modularised into pages: Dashboard, Leads, Accounts, Contacts, Deals, 
 The Reports page implements five analysis tabs (Overview, Sales, Pipeline, Team, Forecast), each containing dense data tables and interactive Recharts visualisations styled after academic report conventions.
 
 % ══════════════════════════════════════════════════════════
-\chapter{Results and Analysis}
+\chapter{Results and Discussion}
 % ══════════════════════════════════════════════════════════
 
 % ── Table 5.1 ──

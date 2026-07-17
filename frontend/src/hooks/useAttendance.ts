@@ -7,6 +7,9 @@ export interface AttendanceRecord {
   date: string
   checkIn?: string
   checkOut?: string
+  breakStart?: string | null
+  breakEnd?: string | null
+  breakMinutes: number
   lat?: number
   lng?: number
   locationName?: string
@@ -15,16 +18,6 @@ export interface AttendanceRecord {
   notes?: string
   createdAt: string
   user?: { id: string; name: string; role: string; department?: string }
-}
-
-export interface AttendanceLocation {
-  id: string
-  name: string
-  lat: number
-  lng: number
-  radiusM: number
-  isDefault: boolean
-  isActive: boolean
 }
 
 export function useMyAttendance(month?: number, year?: number) {
@@ -46,13 +39,6 @@ export function useAllAttendance(month?: number, year?: number, userId?: string)
   return useQuery<AttendanceRecord[]>({
     queryKey: ['attendance', 'all', month, year, userId],
     queryFn: () => api.get('/attendance/all', { params: { month, year, userId } }).then(r => r.data),
-  })
-}
-
-export function useAttendanceLocations() {
-  return useQuery<AttendanceLocation[]>({
-    queryKey: ['attendance-locations'],
-    queryFn: () => api.get('/attendance/locations').then(r => r.data),
   })
 }
 
@@ -79,11 +65,24 @@ export function useCheckOut() {
   })
 }
 
-export function useCreateAttendanceLocation() {
+export function useBreakStart() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: Omit<AttendanceLocation, 'id' | 'isActive'>) =>
-      api.post('/attendance/locations', data).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['attendance-locations'] }),
+    mutationFn: () => api.post('/attendance/break-start').then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['attendance', 'today'] })
+      qc.invalidateQueries({ queryKey: ['attendance', 'my'] })
+    },
+  })
+}
+
+export function useBreakEnd() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.post('/attendance/break-end').then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['attendance', 'today'] })
+      qc.invalidateQueries({ queryKey: ['attendance', 'my'] })
+    },
   })
 }

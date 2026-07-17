@@ -3,8 +3,12 @@ import { useMaterialRequests, useCreateMaterialRequest, useApproveMaterialReques
 import { useProjects } from '../hooks/useProjects'
 import { useComponents } from '../hooks/useComponents'
 import type { RawComponent } from '../hooks/useComponents'
+import { useItems } from '../hooks/useItems'
+import type { ItemAPI } from '../hooks/useItems'
 import { useAuthStore } from '../lib/authStore'
-import { Plus, Check, X, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { Plus, Check, X, ChevronDown, ChevronUp, Trash2, Download } from 'lucide-react'
+import { PDFDownloadLink } from '@react-pdf/renderer'
+import { MaterialRequestPDF } from '../components/pdf/MaterialRequestPDF'
 import { CsvImportExport } from '../components/shared/CsvImportExport'
 import type { CsvColDef } from '../components/shared/CsvImportExport'
 import type { MaterialRequest } from '../hooks/useMaterialRequests'
@@ -62,6 +66,7 @@ export default function MaterialRequests() {
   const { data: requests = [], isLoading } = useMaterialRequests({ status: filterStatus || undefined, mine: showMine || undefined })
   const { data: projects = [] } = useProjects()
   const { data: components = [] } = useComponents()
+  const { data: dealerItems = [] } = useItems()
   const create = useCreateMaterialRequest()
   const [dropdownIdx, setDropdownIdx] = useState<number | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -150,13 +155,22 @@ export default function MaterialRequests() {
             </select>
             {items.map((item, idx) => {
               const query = item.name.toLowerCase()
-              const suggestions: RawComponent[] = query.length >= 1
+              const rcSuggestions: (RawComponent & { _kind: 'rc' })[] = query.length >= 1
                 ? components.filter(c =>
                     c.name.toLowerCase().includes(query) ||
                     (c.category ?? '').toLowerCase().includes(query) ||
                     c.refNumber.toLowerCase().includes(query)
-                  ).slice(0, 8)
+                  ).slice(0, 6).map(c => ({ ...c, _kind: 'rc' as const }))
                 : []
+              const dealerSuggestions: (ItemAPI & { _kind: 'dealer' })[] = query.length >= 1
+                ? dealerItems.filter(it =>
+                    it.name.toLowerCase().includes(query) ||
+                    (it.category ?? '').toLowerCase().includes(query) ||
+                    (it.brand ?? '').toLowerCase().includes(query) ||
+                    (it.dealer?.name ?? '').toLowerCase().includes(query)
+                  ).slice(0, 6).map(it => ({ ...it, _kind: 'dealer' as const }))
+                : []
+              const suggestions = [...rcSuggestions, ...dealerSuggestions]
               function pickRC(rc: RawComponent) {
                 setItems(prev => prev.map((x, i) => i === idx ? {
                   ...x,
@@ -164,6 +178,16 @@ export default function MaterialRequests() {
                   unit: rc.unit ?? x.unit,
                   estimatedPrice: rc.price != null ? String(rc.price) : x.estimatedPrice,
                   componentRefNo: rc.refNumber,
+                } : x))
+                setDropdownIdx(null)
+              }
+              function pickDealerItem(it: ItemAPI) {
+                setItems(prev => prev.map((x, i) => i === idx ? {
+                  ...x,
+                  name: it.name,
+                  unit: it.unit ?? x.unit,
+                  estimatedPrice: it.price != null ? String(it.price) : x.estimatedPrice,
+                  componentRefNo: it.partNumber ?? `Dealer: ${it.dealer?.name ?? ''}`,
                 } : x))
                 setDropdownIdx(null)
               }
@@ -175,28 +199,35 @@ export default function MaterialRequests() {
                       onChange={e => { setItems(p => p.map((x, i) => i === idx ? { ...x, name: e.target.value } : x)); setDropdownIdx(idx) }}
                       onFocus={() => setDropdownIdx(idx)}
                       onBlur={() => setTimeout(() => setDropdownIdx(null), 150)}
-                      placeholder="Item name * (type to search catalog)"
+                      placeholder="Item name * (search inventory + dealer items)"
                       style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: '100%', boxSizing: 'border-box' as const }}
                     />
                     {dropdownIdx === idx && suggestions.length > 0 && (
-                      <div ref={dropdownRef} style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E8E9F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 999, maxHeight: 240, overflowY: 'auto' }}>
-                        {suggestions.map(rc => (
-                          <div key={rc.id} onMouseDown={() => pickRC(rc)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #F4F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                      <div ref={dropdownRef} style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E8E9F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 999, maxHeight: 280, overflowY: 'auto' }}>
+                        {suggestions.map(s => (
+                          <div key={`${s._kind}-${s.id}`} onMouseDown={() => s._kind === 'rc' ? pickRC(s) : pickDealerItem(s)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #F4F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#F4F5FF')}
                             onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
                             <div>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{rc.name}</div>
-                              <div style={{ fontSize: 11, color: '#8A8FA8' }}>{rc.category} · {rc.refNumber} · {rc.unit ?? ''}</div>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: '#374557', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                {s.name}
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: s._kind === 'rc' ? '#E7FAF0' : '#E8EDFF', color: s._kind === 'rc' ? '#2BC155' : '#5D78FF' }}>
+                                  {s._kind === 'rc' ? 'Inventory' : 'Dealer'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 11, color: '#8A8FA8' }}>
+                                {s._kind === 'rc' ? `${s.category} · ${s.refNumber} · ${s.unit ?? ''}` : `${s.dealer?.name ?? ''} · ${s.category ?? ''} · ${s.unit ?? ''}`}
+                              </div>
                             </div>
-                            {rc.price != null && (
-                              <div style={{ fontSize: 12, fontWeight: 700, color: '#5D78FF', whiteSpace: 'nowrap', marginLeft: 8 }}>₹{rc.price.toLocaleString('en-IN')}</div>
+                            {s.price != null && (
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#5D78FF', whiteSpace: 'nowrap', marginLeft: 8 }}>₹{s.price.toLocaleString('en-IN')}</div>
                             )}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
-                  <input value={item.quantity} type="number" onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} placeholder="Qty" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 70 }} />
+                  <input value={item.quantity} type="number" min={1} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, quantity: Math.max(1, Number(e.target.value) || 1) } : x))} placeholder="Qty" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 70 }} />
                   <input value={item.unit} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))} placeholder="Unit" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 80 }} />
                   <input value={item.estimatedPrice} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, estimatedPrice: e.target.value } : x))} placeholder="Est. Price" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 100 }} />
                   <input value={item.componentRefNo} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, componentRefNo: e.target.value } : x))} placeholder="RC Ref#" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 120 }} />
@@ -291,20 +322,49 @@ export default function MaterialRequests() {
                     </div>
                     {r.notes && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 12 }}>Notes: {r.notes}</div>}
                     {r.rejectionReason && <div style={{ fontSize: 13, color: '#EF4444', marginBottom: 12 }}>Rejection: {r.rejectionReason}</div>}
-                    {r.status !== 'rejected' && r.status !== 'paid' && (
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                        {canApprove && (
-                          <button onClick={() => approve.mutate(r.id)} style={{ background: '#D1FAE5', color: '#065F46', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 5, alignItems: 'center' }}>
-                            <Check size={12} />Approve
-                          </button>
-                        )}
-                        {(canApproveManager || canApproveBizHead) && (
-                          <button onClick={() => reject.mutate({ id: r.id, reason: prompt('Rejection reason?') ?? undefined })} style={{ background: '#FEE2E2', color: '#B91C1C', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 5, alignItems: 'center' }}>
-                            <X size={12} />Reject
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {r.status !== 'rejected' && r.status !== 'paid' && canApprove && (
+                        <button
+                          onClick={() => approve.mutate(r.id)}
+                          disabled={approve.isPending}
+                          style={{ background: '#D1FAE5', color: '#065F46', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: approve.isPending ? 'not-allowed' : 'pointer', opacity: approve.isPending ? 0.6 : 1, display: 'flex', gap: 5, alignItems: 'center' }}>
+                          <Check size={12} />{approve.isPending ? 'Approving…' : 'Approve'}
+                        </button>
+                      )}
+                      {r.status !== 'rejected' && r.status !== 'paid' && (canApproveManager || canApproveBizHead) && (
+                        <button
+                          onClick={() => reject.mutate({ id: r.id, reason: prompt('Rejection reason?') ?? undefined })}
+                          disabled={reject.isPending}
+                          style={{ background: '#FEE2E2', color: '#B91C1C', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: reject.isPending ? 'not-allowed' : 'pointer', opacity: reject.isPending ? 0.6 : 1, display: 'flex', gap: 5, alignItems: 'center' }}>
+                          <X size={12} />{reject.isPending ? 'Rejecting…' : 'Reject'}
+                        </button>
+                      )}
+                      {['payment_pending', 'paid'].includes(r.status) && (
+                        <PDFDownloadLink
+                          document={<MaterialRequestPDF
+                            refNumber={r.refNumber}
+                            createdAt={r.createdAt}
+                            status={r.status}
+                            projectTitle={r.project?.title}
+                            requestedBy={r.requestedBy?.name}
+                            managerApprovedAt={r.managerApprovedAt}
+                            bizHeadApprovedAt={r.bizHeadApprovedAt}
+                            accountantApprovedAt={r.accountantApprovedAt}
+                            totalEstimated={r.totalEstimated}
+                            notes={r.notes}
+                            items={r.items}
+                          />}
+                          fileName={`MR-${r.refNumber}.pdf`}
+                          style={{ textDecoration: 'none' }}
+                        >
+                          {({ loading, error }: { loading: boolean; error: Error | null }) => (
+                            <button style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '7px 14px', borderRadius: 7, border: 'none', background: error ? '#FEE2E2' : '#E8EDFF', color: error ? '#B91C1C' : '#5D78FF', cursor: 'pointer' }}>
+                              <Download size={12} /> {error ? 'PDF Error' : loading ? '…' : 'Download PDF'}
+                            </button>
+                          )}
+                        </PDFDownloadLink>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

@@ -4,7 +4,7 @@ import {
   Package, FolderOpen, CheckSquare, KanbanSquare, Calendar,
   FileText, LifeBuoy, BarChart2, Settings, Bell, HelpCircle, Wrench,
   ClipboardList, Boxes, UserCircle, Clock, Wallet, PiggyBank,
-  ShieldCheck, ClipboardCheck, Store,
+  ShieldCheck, ClipboardCheck, Store, Archive, PieChart, ShieldAlert, Zap,
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/authStore'
 
@@ -24,17 +24,21 @@ const navGroups: { label: string; items: NavItem[] }[] = [
       { icon: Building2,       to: '/accounts', label: 'Accounts', permission: ['company', 'read_all'] },
       { icon: Users,           to: '/contacts', label: 'Contacts', permission: ['contact', 'read_own'] },
       { icon: Briefcase,       to: '/deals',    label: 'Deals',    permission: ['deal', 'read_own'] },
-      { icon: Store,           to: '/dealers',  label: 'Dealers' },
+      { icon: FileText,        to: '/sales',    label: 'Quotations & Orders', permission: ['quotation', 'read_all'] },
     ],
   },
   {
     label: 'OPERATIONS',
     items: [
-      { icon: Package,      to: '/products',      label: 'Products' },
-      { icon: FolderOpen,   to: '/projects',      label: 'Projects',     permission: ['project', 'read_all'] },
-      { icon: CheckSquare,  to: '/tasks',         label: 'Tasks' },
-      { icon: KanbanSquare, to: '/kanban',        label: 'Kanban' },
-      { icon: Calendar,     to: '/calendar',      label: 'Calendar' },
+      { icon: FolderOpen,   to: '/projects',          label: 'Projects',        permission: ['project', 'read_all'] },
+      { icon: Archive,      to: '/completed-projects', label: 'Completed Projects', permission: ['project', 'read_all'] },
+      { icon: Store,        to: '/procurement',       label: 'Procurement',     permission: ['bom', 'read_all'] },
+      { icon: Wrench,       to: '/manufacturing',     label: 'Manufacturing',   permission: ['work_order', 'read_all'] },
+      { icon: LifeBuoy,     to: '/service',           label: 'Service',         permission: ['service_record', 'read_all'] },
+      { icon: Wrench,       to: '/installations',     label: 'Installations',   permission: ['installation', 'read_all'] },
+      { icon: CheckSquare,  to: '/tasks',             label: 'Tasks' },
+      { icon: KanbanSquare, to: '/kanban',            label: 'Kanban' },
+      { icon: Calendar,     to: '/calendar',          label: 'Calendar' },
     ],
   },
   {
@@ -50,8 +54,9 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'WAREHOUSE',
     items: [
       { icon: ClipboardList, to: '/material-requests', label: 'Material Req.', permission: ['material_request', 'create'] },
-      { icon: Boxes,         to: '/inventory',          label: 'Inventory',    permission: ['component', 'read_all'] },
-      { icon: Wrench,        to: '/raw-components',     label: 'Raw Components', permission: ['component', 'read_all'] },
+      { icon: Boxes,         to: '/raw-components',     label: 'Inventory',    permission: ['component', 'read_all'] },
+      { icon: Store,         to: '/dealers',            label: 'Dealers' },
+      { icon: Package,       to: '/items',              label: 'Items' },
     ],
   },
   {
@@ -59,6 +64,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { icon: FileText,  to: '/invoices',   label: 'Invoices',       permission: ['invoice', 'read_all'] },
       { icon: PiggyBank, to: '/financials', label: 'Assets & Liab.', permission: ['financial', 'read_all'] },
+      { icon: PieChart,  to: '/budget',     label: 'Budget',         permission: ['project', 'read_all'] },
     ],
   },
   {
@@ -71,9 +77,12 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'ADMIN',
     items: [
       { icon: BarChart2,      to: '/reports',    label: 'Reports' },
+      { icon: BarChart2,      to: '/ml-analytics',label: 'ML Analytics' },
       { icon: Settings,       to: '/settings',   label: 'Settings' },
       { icon: ShieldCheck,    to: '/roles',      label: 'Roles & Perms', permission: ['role_admin', 'manage'] },
       { icon: Users,          to: '/users',      label: 'Users',          permission: ['role_admin', 'manage'] },
+      { icon: ShieldAlert,    to: '/audit-logs', label: 'Audit Log',      permission: ['audit_log', 'read_all'] },
+      { icon: Zap,            to: '/business-rules', label: 'Business Rules', permission: ['business_rule', 'read_all'] },
       { icon: ClipboardCheck, to: '/approvals',  label: 'Approvals',     permission: ['approval_request', 'review'] },
     ],
   },
@@ -111,16 +120,18 @@ export default function Sidebar({ collapsed, mobileOpen }: SidebarProps) {
         padding: showLabels ? '14px 16px' : '14px 12px',
         borderBottom: '1px solid #F0F1F5', height: 64, flexShrink: 0,
       }}>
-        <img
-          src="/aspcv-logo.png"
-          alt="ASPCV"
-          style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 8, flexShrink: 0 }}
-        />
-        {showLabels && (
-          <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: 12, fontWeight: 800, color: '#374557', lineHeight: 1.2, whiteSpace: 'nowrap', letterSpacing: -0.2 }}>ASPCV</p>
-            <p style={{ fontSize: 9, color: '#22C55E', whiteSpace: 'nowrap', fontWeight: 600 }}>Aspiration Cleantech</p>
-          </div>
+        {showLabels ? (
+          <img
+            src="/aspcv-logo.png"
+            alt="ASPCV — Aspiration Cleantech"
+            style={{ height: 34, maxWidth: 168, objectFit: 'contain', display: 'block' }}
+          />
+        ) : (
+          <img
+            src="/favicon.svg"
+            alt="ASPCV"
+            style={{ width: 34, height: 34, objectFit: 'contain', display: 'block', margin: '0 auto' }}
+          />
         )}
       </div>
 

@@ -1,9 +1,10 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
+import { parsePagination, paginate } from '../lib/pagination'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 function calcTDS(annualGross: number): number {
@@ -76,16 +77,23 @@ router.get('/my', requirePermission('salary', 'read_own'), async (req: AuthReque
 // All salary records (HR/Admin)
 router.get('/all', requirePermission('salary', 'read_all'), async (req: AuthRequest, res) => {
   const { month, year, userId } = req.query as Record<string, string>
-  const records = await prisma.salaryRecord.findMany({
-    where: {
-      ...(month && { month: parseInt(month) }),
-      ...(year && { year: parseInt(year) }),
-      ...(userId && { userId }),
-    },
-    include: { user: { select: { id: true, name: true, role: true, department: true } } },
-    orderBy: [{ year: 'desc' }, { month: 'desc' }],
-  })
-  res.json(records)
+  const pagination = parsePagination(req.query as Record<string, unknown>)
+  const where = {
+    ...(month && { month: parseInt(month) }),
+    ...(year && { year: parseInt(year) }),
+    ...(userId && { userId }),
+  }
+  const [records, total] = await Promise.all([
+    prisma.salaryRecord.findMany({
+      where,
+      include: { user: { select: { id: true, name: true, role: true, department: true } } },
+      orderBy: [{ year: 'desc' }, { month: 'desc' }],
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.salaryRecord.count({ where }),
+  ])
+  res.json(paginate(records, total, pagination))
 })
 
 router.patch('/:id/approve', requirePermission('salary', 'approve'), async (req: AuthRequest, res) => {

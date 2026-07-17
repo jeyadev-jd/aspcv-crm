@@ -1,9 +1,9 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000
@@ -61,7 +61,7 @@ router.post('/checkin', requirePermission('attendance', 'checkin'), async (req: 
 })
 
 // Check out
-router.post('/checkout', async (req: AuthRequest, res) => {
+router.post('/checkout', requirePermission('attendance', 'checkin'), async (req: AuthRequest, res) => {
   const userId = req.user!.id
   const date = todayIST()
 
@@ -70,10 +70,61 @@ router.post('/checkout', async (req: AuthRequest, res) => {
     res.status(400).json({ error: 'No check-in found for today' })
     return
   }
+  if (existing.breakStart && !existing.breakEnd) {
+    res.status(400).json({ error: 'Please end your break before checking out' })
+    return
+  }
 
   const record = await prisma.attendanceRecord.update({
     where: { userId_date: { userId, date } },
     data: { checkOut: new Date() },
+  })
+  res.json(record)
+})
+
+// Break start
+router.post('/break-start', requirePermission('attendance', 'checkin'), async (req: AuthRequest, res) => {
+  const userId = req.user!.id
+  const date = todayIST()
+
+  const existing = await prisma.attendanceRecord.findUnique({ where: { userId_date: { userId, date } } })
+  if (!existing?.checkIn) {
+    res.status(400).json({ error: 'Please check in before starting a break' })
+    return
+  }
+  if (existing.checkOut) {
+    res.status(400).json({ error: 'Already checked out for today' })
+    return
+  }
+  if (existing.breakStart && !existing.breakEnd) {
+    res.status(400).json({ error: 'Break already in progress' })
+    return
+  }
+
+  const record = await prisma.attendanceRecord.update({
+    where: { userId_date: { userId, date } },
+    data: { breakStart: new Date(), breakEnd: null },
+  })
+  res.json(record)
+})
+
+// Break end
+router.post('/break-end', requirePermission('attendance', 'checkin'), async (req: AuthRequest, res) => {
+  const userId = req.user!.id
+  const date = todayIST()
+
+  const existing = await prisma.attendanceRecord.findUnique({ where: { userId_date: { userId, date } } })
+  if (!existing?.breakStart || existing.breakEnd) {
+    res.status(400).json({ error: 'No break in progress' })
+    return
+  }
+
+  const now = new Date()
+  const additionalMinutes = Math.round((now.getTime() - existing.breakStart.getTime()) / 60000)
+
+  const record = await prisma.attendanceRecord.update({
+    where: { userId_date: { userId, date } },
+    data: { breakEnd: now, breakMinutes: existing.breakMinutes + additionalMinutes },
   })
   res.json(record)
 })
@@ -119,28 +170,6 @@ router.get('/today', async (req: AuthRequest, res) => {
   const date = todayIST()
   const record = await prisma.attendanceRecord.findUnique({ where: { userId_date: { userId, date } } })
   res.json(record ?? null)
-})
-
-// Locations (reference — not enforced)
-router.get('/locations', async (_req, res) => {
-  const locs = await prisma.attendanceLocation.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } })
-  res.json(locs)
-})
-
-router.post('/locations', requirePermission('hr_user', 'edit'), async (req: AuthRequest, res) => {
-  const { name, lat, lng, radiusM, isDefault } = req.body
-  const loc = await prisma.attendanceLocation.create({ data: { name, lat, lng, radiusM: radiusM ?? 100, isDefault: isDefault ?? false } })
-  res.status(201).json(loc)
-})
-
-router.patch('/locations/:id', requirePermission('hr_user', 'edit'), async (req: AuthRequest, res) => {
-  const loc = await prisma.attendanceLocation.update({ where: { id: req.params.id as string }, data: req.body })
-  res.json(loc)
-})
-
-router.delete('/locations/:id', requirePermission('hr_user', 'edit'), async (req: AuthRequest, res) => {
-  await prisma.attendanceLocation.update({ where: { id: req.params.id as string }, data: { isActive: false } })
-  res.status(204).end()
 })
 
 export default router

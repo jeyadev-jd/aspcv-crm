@@ -20,7 +20,7 @@ const KEY = 'contacts-api'
 export function useApiContacts(params?: { companyId?: string; q?: string }) {
   return useQuery<ApiContact[]>({
     queryKey: [KEY, params],
-    queryFn: () => api.get('/contacts', { params }).then(r => r.data),
+    queryFn: () => api.get('/contacts', { params: { pageSize: 1000, ...params } }).then(r => r.data.data),
     staleTime: 30_000,
   })
 }

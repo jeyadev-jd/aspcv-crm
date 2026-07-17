@@ -1,9 +1,9 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 router.get('/', async (_req, res) => {
@@ -26,8 +26,18 @@ router.post('/', requirePermission('hr_user', 'edit'), async (req, res) => {
 })
 
 router.delete('/:id', requirePermission('hr_user', 'edit'), async (req, res) => {
+  const existing = await prisma.designation.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ error: 'Not found' }); return }
+  if (existing.isActive === false) { res.status(204).end(); return } // idempotent
   await prisma.designation.update({ where: { id: req.params.id as string }, data: { isActive: false } })
   res.status(204).end()
+})
+
+router.post('/:id/restore', requirePermission('hr_user', 'edit'), async (req, res) => {
+  const existing = await prisma.designation.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ error: 'Not found' }); return }
+  const designation = await prisma.designation.update({ where: { id: req.params.id as string }, data: { isActive: true } })
+  res.json(designation)
 })
 
 export default router

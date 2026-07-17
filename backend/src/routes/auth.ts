@@ -55,6 +55,10 @@ router.get('/my-permissions', authenticate, async (req: AuthRequest, res) => {
     })
     for (const p of rolePerms) {
       map[`${p.resource}:${p.action}`] = true
+      // `read_all` is a superset of `read_own` — mirrors the same rule in
+      // resolvePermission() so the sidebar/UI doesn't hide things a read_all
+      // role can actually access via the API.
+      if (p.action === 'read_all') map[`${p.resource}:read_own`] = true
     }
     const overrides = await prisma.userPermissionOverride.findMany({
       where: { userId },

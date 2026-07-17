@@ -1,7 +1,7 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import { authenticate } from '../middleware/auth'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 // Location is now manual entry — these endpoints return static India state list only

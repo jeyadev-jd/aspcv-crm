@@ -32,7 +32,19 @@ export async function resolvePermission(
       allowed: true,
     },
   })
-  const allowed = rolePerm !== null
+  let allowed = rolePerm !== null
+
+  // `read_all` is a superset of `read_own` — a role permitted to read every
+  // record is implicitly permitted to read its own. Routes that list a full
+  // collection are gated on `read_own` in several places, so without this a
+  // role granted only `read_all` (the common case) gets wrongly denied.
+  if (!allowed && action === 'read_own') {
+    const readAllPerm = await prisma.rolePermission.findFirst({
+      where: { roleDefinition: { name: roleName }, resource, action: 'read_all', allowed: true },
+    })
+    allowed = readAllPerm !== null
+  }
+
   setCached(userId, resource, action, allowed)
   return allowed
 }
@@ -75,9 +87,10 @@ export async function checkApprovalToken(
   return { allowed: true, approvalId: approval.id }
 }
 
-export async function consumeApprovalToken(approvalId: string) {
-  await prisma.approvalRequest.update({
-    where: { id: approvalId },
+export async function consumeApprovalToken(approvalId: string): Promise<boolean> {
+  const result = await prisma.approvalRequest.updateMany({
+    where: { id: approvalId, status: 'approved', expiresAt: { gt: new Date() } },
     data: { status: 'used' },
   })
+  return result.count > 0
 }

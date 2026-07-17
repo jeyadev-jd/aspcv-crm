@@ -41,7 +41,7 @@ export interface RawComponent {
 export function useComponents(params?: { status?: string; category?: string }) {
   return useQuery<RawComponent[]>({
     queryKey: ['components', params],
-    queryFn: () => api.get('/components', { params: { ...params, oldestFirst: 'true' } }).then(r => r.data),
+    queryFn: () => api.get('/components', { params: { ...params, oldestFirst: 'true', pageSize: 1000 } }).then(r => r.data.data),
   })
 }
 

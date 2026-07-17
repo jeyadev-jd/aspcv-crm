@@ -12,7 +12,8 @@ export async function getScopeFilter(
 
   switch (resource) {
     case 'lead':
-      // leads where user is an assigned owner (primary or secondary)
+    case 'deal':
+      // leads/deals where user is an assigned owner (primary or secondary)
       return { owners: { some: { userId } } }
     case 'company':
       // companies where user owns at least one active lead

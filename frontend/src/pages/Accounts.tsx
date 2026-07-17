@@ -1,24 +1,30 @@
+import Pagination from '@/components/shared/Pagination'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Building2, Trash2, Edit2, CheckCircle2, PauseCircle } from 'lucide-react'
 import type React from 'react'
 import { useCrmData, type Account } from '@/lib/crmDataContext'
+import { api } from '@/lib/api'
 
+const DEFAULT_STATUS_STYLE = { bg: '#F4F5F9', color: '#8C8C8C' }
 const statusStyle: Record<string, { bg: string; color: string }> = {
   Active:   { bg: '#E7FAF0', color: '#2BC155' },
   Inactive: { bg: '#F4F5F9', color: '#8C8C8C' },
   Prospect: { bg: '#E8EDFF', color: '#5D78FF' },
 }
+function getStatusStyle(status: string) { return statusStyle[status] ?? DEFAULT_STATUS_STYLE }
 
 const industries = ['Housing', 'Construction', 'Real Estate', 'Engineering', 'Sustainability', 'Property', 'Manufacturing', 'Other']
 const blankForm = { name: '', industry: 'Housing', website: '', phone: '', email: '', address: '', employees: '', status: 'Prospect' as Account['status'] }
 const PAGE_SIZE = 5
 
 export default function Accounts() {
+  const navigate = useNavigate()
   const isMobile = useIsMobile()
   const { symbol } = useCurrency()
-  const { accounts, setAccounts } = useCrmData()
+  const { accounts, addAccount } = useCrmData()
   const [filter, setFilter] = useState<'All' | Account['status']>('All')
   const [showModal, setShowModal] = useState(false)
   const [editItem, setEditItem] = useState<Account | null>(null)
@@ -50,19 +56,24 @@ export default function Accounts() {
     return e
   }
 
-  function handleSave() {
+  async function handleSave() {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     if (editItem) {
-      setAccounts(p => p.map(a => a.id === editItem.id ? { ...a, name: form.name, industry: form.industry, website: form.website, phone: form.phone, email: form.email, address: form.address, employees: Number(form.employees) || 0, status: form.status } : a))
+      await api.patch(`/companies/${editItem.id}`, {
+        name: form.name, industry: form.industry, website: form.website,
+        phone: form.phone, email: form.email,
+      })
     } else {
-      const acct: Account = { id: String(Date.now()), name: form.name, industry: form.industry, website: form.website, phone: form.phone, email: form.email, address: form.address, employees: Number(form.employees) || 0, status: form.status, openDeals: 0, revenue: 0 }
-      setAccounts(p => [acct, ...p])
+      await addAccount({ name: form.name, industry: form.industry, website: form.website, phone: form.phone, email: form.email })
     }
     closeModal()
   }
 
-  function handleDelete(id: string) { setAccounts(p => p.filter(a => a.id !== id)); setMenuOpen(null); setDeleteConfirm(null); setPage(1) }
+  async function handleDelete(id: string) {
+    await api.delete(`/companies/${id}`)
+    setMenuOpen(null); setDeleteConfirm(null); setPage(1)
+  }
   function changeFilter(f: typeof filter) { setFilter(f); setPage(1) }
 
   return (
@@ -123,7 +134,7 @@ export default function Accounts() {
           {isMobile ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 12 }}>
               {paginated.map((acct) => (
-                <div key={acct.id} onClick={() => openEdit(acct)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div key={acct.id} onClick={() => navigate(`/customers/${acct.id}`)} style={{ background: '#FAFBFF', borderRadius: 12, border: '1px solid #F0F1F5', padding: '12px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <div style={{ width: 34, height: 34, borderRadius: 8, background: '#E8EDFF', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -134,7 +145,7 @@ export default function Accounts() {
                         <p style={{ fontSize: 10, color: '#B1B1BE' }}>{acct.website}</p>
                       </div>
                     </div>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[acct.status].bg, color: statusStyle[acct.status].color }}>{acct.status}</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: getStatusStyle(acct.status).bg, color: getStatusStyle(acct.status).color }}>{acct.status}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 16 }}>
                     <div>
@@ -165,7 +176,7 @@ export default function Accounts() {
             </thead>
             <tbody>
               {paginated.map((acct, i) => (
-                <tr key={acct.id} onClick={() => openEdit(acct)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
+                <tr key={acct.id} onClick={() => navigate(`/customers/${acct.id}`)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
                   <td style={{ padding: '12px 16px' }}>
@@ -186,7 +197,7 @@ export default function Accounts() {
                     <p style={{ fontSize: 10, color: '#B1B1BE' }}>{acct.email}</p>
                   </td>
                   <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 12, fontWeight: 700, color: acct.openDeals > 0 ? '#5D78FF' : '#B1B1BE' }}>{acct.openDeals}</span></td>
-                  <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[acct.status].bg, color: statusStyle[acct.status].color }}>{acct.status}</span></td>
+                  <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: getStatusStyle(acct.status).bg, color: getStatusStyle(acct.status).color }}>{acct.status}</span></td>
                   <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
                     <div style={{ position: 'relative' }}>
                       <button onClick={e => { e.stopPropagation(); setMenuOpen(menuOpen === acct.id ? null : acct.id) }} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
@@ -195,8 +206,8 @@ export default function Accounts() {
                       {menuOpen === acct.id && (
                         <div style={dropdownStyle}>
                           <button onClick={() => { openEdit(acct); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
-                          <button onClick={() => { setAccounts(p => p.map(a => a.id === acct.id ? { ...a, status: 'Active' } : a)); setMenuOpen(null) }} style={menuItem}><CheckCircle2 size={12} style={{marginRight:6}}/>Mark Active</button>
-                          <button onClick={() => { setAccounts(p => p.map(a => a.id === acct.id ? { ...a, status: 'Inactive' } : a)); setMenuOpen(null) }} style={menuItem}><PauseCircle size={12} style={{marginRight:6}}/>Mark Inactive</button>
+                          <button onClick={() => { api.patch(`/companies/${acct.id}`, { isActive: true }); setMenuOpen(null) }} style={menuItem}><CheckCircle2 size={12} style={{marginRight:6}}/>Mark Active</button>
+                          <button onClick={() => { api.patch(`/companies/${acct.id}`, { isActive: false }); setMenuOpen(null) }} style={menuItem}><PauseCircle size={12} style={{marginRight:6}}/>Mark Inactive</button>
                           <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
                           <button onClick={() => { setDeleteConfirm(acct.id); setMenuOpen(null) }} style={{ ...menuItem, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
                         </div>
@@ -209,15 +220,7 @@ export default function Accounts() {
             </tbody>
           </table>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderTop: '1px solid #F4F5F9' }}>
-            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === 1 ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === 1 ? 'default' : 'pointer' }}><ChevronLeft size={13} /> Prev</button>
-            <div style={{ display: 'flex', gap: 4 }}>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(pg => (
-                <button key={pg} onClick={() => setPage(pg)} style={{ width: 28, height: 28, borderRadius: 6, fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', background: page === pg ? '#5D78FF' : 'transparent', color: page === pg ? '#fff' : '#B1B1BE' }}>{pg}</button>
-              ))}
-            </div>
-            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, border: '1px solid #F0F1F5', color: page === totalPages ? '#D5D5D5' : '#374557', background: '#fff', cursor: page === totalPages ? 'default' : 'pointer' }}>Next <ChevronRight size={13} /></button>
-          </div>
+          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
         </div>
       </div>
 

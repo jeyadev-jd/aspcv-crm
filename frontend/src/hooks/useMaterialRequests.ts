@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { toast } from '@/lib/toast'
 import { api } from '../lib/api'
 
 export interface MRItem {
@@ -38,7 +39,7 @@ export interface MaterialRequest {
 export function useMaterialRequests(params?: { mine?: boolean; status?: string }) {
   return useQuery<MaterialRequest[]>({
     queryKey: ['material-requests', params],
-    queryFn: () => api.get('/material-requests', { params }).then(r => r.data),
+    queryFn: () => api.get('/material-requests', { params: { pageSize: 1000, ...params } }).then(r => r.data.data),
   })
 }
 
@@ -47,7 +48,7 @@ export function useCreateMaterialRequest() {
   return useMutation({
     mutationFn: (data: { projectId?: string; items: Omit<MRItem, 'id' | 'requestId'>[]; notes?: string; totalEstimated?: number }) =>
       api.post('/material-requests', data).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['material-requests'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['material-requests'] }); toast.success('Material request submitted') },
   })
 }
 
@@ -55,7 +56,7 @@ export function useApproveMaterialRequest() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.patch(`/material-requests/${id}/approve`).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['material-requests'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['material-requests'] }); toast.success('Approved') },
   })
 }
 
@@ -64,6 +65,6 @@ export function useRejectMaterialRequest() {
   return useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       api.patch(`/material-requests/${id}/reject`, { reason }).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['material-requests'] }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['material-requests'] }); toast.success('Rejected') },
   })
 }

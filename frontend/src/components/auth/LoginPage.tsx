@@ -47,7 +47,7 @@ export default function LoginPage() {
 
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative', zIndex: 1 }}>
-            <img src="/aspcv-logo.png" alt="ASPCV" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 10, background: '#fff', padding: 6, boxShadow: '0 2px 12px rgba(0,0,0,0.25)' }} />
+            <img src="/favicon.svg" alt="ASPCV" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 10, background: '#fff', padding: 6, boxShadow: '0 2px 12px rgba(0,0,0,0.25)' }} />
             <div>
               <p style={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>ASPCV</p>
               <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>Aspiration Cleantech Pvt. Ltd.</p>

@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser, CRM_ROLES, DEPARTMENTS, type CrmUser } from '../hooks/useUsers'
+import { useUsers, useCreateUser, useUpdateUser, useDeactivateUser, CRM_ROLES, type CrmUser } from '../hooks/useUsers'
+import { useDepartments } from '../hooks/useDepartments'
 import { useAuthStore } from '../lib/authStore'
-import { X, Cake, Mail, Building, Plus, Edit2, Trash2, Phone, CreditCard, Calendar, Wallet } from 'lucide-react'
+import { X, Cake, Mail, Building, Plus, Edit2, Trash2, Phone, CreditCard, Calendar, Wallet, AlertTriangle } from 'lucide-react'
+import EmptyState from '../components/shared/EmptyState'
 import { CsvImportExport } from '../components/shared/CsvImportExport'
 import type { CsvColDef } from '../components/shared/CsvImportExport'
 
@@ -9,7 +11,7 @@ const HR_CSV_COLS: CsvColDef<CrmUser>[] = [
   { header: 'Name',            accessor: r => r.name },
   { header: 'Email',           accessor: r => r.email },
   { header: 'Role',            accessor: r => r.role },
-  { header: 'Department',      accessor: r => r.department ?? '' },
+  { header: 'Department',      accessor: r => r.department?.name ?? '' },
   { header: 'DateOfBirth',     accessor: r => r.dateOfBirth ?? '' },
   { header: 'JoiningDate',     accessor: r => r.joiningDate ?? '' },
   { header: 'BaseSalary',      accessor: r => r.baseSalary != null ? String(r.baseSalary) : '' },
@@ -75,7 +77,7 @@ function fmtDate(iso?: string | null) {
 }
 
 const blankForm = () => ({
-  name: '', email: '', password: '', role: 'Engineer', department: '',
+  name: '', email: '', password: '', role: 'Engineer', departmentId: '',
   dateOfBirth: '', joiningDate: '', baseSalary: '', hra: '', allowances: '',
   pfApplicable: true, esiApplicable: true, pan: '', bankAccount: '', ifsc: '', bankName: '',
   emergencyContact: '',
@@ -87,7 +89,8 @@ export default function HR() {
   const me = useAuthStore(s => s.user)
   const canManage = me && ['SuperAdmin', 'HR'].includes(me.role)
 
-  const { data: users = [], isLoading } = useUsers()
+  const { data: users = [], isLoading, isError, refetch } = useUsers()
+  const { data: departments = [] } = useDepartments()
   const createUser = useCreateUser()
 
   async function importEmployees(rows: Record<string, string>[]) {
@@ -95,8 +98,9 @@ export default function HR() {
     for (const row of rows) {
       if (!row.Name || !row.Email) { errors.push(`"${row.Name || row.Email}": Name and Email required`); continue }
       const validRole = CRM_ROLES.includes(row.Role as never) ? row.Role : 'Engineer'
+      const matchedDept = departments.find(d => d.name.toLowerCase() === (row.Department ?? '').toLowerCase())
       try {
-        await createUser.mutateAsync({ name: row.Name, email: row.Email, password: row.Password || 'TempPass@123', role: validRole, department: row.Department || undefined, dateOfBirth: row.DateOfBirth || undefined, joiningDate: row.JoiningDate || undefined, baseSalary: row.BaseSalary ? Number(row.BaseSalary) : undefined, hra: row.HRA ? Number(row.HRA) : undefined, allowances: row.Allowances ? Number(row.Allowances) : undefined, pfApplicable: row.PF !== 'false', esiApplicable: row.ESI !== 'false', pan: row.PAN || undefined, bankAccount: row.BankAccount || undefined, ifsc: row.IFSC || undefined, bankName: row.BankName || undefined, emergencyContact: row.EmergencyContact || undefined })
+        await createUser.mutateAsync({ name: row.Name, email: row.Email, password: row.Password || 'TempPass@123', role: validRole, departmentId: matchedDept?.id, dateOfBirth: row.DateOfBirth || undefined, joiningDate: row.JoiningDate || undefined, baseSalary: row.BaseSalary ? Number(row.BaseSalary) : undefined, hra: row.HRA ? Number(row.HRA) : undefined, allowances: row.Allowances ? Number(row.Allowances) : undefined, pfApplicable: row.PF !== 'false', esiApplicable: row.ESI !== 'false', pan: row.PAN || undefined, bankAccount: row.BankAccount || undefined, ifsc: row.IFSC || undefined, bankName: row.BankName || undefined, emergencyContact: row.EmergencyContact || undefined })
         success++
       } catch (e: unknown) { errors.push(`"${row.Name}": ${e instanceof Error ? e.message : 'Error'}`) }
     }
@@ -115,12 +119,10 @@ export default function HR() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [error, setError] = useState('')
 
-  const depts = [...new Set(users.map(u => u.department).filter(Boolean))] as string[]
-
   const filtered = users.filter(u => {
     const q = search.toLowerCase()
     if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false
-    if (filterDept && u.department !== filterDept) return false
+    if (filterDept && u.department?.id !== filterDept) return false
     if (filterRole && u.role !== filterRole) return false
     return true
   })
@@ -134,7 +136,7 @@ export default function HR() {
 
   function openEdit(u: CrmUser) {
     setForm({
-      name: u.name, email: u.email, password: '', role: u.role, department: u.department ?? '',
+      name: u.name, email: u.email, password: '', role: u.role, departmentId: u.departmentId ?? u.department?.id ?? '',
       dateOfBirth: u.dateOfBirth ? u.dateOfBirth.slice(0, 10) : '',
       joiningDate: u.joiningDate ? u.joiningDate.slice(0, 10) : '',
       baseSalary: u.baseSalary != null ? String(u.baseSalary) : '',
@@ -152,7 +154,7 @@ export default function HR() {
     setError('')
     const payload = {
       name: form.name, email: form.email, role: form.role,
-      department: form.department || undefined,
+      departmentId: form.departmentId || undefined,
       dateOfBirth: form.dateOfBirth || undefined,
       joiningDate: form.joiningDate || undefined,
       baseSalary: form.baseSalary !== '' ? Number(form.baseSalary) : undefined,
@@ -181,6 +183,10 @@ export default function HR() {
   }
 
   if (isLoading) return <div style={{ padding: 32, fontSize: 13, color: '#8A8FA8' }}>Loading employees...</div>
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load employees" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
+  )
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
@@ -213,7 +219,7 @@ export default function HR() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 24 }}>
         {[
           { label: 'Total Employees', value: users.length, color: '#5D78FF' },
-          { label: 'Departments', value: depts.length, color: '#8B5CF6' },
+          { label: 'Departments', value: departments.length, color: '#8B5CF6' },
           { label: 'Birthdays this month', value: users.filter(u => isBirthdayThisMonth(u.dateOfBirth)).length, color: '#F59E0B' },
           ...(canManage ? [{ label: 'Monthly Salary Bill', value: `₹${Math.round(totalMonthlySalary).toLocaleString('en-IN')}`, color: '#2BC155' }] : []),
         ].map(s => (
@@ -229,7 +235,7 @@ export default function HR() {
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search employees..." style={{ border: '1.5px solid #E8E9F0', borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', minWidth: 200 }} />
         <select value={filterDept} onChange={e => setFilterDept(e.target.value)} style={{ border: '1.5px solid #E8E9F0', borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', background: '#fff' }}>
           <option value="">All Departments</option>
-          {depts.map(d => <option key={d} value={d}>{d}</option>)}
+          {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <select value={filterRole} onChange={e => setFilterRole(e.target.value)} style={{ border: '1.5px solid #E8E9F0', borderRadius: 8, padding: '8px 12px', fontSize: 13, outline: 'none', background: '#fff' }}>
           <option value="">All Roles</option>
@@ -255,7 +261,7 @@ export default function HR() {
                 </div>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {u.department && <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#6B7280' }}><Building size={12} />{u.department}</div>}
+                {u.department && <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#6B7280' }}><Building size={12} />{u.department.name}</div>}
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#6B7280' }}><Mail size={12} />{u.email}</div>
                 {u.joiningDate && <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: '#6B7280' }}><Calendar size={12} />Tenure: {tenure(u.joiningDate)}</div>}
               </div>
@@ -292,7 +298,7 @@ export default function HR() {
 
             {/* Employment */}
             <Section title="Employment">
-              <InfoRow icon={<Building size={13} />} label="Department" value={detail.department ?? '—'} />
+              <InfoRow icon={<Building size={13} />} label="Department" value={detail.department?.name ?? '—'} />
               <InfoRow icon={<Calendar size={13} />} label="Joining Date" value={fmtDate(detail.joiningDate)} />
               <InfoRow icon={<Calendar size={13} />} label="Tenure" value={tenure(detail.joiningDate)} />
             </Section>
@@ -355,9 +361,9 @@ export default function HR() {
                 </select>
               </Field>
               <Field label="Department">
-                <select value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))} style={{ ...fInp, background: '#fff' }}>
+                <select value={form.departmentId} onChange={e => setForm(p => ({ ...p, departmentId: e.target.value }))} style={{ ...fInp, background: '#fff' }}>
                   <option value="">Select...</option>
-                  {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                  {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                 </select>
               </Field>
               <Field label="Emergency Contact"><input value={form.emergencyContact} onChange={e => setForm(p => ({ ...p, emergencyContact: e.target.value }))} placeholder="+91..." style={fInp} /></Field>

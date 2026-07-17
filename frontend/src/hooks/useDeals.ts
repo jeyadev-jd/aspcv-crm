@@ -14,7 +14,19 @@ export interface DealAPI {
   closeDate?: string | null
   productId?: string | null
   notes?: string | null
+  departmentId?: string | null
+  department?: { id: string; name: string } | null
+  // Phase 1: inherited automatically from Lead on Order-Won promotion
+  regionId?: string | null
+  region?: { id: string; name: string } | null
+  commercialModelId?: string | null
+  commercialModel?: { id: string; name: string } | null
   owners: { user: { id: string; name: string; role: string } }[]
+  assignedPM?: { id: string; name: string; role: string } | null
+  assignedSE?: { id: string; name: string; role: string } | null
+  handoverNotes?: string | null
+  handoverAttachmentUrl?: string | null
+  handoverSubmittedAt?: string | null
   createdAt: string
 }
 
@@ -33,10 +45,10 @@ export function stageToUI(stage: DealAPI['stage']): string {
 }
 
 export function useDeals(params?: Record<string, string>) {
-  const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+  const qs = '?' + new URLSearchParams({ pageSize: '1000', ...params }).toString()
   return useQuery<DealAPI[]>({
     queryKey: ['deals', params],
-    queryFn: () => api.get(`/deals${qs}`).then(r => r.data),
+    queryFn: () => api.get(`/deals${qs}`).then(r => r.data.data),
     staleTime: 30_000,
   })
 }
@@ -68,6 +80,36 @@ export function useUpdateDealStage() {
       qc.invalidateQueries({ queryKey: ['projects'] })
       qc.invalidateQueries({ queryKey: ['installations'] })
     },
+  })
+}
+
+export function useCloseWonDeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, handoverNotes, handoverAttachmentUrl, assignedPMId }: { id: string; handoverNotes: string; handoverAttachmentUrl?: string; assignedPMId: string }) =>
+      api.post(`/deals/${id}/close-won`, { handoverNotes, handoverAttachmentUrl, assignedPMId }).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['deals'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    },
+  })
+}
+
+export function useAssignDealSE() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, assignedSEId }: { id: string; assignedSEId: string | null }) =>
+      api.patch(`/deals/${id}/assign-se`, { assignedSEId }).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['deals'] }),
+  })
+}
+
+export function useAssignDealPM() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, assignedPMId }: { id: string; assignedPMId: string | null }) =>
+      api.patch(`/deals/${id}/assign-pm`, { assignedPMId }).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['deals'] }),
   })
 }
 

@@ -1,11 +1,11 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { discussionSchema } from '../lib/zod-schemas'
 import { appendEvent } from '../services/timeline'
 import { requirePermission } from '../middleware/permissions'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 // GET /api/discussions?entityType=Lead&entityId=xxx
@@ -68,7 +68,16 @@ router.post('/', requirePermission('discussion', 'create'), async (req: AuthRequ
   res.status(201).json(discussion)
 })
 
-router.patch('/:id', requirePermission('discussion', 'edit'), async (req: AuthRequest, res) => {
+router.patch('/:id', requirePermission('discussion', 'edit_own'), async (req: AuthRequest, res) => {
+  const existing = await prisma.discussion.findUnique({
+    where: { id: req.params.id as string },
+    include: { participants: { where: { userId: req.user!.id } } }
+  })
+  if (!existing) { res.status(404).json({ error: 'Not found' }); return }
+  const isOwn = existing.participants.length > 0
+  const isAdmin = ['SuperAdmin', 'Manager', 'ProjectHead', 'BusinessHead'].includes(req.user!.roleName ?? req.user!.role)
+  if (!isOwn && !isAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
+
   const data = discussionSchema.partial().parse(req.body)
   const { participantUserIds, participantContactIds, entityType, entityId, ...rest } = data
   const discussion = await prisma.discussion.update({
@@ -83,8 +92,16 @@ router.patch('/:id', requirePermission('discussion', 'edit'), async (req: AuthRe
   res.json(discussion)
 })
 
-router.delete('/:id', requirePermission('discussion', 'delete'), async (_req, res) => {
-  await prisma.discussion.delete({ where: { id: _req.params.id as string } })
+router.delete('/:id', async (req: AuthRequest, res) => {
+  const d = await prisma.discussion.findUnique({
+    where: { id: req.params.id as string },
+    include: { participants: { where: { userId: req.user!.id } } }
+  })
+  if (!d) { res.status(404).json({ error: 'Not found' }); return }
+  const isOwn = d.participants.length > 0
+  const isAdmin = ['SuperAdmin', 'Manager', 'ProjectHead', 'BusinessHead'].includes(req.user!.roleName ?? req.user!.role)
+  if (!isOwn && !isAdmin) { res.status(403).json({ error: 'Forbidden' }); return }
+  await prisma.discussion.delete({ where: { id: req.params.id as string } })
   res.status(204).end()
 })
 

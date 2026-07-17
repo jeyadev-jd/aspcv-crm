@@ -1,8 +1,11 @@
+import Spinner from '@/components/shared/Spinner'
+import EmptyState from '@/components/shared/EmptyState'
 import { useState } from 'react'
 import type React from 'react'
-import { Plus, X, Edit2, Trash2, Store, Phone, Mail, MapPin, Loader2, Search } from 'lucide-react'
+import { Plus, X, Edit2, Trash2, Store, Phone, Mail, MapPin, Loader2, Search, Package, AlertTriangle } from 'lucide-react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useDealers, useCreateDealer, useUpdateDealer, useDeleteDealer } from '@/hooks/useDealers'
+import { useDealerItems, useCreateDealerItem, useUpdateDealerItem, useDeleteDealerItem } from '@/hooks/useDealers'
 import type { Dealer, DealerContact } from '@/hooks/useDealers'
 
 const blankContact: DealerContact = { name: '', designation: '', phone: '', email: '', whatsapp: '', isPrimary: false }
@@ -15,7 +18,7 @@ const blankForm = {
 export default function Dealers() {
   const isMobile = useIsMobile()
   const [search, setSearch] = useState('')
-  const { data: dealers = [], isLoading } = useDealers(search || undefined)
+  const { data: dealers = [], isLoading, isError, refetch } = useDealers(search || undefined)
   const create = useCreateDealer()
   const update = useUpdateDealer()
   const remove = useDeleteDealer()
@@ -24,6 +27,7 @@ export default function Dealers() {
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState(blankForm)
   const [selected, setSelected] = useState<Dealer | null>(null)
+  const [detailTab, setDetailTab] = useState<'details' | 'items'>('details')
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -58,10 +62,10 @@ export default function Dealers() {
 
   async function handleDelete(id: string) { await remove.mutateAsync(id); setDeleteConfirm(null); setSelected(null) }
 
-  if (isLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 120px)' }}>
-      <Loader2 size={24} style={{ color: '#5D78FF', animation: 'spin 1s linear infinite' }} />
-    </div>
+  if (isLoading) return <Spinner />
+  if (isError) return (
+    <EmptyState icon={AlertTriangle} title="Failed to load dealers" subtitle="Something went wrong fetching this data."
+      action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
   )
 
   return (
@@ -80,11 +84,7 @@ export default function Dealers() {
 
       {/* Grid */}
       {dealers.length === 0 ? (
-        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 48, textAlign: 'center' }}>
-          <Store size={28} style={{ color: '#D5D5D5', margin: '0 auto 10px' }} />
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>No dealers yet</p>
-          <p style={{ fontSize: 12, color: '#B1B1BE', marginTop: 4 }}>Add your first dealer / supplier.</p>
-        </div>
+        <EmptyState icon={Store} title="No dealers yet" subtitle="Add your first dealer / supplier." />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
           {dealers.map(d => {
@@ -119,51 +119,14 @@ export default function Dealers() {
 
       {/* Detail */}
       {selected && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onClick={e => e.target === e.currentTarget && setSelected(null)}>
-          <div style={{ background: '#fff', borderRadius: 16, width: 'min(560px, 96vw)', maxHeight: '92vh', overflowY: 'auto', padding: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 42, height: 42, borderRadius: 10, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Store size={18} style={{ color: '#5D78FF' }} /></div>
-                <div>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>{selected.name}</p>
-                  {selected.company && <p style={{ fontSize: 12, color: '#B1B1BE' }}>{selected.company}</p>}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => openEdit(selected)} style={iconBtn}><Edit2 size={14} /></button>
-                <button onClick={() => setDeleteConfirm(selected.id)} style={{ ...iconBtn, color: '#FF5353' }}><Trash2 size={14} /></button>
-                <button onClick={() => setSelected(null)} style={iconBtn}><X size={16} /></button>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-              <Detail label="GST Number" value={selected.gstNumber} />
-              <Detail label="Category" value={selected.category} />
-              <Detail label="Phone" value={selected.phone} />
-              <Detail label="Email" value={selected.email} />
-              <Detail label="City" value={selected.city} />
-              <Detail label="State" value={selected.state} />
-              <div style={{ gridColumn: '1 / -1' }}><Detail label="Address" value={selected.address} /></div>
-              {selected.notes && <div style={{ gridColumn: '1 / -1' }}><Detail label="Notes" value={selected.notes} /></div>}
-            </div>
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Contacts ({selected.contacts.length})</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {selected.contacts.map((c, i) => (
-                <div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: '#FAFBFF', border: '1px solid #F0F1F5' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{c.name}</p>
-                    {c.isPrimary && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: '#E7FAF0', color: '#2BC155' }}>PRIMARY</span>}
-                  </div>
-                  {c.designation && <p style={{ fontSize: 11, color: '#B1B1BE' }}>{c.designation}</p>}
-                  <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
-                    {c.phone && <span style={{ fontSize: 11, color: '#8C8C8C' }}>📞 {c.phone}</span>}
-                    {c.email && <span style={{ fontSize: 11, color: '#8C8C8C' }}>✉ {c.email}</span>}
-                  </div>
-                </div>
-              ))}
-              {selected.contacts.length === 0 && <p style={{ fontSize: 11, color: '#B1B1BE' }}>No contacts.</p>}
-            </div>
-          </div>
-        </div>
+        <DealerDetailModal
+          dealer={selected}
+          tab={detailTab}
+          onTabChange={setDetailTab}
+          onEdit={() => openEdit(selected)}
+          onDelete={() => setDeleteConfirm(selected.id)}
+          onClose={() => setSelected(null)}
+        />
       )}
 
       {/* Delete confirm */}
@@ -234,6 +197,202 @@ export default function Dealers() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Dealer Detail Modal with tabs ─────────────────────────────────────────────
+const blankItem = { name: '', description: '', specification: '', unit: '', quantity: '', price: '', partNumber: '', brand: '', category: '', inStock: true, notes: '' }
+
+function DealerDetailModal({ dealer, tab, onTabChange, onEdit, onDelete, onClose }: {
+  dealer: Dealer; tab: string; onTabChange: (t: 'details' | 'items') => void
+  onEdit: () => void; onDelete: () => void; onClose: () => void
+}) {
+  const { data: items = [] } = useDealerItems(dealer.id)
+  const createItem = useCreateDealerItem(dealer.id)
+  const updateItem = useUpdateDealerItem(dealer.id)
+  const deleteItem = useDeleteDealerItem(dealer.id)
+  const [showItemForm, setShowItemForm] = useState(false)
+  const [editItemId, setEditItemId] = useState<string | null>(null)
+  const [itemForm, setItemForm] = useState(blankItem)
+
+  function openCreateItem() { setEditItemId(null); setItemForm(blankItem); setShowItemForm(true) }
+  function openEditItem(it: any) { setEditItemId(it.id); setItemForm({ name: it.name, description: it.description ?? '', specification: it.specification ?? '', unit: it.unit ?? '', quantity: it.quantity != null ? String(it.quantity) : '', price: it.price != null ? String(it.price) : '', partNumber: it.partNumber ?? '', brand: it.brand ?? '', category: it.category ?? '', inStock: it.inStock, notes: it.notes ?? '' }); setShowItemForm(true) }
+  async function saveItem() {
+    if (!itemForm.name.trim()) return
+    const payload = { ...itemForm, price: itemForm.price ? Number(itemForm.price) : undefined, quantity: itemForm.quantity ? Number(itemForm.quantity) : undefined }
+    if (editItemId) await updateItem.mutateAsync({ itemId: editItemId, ...payload })
+    else await createItem.mutateAsync(payload)
+    setShowItemForm(false); setItemForm(blankItem); setEditItemId(null)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{ background: '#fff', borderRadius: 16, width: 'min(620px, 96vw)', maxHeight: '92vh', overflowY: 'auto' }}>
+        {/* Header */}
+        <div style={{ padding: '20px 24px 0', position: 'sticky', top: 0, background: '#fff', zIndex: 1, borderBottom: '1px solid #F0F1F5', paddingBottom: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 10, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Store size={18} style={{ color: '#5D78FF' }} /></div>
+              <div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>{dealer.name}</p>
+                {dealer.company && <p style={{ fontSize: 12, color: '#B1B1BE' }}>{dealer.company}</p>}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={onEdit} style={iconBtn}><Edit2 size={14} /></button>
+              <button onClick={onDelete} style={{ ...iconBtn, color: '#FF5353' }}><Trash2 size={14} /></button>
+              <button onClick={onClose} style={iconBtn}><X size={16} /></button>
+            </div>
+          </div>
+          {/* Tabs */}
+          <div style={{ display: 'flex', gap: 0 }}>
+            {(['details', 'items'] as const).map(t => (
+              <button key={t} onClick={() => onTabChange(t)} style={{ padding: '10px 20px', fontSize: 12, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', color: tab === t ? '#5D78FF' : '#B1B1BE', borderBottom: `2px solid ${tab === t ? '#5D78FF' : 'transparent'}`, textTransform: 'capitalize' }}>
+                {t === 'items' ? `Items (${items.length})` : 'Details'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ padding: 24 }}>
+          {tab === 'details' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+                <Detail label="GST Number" value={dealer.gstNumber} />
+                <Detail label="Category" value={dealer.category} />
+                <Detail label="Phone" value={dealer.phone} />
+                <Detail label="Email" value={dealer.email} />
+                <Detail label="City" value={dealer.city} />
+                <Detail label="State" value={dealer.state} />
+                <div style={{ gridColumn: '1 / -1' }}><Detail label="Address" value={dealer.address} /></div>
+                {dealer.notes && <div style={{ gridColumn: '1 / -1' }}><Detail label="Notes" value={dealer.notes} /></div>}
+              </div>
+              <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Contacts ({dealer.contacts.length})</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {dealer.contacts.map((c, i) => (
+                  <div key={i} style={{ padding: '10px 12px', borderRadius: 10, background: '#FAFBFF', border: '1px solid #F0F1F5' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{c.name}</p>
+                      {c.isPrimary && <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 6, background: '#E7FAF0', color: '#2BC155' }}>PRIMARY</span>}
+                    </div>
+                    {c.designation && <p style={{ fontSize: 11, color: '#B1B1BE' }}>{c.designation}</p>}
+                    <div style={{ display: 'flex', gap: 14, marginTop: 4 }}>
+                      {c.phone && <span style={{ fontSize: 11, color: '#8C8C8C' }}>📞 {c.phone}</span>}
+                      {c.email && <span style={{ fontSize: 11, color: '#8C8C8C' }}>✉ {c.email}</span>}
+                    </div>
+                  </div>
+                ))}
+                {dealer.contacts.length === 0 && <p style={{ fontSize: 11, color: '#B1B1BE' }}>No contacts.</p>}
+              </div>
+            </>
+          )}
+
+          {tab === 'items' && (
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>Dealer Items / Products</p>
+                <button onClick={openCreateItem} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  <Plus size={12} /> New Item
+                </button>
+              </div>
+
+              {showItemForm && (
+                <div style={{ background: '#F8F9FF', borderRadius: 12, border: '1px solid #E8EDFF', padding: 16, marginBottom: 14 }}>
+                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 12 }}>{editItemId ? 'Edit Item' : 'New Item'}</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Item Name *</label>
+                      <input value={itemForm.name} onChange={e => setItemForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. R-32 Refrigerant" style={inp(false)} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Description</label>
+                      <textarea value={itemForm.description} onChange={e => setItemForm(f => ({ ...f, description: e.target.value }))} rows={2} placeholder="Short description of the item…" style={{ ...inp(false), resize: 'vertical' }} />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Specification</label>
+                      <textarea value={itemForm.specification} onChange={e => setItemForm(f => ({ ...f, specification: e.target.value }))} rows={2} placeholder="Technical details, grade, size…" style={{ ...inp(false), resize: 'vertical' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Brand</label>
+                      <input value={itemForm.brand} onChange={e => setItemForm(f => ({ ...f, brand: e.target.value }))} placeholder="e.g. Daikin" style={inp(false)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Part Number</label>
+                      <input value={itemForm.partNumber} onChange={e => setItemForm(f => ({ ...f, partNumber: e.target.value }))} placeholder="SKU / Part No." style={inp(false)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Unit</label>
+                      <input value={itemForm.unit} onChange={e => setItemForm(f => ({ ...f, unit: e.target.value }))} placeholder="pcs / kg / m / set" style={inp(false)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Quantity</label>
+                      <input type="number" min="0" value={itemForm.quantity} onChange={e => setItemForm(f => ({ ...f, quantity: e.target.value }))} placeholder="0" style={inp(false)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Price (₹ INR)</label>
+                      <input type="number" min="0" value={itemForm.price} onChange={e => setItemForm(f => ({ ...f, price: e.target.value }))} placeholder="0" style={inp(false)} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Category</label>
+                      <input value={itemForm.category} onChange={e => setItemForm(f => ({ ...f, category: e.target.value }))} placeholder="e.g. Refrigerant" style={inp(false)} />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 18 }}>
+                      <input type="checkbox" id="instock" checked={itemForm.inStock} onChange={e => setItemForm(f => ({ ...f, inStock: e.target.checked }))} />
+                      <label htmlFor="instock" style={{ fontSize: 12, color: '#374557', cursor: 'pointer' }}>In Stock</label>
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Notes</label>
+                      <textarea value={itemForm.notes} onChange={e => setItemForm(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp(false), resize: 'vertical' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 12 }}>
+                    <button onClick={() => { setShowItemForm(false); setItemForm(blankItem) }} style={{ padding: '7px 16px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+                    <button onClick={saveItem} disabled={!itemForm.name.trim() || createItem.isPending || updateItem.isPending} style={{ padding: '7px 16px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>
+                      {(createItem.isPending || updateItem.isPending) ? 'Saving…' : editItemId ? 'Save Changes' : 'Add Item'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {items.length === 0 && !showItemForm ? (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <Package size={24} style={{ color: '#D5D5D5', margin: '0 auto 8px' }} />
+                  <p style={{ fontSize: 12, color: '#B1B1BE' }}>No items yet. Add products this dealer supplies.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {items.map((it: any) => (
+                    <div key={it.id} style={{ background: '#FAFBFF', borderRadius: 10, border: '1px solid #F0F1F5', padding: '12px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{it.name}</p>
+                            {it.brand && <span style={{ fontSize: 10, color: '#5D78FF', background: '#E8EDFF', borderRadius: 6, padding: '1px 7px' }}>{it.brand}</span>}
+                            {it.category && <span style={{ fontSize: 10, color: '#8C8C8C', background: '#F4F5F9', borderRadius: 6, padding: '1px 7px' }}>{it.category}</span>}
+                            <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 6, background: it.inStock ? '#E7FAF0' : '#FFEEEE', color: it.inStock ? '#2BC155' : '#FF5353' }}>{it.inStock ? 'In Stock' : 'Out of Stock'}</span>
+                          </div>
+                          {it.description && <p style={{ fontSize: 11, color: '#374557', marginBottom: 4, lineHeight: 1.5 }}>{it.description}</p>}
+                          {it.specification && <p style={{ fontSize: 11, color: '#6B7280', marginBottom: 4, lineHeight: 1.5 }}>{it.specification}</p>}
+                          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                            {it.price != null && <span style={{ fontSize: 12, fontWeight: 700, color: '#374557' }}>₹{Number(it.price).toLocaleString()}{it.unit ? ` / ${it.unit}` : ''}</span>}
+                            {it.quantity != null && <span style={{ fontSize: 11, color: '#B1B1BE' }}>Qty: {it.quantity}</span>}
+                            {it.partNumber && <span style={{ fontSize: 11, color: '#B1B1BE' }}>Part: {it.partNumber}</span>}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                          <button onClick={() => openEditItem(it)} style={{ ...iconBtn, padding: 6 }}><Edit2 size={12} /></button>
+                          <button onClick={() => deleteItem.mutateAsync(it.id)} style={{ ...iconBtn, color: '#FF5353', padding: 6 }}><Trash2 size={12} /></button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

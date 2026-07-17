@@ -17,7 +17,7 @@ export interface Notification {
 export function useNotifications() {
   return useQuery<{ notifications: Notification[]; unread: number }>({
     queryKey: ['notifications'],
-    queryFn: () => api.get('/notifications/my').then(r => r.data),
+    queryFn: () => api.get('/notifications/my', { params: { pageSize: 100 } }).then(r => ({ notifications: r.data.data, unread: r.data.unread })),
     refetchInterval: 30_000, // poll for new alerts
   })
 }

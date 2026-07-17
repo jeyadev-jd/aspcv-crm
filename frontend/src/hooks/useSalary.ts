@@ -39,7 +39,7 @@ export function useMySalary() {
 export function useAllSalary(month?: number, year?: number, userId?: string) {
   return useQuery<SalaryRecord[]>({
     queryKey: ['salary', 'all', month, year, userId],
-    queryFn: () => api.get('/salary/all', { params: { month, year, userId } }).then(r => r.data),
+    queryFn: () => api.get('/salary/all', { params: { month, year, userId, pageSize: 1000 } }).then(r => r.data.data),
   })
 }
 

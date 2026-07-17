@@ -1,9 +1,10 @@
-import { Router } from 'express'
+import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
+import { parsePagination, paginate } from '../lib/pagination'
 
-const router = Router()
+const router = createSafeRouter()
 router.use(authenticate)
 
 async function nextRefNumber(): Promise<string> {
@@ -14,14 +15,24 @@ async function nextRefNumber(): Promise<string> {
 
 router.get('/', async (req, res) => {
   const { status, category, oldestFirst } = req.query as Record<string, string>
-  const components = await prisma.rawComponent.findMany({
-    where: {
-      ...(status && { status }),
-      ...(category && { category }),
-    },
-    orderBy: oldestFirst === 'false' ? { receivedAt: 'desc' } : { receivedAt: 'asc' },
-  })
-  res.json(components)
+  const pagination = parsePagination(req.query as Record<string, unknown>, 'receivedAt')
+  const where = {
+    ...(status && { status }),
+    ...(category && { category }),
+    ...(pagination.search && { name: { contains: pagination.search, mode: 'insensitive' as const } }),
+  }
+  const sortField = req.query.sort ? pagination.sort as string : 'receivedAt'
+  const sortOrder = req.query.sort ? pagination.order : (oldestFirst === 'false' ? 'desc' : 'asc')
+  const [components, total] = await Promise.all([
+    prisma.rawComponent.findMany({
+      where,
+      orderBy: { [sortField]: sortOrder },
+      skip: pagination.skip,
+      take: pagination.take,
+    }),
+    prisma.rawComponent.count({ where }),
+  ])
+  res.json(paginate(components, total, pagination))
 })
 
 router.get('/:id', async (req, res) => {
@@ -92,10 +103,17 @@ router.patch('/:id', requirePermission('component', 'edit'), async (req: AuthReq
 router.post('/:id/assign', requirePermission('component', 'assign'), async (req: AuthRequest, res) => {
   const { toEntityType, toEntityId, toEntityName, notes } = req.body
 
-  const component = await prisma.rawComponent.update({
-    where: { id: req.params.id as string },
+  const { count } = await prisma.rawComponent.updateMany({
+    where: { id: req.params.id as string, status: 'in_stock' },
     data: { status: 'assigned', assignedToType: toEntityType, assignedToId: toEntityId, assignedAt: new Date() },
   })
+  if (count === 0) {
+    const existing = await prisma.rawComponent.findUnique({ where: { id: req.params.id as string } })
+    res.status(existing ? 400 : 404).json({ error: existing ? 'Component is not available to assign' : 'Not found' })
+    return
+  }
+
+  const component = await prisma.rawComponent.findUniqueOrThrow({ where: { id: req.params.id as string } })
 
   await prisma.componentMovement.create({
     data: { componentId: component.id, type: 'assigned', toEntityType, toEntityId, toEntityName: toEntityName ?? null, performedById: req.user!.id, notes: notes ?? null },

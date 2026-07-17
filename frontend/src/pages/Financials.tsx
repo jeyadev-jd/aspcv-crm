@@ -195,7 +195,7 @@ export default function Financials() {
                     <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: tab === 'assets' ? '#2BC155' : '#EF4444' }}>{fmt(e.amount)}</td>
                     <td style={{ padding: '10px 14px', fontSize: 12, color: '#6B7280' }}>{new Date(e.asOf).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td style={{ padding: '10px 14px' }}>
-                      {canEdit && <button onClick={() => deleteEntry.mutate(e.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
+                      {canEdit && <button onClick={() => { if (confirm('Delete this entry?')) deleteEntry.mutate(e.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
                     </td>
                   </tr>
                 ))}
@@ -248,7 +248,7 @@ export default function Financials() {
                     <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#EF4444' }}>{fmt(e.amount)}</td>
                     <td style={{ padding: '10px 14px', fontSize: 12, color: '#6B7280' }}>{new Date(e.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</td>
                     <td style={{ padding: '10px 14px' }}>
-                      {canEdit && <button onClick={() => deleteExpense.mutate(e.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
+                      {canEdit && <button onClick={() => { if (confirm('Delete this expense?')) deleteExpense.mutate(e.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
                     </td>
                   </tr>
                 ))}
