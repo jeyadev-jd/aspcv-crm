@@ -1,7 +1,13 @@
 import axios from 'axios'
 
+// Baked in at build time (see .env.production / Docker build arg) so a
+// production bundle never calls back to a dev machine's localhost.
+export const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:4000/api'
+// Attachment/file links are served from the API origin, not under /api.
+export const API_ORIGIN = API_URL.replace(/\/api\/?$/, '')
+
 export const api = axios.create({
-  baseURL: 'http://localhost:4000/api',
+  baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
 })
 

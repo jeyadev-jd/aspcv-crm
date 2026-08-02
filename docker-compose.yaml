@@ -1,0 +1,96 @@
+name: aspcv-crm
+
+services:
+  # Terminates TLS and routes by hostname to whichever container advertises
+  # VIRTUAL_HOST - this is the only container that binds 80/443.
+  proxy:
+    image: nginxproxy/nginx-proxy:1.6
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+
+  # Watches the same containers as `proxy` and requests/renews Let's Encrypt
+  # certificates automatically from their LETSENCRYPT_HOST labels - no manual
+  # certbot invocation needed.
+  acme:
+    image: nginxproxy/acme-companion:2.4
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - certs:/etc/nginx/certs
+      - vhost:/etc/nginx/vhost.d
+      - html:/usr/share/nginx/html
+      - acme:/etc/acme.sh
+    environment:
+      DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL}
+    depends_on:
+      - proxy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: aspcv_crm
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d aspcv_crm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@db:5432/aspcv_crm
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY_HEX: ${ENCRYPTION_KEY_HEX}
+      PORT: 4000
+      FRONTEND_URL: https://${DOMAIN}
+      CORS_ORIGIN: https://${DOMAIN}
+      NODE_ENV: production
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      VIRTUAL_HOST: api.${DOMAIN}
+      VIRTUAL_PORT: 4000
+      LETSENCRYPT_HOST: api.${DOMAIN}
+    volumes:
+      - uploads:/app/uploads
+      - backups:/app/backups
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: https://api.${DOMAIN}/api
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      VIRTUAL_HOST: ${DOMAIN},www.${DOMAIN}
+      LETSENCRYPT_HOST: ${DOMAIN},www.${DOMAIN}
+
+volumes:
+  db_data:
+  uploads:
+  backups:
+  certs:
+  vhost:
+  html:
+  acme:

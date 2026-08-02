@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, X, ChevronDown, ChevronUp, Trash2, MessageSquare, Paperclip, Link as LinkIcon, Send, Check } from 'lucide-react'
 import { useDiscussions, useCreateDiscussion, useDeleteDiscussion, useLinkDiscussionToProject, useUnlinkDiscussionFromProject, DISCUSSION_TYPES } from '@/hooks/useDiscussions'
+import { API_ORIGIN } from '@/lib/api'
 import { useDiscussionAttachments } from '@/hooks/useAttachments'
 import AttachmentUploader from './AttachmentUploader'
 import { useAuthStore } from '@/lib/authStore'
@@ -333,7 +334,7 @@ function DiscussionAttachments({ discussionId, readOnly }: { discussionId: strin
       {attachments.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: showUploader ? 8 : 0 }}>
           {attachments.map(a => (
-            <a key={a.id} href={a.externalUrl ?? `http://localhost:4000${a.url}`} target="_blank" rel="noreferrer"
+            <a key={a.id} href={a.externalUrl ?? `${API_ORIGIN}${a.url}`} target="_blank" rel="noreferrer"
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374557', textDecoration: 'none', padding: '4px 8px', background: '#FAFBFF', borderRadius: 6 }}>
               {a.externalUrl ? <LinkIcon size={11} style={{ color: '#5D78FF', flexShrink: 0 }} /> : <Paperclip size={11} style={{ color: '#B1B1BE', flexShrink: 0 }} />}
               <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fileName}</span>

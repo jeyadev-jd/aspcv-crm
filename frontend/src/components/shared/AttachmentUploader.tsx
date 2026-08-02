@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Paperclip, Upload, X, FileText, Image, Link as LinkIcon } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, API_ORIGIN } from '@/lib/api'
 
 interface Attachment {
   id: string
@@ -136,7 +136,7 @@ export default function AttachmentUploader({ entityType, entityId, discussionId,
           {uploads.map(a => (
             <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6 }}>
               {a.externalUrl ? <LinkIcon size={14} color="#5D78FF" /> : a.mimeType?.startsWith('image/') ? <Image size={14} color="#3b82f6" /> : <FileText size={14} color="#64748b" />}
-              <a href={a.externalUrl ?? `http://localhost:4000${a.url}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#374151', flex: 1, textDecoration: 'none' }}>{a.fileName}</a>
+              <a href={a.externalUrl ?? `${API_ORIGIN}${a.url}`} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#374151', flex: 1, textDecoration: 'none' }}>{a.fileName}</a>
               <span style={{ fontSize: 11, color: '#94a3b8' }}>{fmt(a.sizeBytes)}</span>
               <button onClick={() => setUploads(prev => prev.filter(u => u.id !== a.id))} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 2 }}>
                 <X size={12} color="#94a3b8" />

@@ -11,6 +11,7 @@ import DiscussionPanel from '@/components/shared/DiscussionPanel'
 import TimelinePanel from '@/components/shared/TimelinePanel'
 import AttachmentUploader from '@/components/shared/AttachmentUploader'
 import { useCompany } from '@/hooks/useCompanies'
+import { API_ORIGIN } from '@/lib/api'
 import {
   useCompanyContacts, useCompanyLeads, useCompanyDeals, useCompanyProjects,
   useCompanyInvoices, useCompanyTickets, useCompanyInstallations,
@@ -194,10 +195,10 @@ export default function Customer360() {
             ) : attachmentsQ.data.map(a => (
               <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: '#FAFBFF', border: '1px solid #F0F1F5', borderRadius: 8 }}>
                 <FileText size={14} style={{ color: '#5D78FF' }} />
-                <a href={`http://localhost:4000${a.url}`} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#374557', flex: 1, textDecoration: 'none' }}>{a.fileName}</a>
+                <a href={`${API_ORIGIN}${a.url}`} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#374557', flex: 1, textDecoration: 'none' }}>{a.fileName}</a>
                 {a.version > 1 && <span style={{ fontSize: 10, background: '#FFF8E0', color: '#F59E0B', padding: '2px 6px', borderRadius: 10, fontWeight: 600 }}>v{a.version}</span>}
                 {a.documentType && <span style={{ fontSize: 10, background: '#EEF2FF', color: '#5D78FF', padding: '2px 6px', borderRadius: 10, fontWeight: 600 }}>{a.documentType}</span>}
-                <a href={`http://localhost:4000${a.url}`} target="_blank" rel="noreferrer" style={{ color: '#9CA3AF', display: 'flex' }}><Download size={13} /></a>
+                <a href={`${API_ORIGIN}${a.url}`} target="_blank" rel="noreferrer" style={{ color: '#9CA3AF', display: 'flex' }}><Download size={13} /></a>
                 <button onClick={() => deleteAttachment.mutate(a.id, { onSuccess: () => { attachmentsQ.refetch(); toast.success('Deleted') } })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FF5353', display: 'flex' }}><Trash2 size={13} /></button>
               </div>
             ))}

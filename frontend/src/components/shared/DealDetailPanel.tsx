@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X, Briefcase, ExternalLink, Edit2, DollarSign, Calendar, TrendingUp, Users, Building2, FileText, Plus, Trash2, Check, Send, Link as LinkIcon, Hash } from 'lucide-react'
 import type { DealAPI } from '@/hooks/useDeals'
+import { API_ORIGIN } from '@/lib/api'
 import { useQuotations, useCreateQuotation, useUpdateQuotation, useSubmitQuotationForApproval, useApproveQuotation, useRejectQuotation, useSendQuotation } from '@/hooks/useSales'
 import { useCreateLinkAttachment, useAttachments, useDeleteAttachment } from '@/hooks/useAttachments'
 import DiscussionPanel from './DiscussionPanel'
@@ -471,7 +472,7 @@ function QuotationDocs({ quotationId, editable }: { quotationId: string; editabl
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8 }}>
       {docs.map(d => (
         <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <a href={d.externalUrl ?? `http://localhost:4000${d.url}`} target="_blank" rel="noreferrer"
+          <a href={d.externalUrl ?? `${API_ORIGIN}${d.url}`} target="_blank" rel="noreferrer"
             style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#5D78FF', textDecoration: 'none', flex: 1 }}>
             <LinkIcon size={11} /> {d.fileName}
           </a>
