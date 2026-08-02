@@ -19,7 +19,19 @@ RUN npm run build
 #     recurring despite fixing (1).
 FROM node:20-slim
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y openssl file && rm -rf /var/lib/apt/lists/*
+# Confirmed via ldd against the actual engine binary (not inferred): Prisma
+# downloaded schema-engine-debian-openssl-1.1.x regardless of binaryTargets
+# in schema.prisma, and it needs libssl.so.1.1 / libcrypto.so.1.1
+# specifically - packages bookworm's own repos no longer carry (they only
+# ship OpenSSL 3.x, which is a different SONAME, not a superset). Pulling
+# the actual bullseye-security libssl1.1 package directly is the fix that
+# matches what the binary really needs, rather than installing "some"
+# OpenSSL and hoping Prisma's detection cooperates.
+RUN apt-get update -y && apt-get install -y wget file && \
+    wget -q http://security.debian.org/debian-security/pool/updates/main/o/openssl/libssl1.1_1.1.1w-0+deb11u8_amd64.deb && \
+    dpkg -i libssl1.1_1.1.1w-0+deb11u8_amd64.deb && \
+    rm libssl1.1_1.1.1w-0+deb11u8_amd64.deb && \
+    rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 COPY package*.json ./
 COPY --from=build /app/node_modules ./node_modules
