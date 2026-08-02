@@ -1,18 +1,20 @@
-FROM node:20-slim AS build
+FROM node:20-bookworm AS build
 WORKDIR /app
-# Prisma's query/schema engine binaries are linked against OpenSSL and fail
-# at runtime on node:*-slim images, which don't ship it - "Schema engine
-# error" with no detail is the symptom.
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-FROM node:20-slim
+# node:20-slim's OpenSSL detection was unreliable even after `apt-get install
+# openssl` and pinning binaryTargets - the -slim variant kept failing the
+# CLI's own `openssl version` probe at container start ("Prisma failed to
+# detect the libssl/openssl version"), which is separate from which engine
+# binary got bundled. The full (non-slim) bookworm image ships OpenSSL and
+# its dev tooling already wired up correctly, which -slim's minimal install
+# apparently does not replicate.
+FROM node:20-bookworm
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev
