@@ -43,7 +43,7 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data_v2:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d aspcv_crm"]
       interval: 5s
@@ -86,7 +86,12 @@ services:
       LETSENCRYPT_HOST: ${DOMAIN},www.${DOMAIN}
 
 volumes:
-  db_data:
+  # Renamed from db_data: an earlier failed migration attempt left a stuck
+  # record (Prisma P3009) in the original volume, and VPS_deleteProjectV1
+  # apparently didn't actually drop it - a fresh volume name sidesteps that
+  # rather than trying to resolve the stuck migration by hand with no SSH
+  # access to run `prisma migrate resolve` directly.
+  db_data_v2:
   uploads:
   backups:
   certs:
