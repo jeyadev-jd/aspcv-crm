@@ -313,6 +313,67 @@ registerRule('high_value_payment_received', async (config: RuleConfig): Promise<
 // unapproved_expenses_stale: expenses with no linked entity approval trail, older than X days
 // Note: Expense model has no approval workflow fields — this treats "unapproved" as
 // entityId-less/orphan expenses (not yet attributed to a project/department) sitting stale.
+// leave_carry_forward_year_end: on April 1 (new FY), carry forward EL balances
+// Runs every 5 min but is idempotent — only acts if today is April 1 and new year balances don't exist yet
+registerRule('leave_carry_forward_year_end', async (_config: RuleConfig): Promise<RuleTrigger[]> => {
+  const now = new Date()
+  // Only run on April 1 (start of Indian FY)
+  if (now.getMonth() !== 3 || now.getDate() !== 1) return []
+
+  const prevYear = now.getFullYear() - 1
+  const newYear = now.getFullYear()
+
+  const leaveTypes = await prisma.leaveType.findMany({ where: { isActive: true } })
+  const users = await prisma.user.findMany({ where: { isActive: true }, select: { id: true } })
+  const processed: string[] = []
+
+  for (const lt of leaveTypes) {
+    if (lt.maxCarryForward <= 0) continue
+
+    for (const user of users) {
+      // Check if new year balance already created (idempotent)
+      const existingNew = await prisma.leaveBalance.findUnique({
+        where: { userId_leaveTypeId_year: { userId: user.id, leaveTypeId: lt.id, year: newYear } },
+      })
+      if (existingNew) continue
+
+      const prevBalance = await prisma.leaveBalance.findUnique({
+        where: { userId_leaveTypeId_year: { userId: user.id, leaveTypeId: lt.id, year: prevYear } },
+      })
+      if (!prevBalance) continue
+
+      const carry = Math.min(prevBalance.balance, lt.maxCarryForward)
+
+      await prisma.leaveBalance.create({
+        data: {
+          userId: user.id,
+          leaveTypeId: lt.id,
+          year: newYear,
+          opening: carry,
+          carryForward: carry,
+          accrued: 0,
+          taken: 0,
+          adjusted: 0,
+          encashed: 0,
+          balance: carry,
+        },
+      })
+      processed.push(`${user.id}:${lt.code}`)
+    }
+  }
+
+  if (processed.length === 0) return []
+  return [{
+    entityType: 'System', entityId: `carry_forward_${newYear}`, tierKey: 'carry_forward',
+    severity: 'info' as const,
+    title: `Leave carry-forward processed for FY ${newYear}`,
+    message: `${processed.length} leave balances carried forward from FY ${prevYear} to ${newYear} (capped at maxCarryForward per leave type).`,
+  }]
+})
+
+// unapproved_expenses_stale: expenses with no linked entity approval trail, older than X days
+// Note: Expense model has no approval workflow fields — this treats "unapproved" as
+// entityId-less/orphan expenses (not yet attributed to a project/department) sitting stale.
 registerRule('unapproved_expenses_stale', async (config: RuleConfig): Promise<RuleTrigger[]> => {
   const staleDays = (config.staleDays as number | undefined) ?? 14
   const cutoff = new Date(Date.now() - staleDays * 86400_000)
@@ -376,26 +437,19 @@ registerRule('project_idle_approvals', async (config: RuleConfig): Promise<RuleT
 registerRule('project_blocked_procurement', async (config: RuleConfig): Promise<RuleTrigger[]> => {
   const overdueHours = (config.overdueHours as number | undefined) ?? 48
   const cutoff = new Date(Date.now() - overdueHours * 3600_000)
-  const boms = await prisma.bOM.findMany({
+  const projects = await prisma.project.findMany({
     where: {
-      project: { isActive: true },
+      isActive: true,
       purchaseOrders: { some: { status: { in: ['Draft', 'Approved'] }, expectedDelivery: { lte: cutoff } } },
     },
-    include: { project: { select: { id: true, title: true } } },
+    select: { id: true, title: true },
   })
-  const seen = new Set<string>()
-  const out: RuleTrigger[] = []
-  for (const bom of boms) {
-    if (seen.has(bom.project.id)) continue
-    seen.add(bom.project.id)
-    out.push({
-      entityType: 'Project', entityId: bom.project.id, tierKey: `blocked_procurement_${overdueHours}h`,
-      severity: 'critical',
-      title: `Project blocked by procurement: ${bom.project.title}`,
-      message: `${bom.project.title} has purchase orders overdue for delivery, blocking progress.`,
-    })
-  }
-  return out
+  return projects.map(project => ({
+    entityType: 'Project', entityId: project.id, tierKey: `blocked_procurement_${overdueHours}h`,
+    severity: 'critical' as const,
+    title: `Project blocked by procurement: ${project.title}`,
+    message: `${project.title} has purchase orders overdue for delivery, blocking progress.`,
+  }))
 })
 
 // ── Procurement & Inventory (remaining) ─────────────────────────────────────
@@ -413,30 +467,6 @@ registerRule('goods_receipt_delayed', async (config: RuleConfig): Promise<RuleTr
     title: `Goods receipt delayed: ${po.refNumber}`,
     message: `PO ${po.refNumber} (${po.supplierName}) was delivered but no goods receipt logged for ${Math.floor(graceHours / 24)}+ day(s).`,
   }))
-})
-
-// po_cost_exceeds_estimate: PO totalAmount exceeds sum of linked BOM item estimates
-registerRule('po_cost_exceeds_estimate', async (config: RuleConfig): Promise<RuleTrigger[]> => {
-  const overagePercent = (config.overagePercent as number | undefined) ?? 10
-  const pos = await prisma.purchaseOrder.findMany({
-    where: { bomId: { not: null } },
-    include: { bom: { include: { items: true } } },
-  })
-  const out: RuleTrigger[] = []
-  for (const po of pos) {
-    if (!po.bom) continue
-    const estimated = po.bom.items.reduce((s, i) => s + (i.estimatedCost ?? 0), 0)
-    if (estimated <= 0) continue
-    const overPct = ((po.totalAmount - estimated) / estimated) * 100
-    if (overPct <= overagePercent) continue
-    out.push({
-      entityType: 'PurchaseOrder', entityId: po.id, tierKey: `cost_overage_${Math.floor(overPct / 10) * 10}`,
-      severity: overPct > overagePercent * 2 ? 'critical' : 'warning',
-      title: `PO cost exceeds estimate: ${po.refNumber}`,
-      message: `PO ${po.refNumber} totals ₹${po.totalAmount.toLocaleString()}, ${Math.round(overPct)}% above the ₹${estimated.toLocaleString()} BOM estimate.`,
-    })
-  }
-  return out
 })
 
 // vendor_delivery_overdue: PO past expectedDelivery, not yet delivered

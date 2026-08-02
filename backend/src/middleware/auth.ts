@@ -14,14 +14,15 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   }
   try {
     const payload = verifyToken(header.slice(7))
-    // Re-fetch role/isActive from DB on every request rather than trusting the JWT
-    // payload — the token can live up to 7 days, so a role change or deactivation
-    // must take effect immediately, not just after the token naturally expires.
-    // This adds no extra round-trip: the existence/active check already queried
-    // the user row, so role/roleName are just two more selected columns.
-    const user = await prisma.user.findUnique({ where: { id: payload.id }, select: { id: true, isActive: true, role: true, roleName: true } })
+    const user = await prisma.user.findUnique({ where: { id: payload.id }, select: { id: true, isActive: true, role: true, roleName: true, tokenVersion: true } })
     if (!user || !user.isActive) {
       res.status(401).json({ error: 'User not found or inactive' })
+      return
+    }
+    // Token version check — if the stored version is higher than the one in the JWT,
+    // the token was issued before a password change and must be rejected.
+    if ((payload.tv ?? 0) < (user.tokenVersion ?? 0)) {
+      res.status(401).json({ error: 'Session expired — please log in again' })
       return
     }
     req.user = { id: user.id, role: user.role, roleName: user.roleName }

@@ -11,6 +11,21 @@ export interface IFileStorage {
 
 const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(process.cwd(), 'uploads')
 
+/**
+ * Storage keys are generated as `randomUUID() + ext` and are never user-supplied
+ * in normal use. This guard exists so that stays true even if a future caller
+ * forgets to look the key up in the database first: `../../.env` would otherwise
+ * resolve to a real path outside the upload directory.
+ */
+function resolveKey(storageKey: string): string {
+  const full = path.resolve(UPLOAD_DIR, storageKey)
+  const root = path.resolve(UPLOAD_DIR)
+  if (full !== root && !full.startsWith(root + path.sep)) {
+    throw Object.assign(new Error('Invalid storage key'), { status: 400 })
+  }
+  return full
+}
+
 export class LocalFileStorage implements IFileStorage {
   constructor() {
     fs.mkdirSync(UPLOAD_DIR, { recursive: true })
@@ -24,11 +39,11 @@ export class LocalFileStorage implements IFileStorage {
   }
 
   async download(storageKey: string): Promise<Buffer> {
-    return fs.promises.readFile(path.join(UPLOAD_DIR, storageKey))
+    return fs.promises.readFile(resolveKey(storageKey))
   }
 
   async delete(storageKey: string): Promise<void> {
-    await fs.promises.unlink(path.join(UPLOAD_DIR, storageKey)).catch(() => {})
+    await fs.promises.unlink(resolveKey(storageKey)).catch(() => {})
   }
 
   url(storageKey: string): string {

@@ -1,4 +1,5 @@
 import Pagination from '@/components/shared/Pagination'
+import RowMenu from '@/components/shared/RowMenu'
 import Spinner from '@/components/shared/Spinner'
 import EmptyState from '@/components/shared/EmptyState'
 import { useState } from 'react'
@@ -10,6 +11,9 @@ import { useInstallations, useCreateInstallation, useUpdateInstallation, useUpda
 import type { InstallationAPI } from '@/hooks/useInstallations'
 import { CsvImportExport } from '@/components/shared/CsvImportExport'
 import type { CsvColDef } from '@/components/shared/CsvImportExport'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+import { useProjects } from '@/hooks/useProjects'
 
 type UIStatus = 'Scheduled' | 'In Progress' | 'Completed' | 'On Hold'
 
@@ -42,7 +46,7 @@ const uiToAPI: Record<UIStatus, InstallationAPI['status']> = {
 }
 
 const uiStatuses: UIStatus[] = ['Scheduled', 'In Progress', 'Completed', 'On Hold']
-const blankForm = { title: '', client: '', scheduledDate: '', status: 'Scheduled' as UIStatus, notes: '' }
+const blankForm = { title: '', client: '', projectId: '', scopeItemId: '', scheduledDate: '', status: 'Scheduled' as UIStatus, notes: '' }
 const PAGE_SIZE = 8
 
 export default function Installations() {
@@ -51,6 +55,7 @@ export default function Installations() {
 
   const { data: rawInstalls = [], isLoading, isError, refetch } = useInstallations()
   const createInstall = useCreateInstallation()
+  const { data: projects = [] } = useProjects()
 
   async function importInstallations(rows: Record<string, string>[]) {
     let success = 0; const errors: string[] = []
@@ -98,6 +103,8 @@ export default function Installations() {
     setForm({
       title: item.title,
       client: item.clientName,
+      projectId: item.projectId ?? '',
+      scopeItemId: item.scopeItemId ?? '',
       scheduledDate: item.scheduledDate?.slice(0, 10) ?? '',
       status: item.uiStatus,
       notes: item.notes ?? '',
@@ -122,6 +129,8 @@ export default function Installations() {
     const payload = {
       companyId: matchedCompany.id,
       title: form.title,
+      projectId: form.projectId || undefined,
+      scopeItemId: form.scopeItemId || undefined,
       status: uiToAPI[form.status],
       scheduledDate: form.scheduledDate || undefined,
       notes: form.notes || undefined,
@@ -145,6 +154,13 @@ export default function Installations() {
   }
 
   function changeFilter(f: typeof filter) { setFilter(f); setPage(1) }
+
+  // Scope of Supply lines for the project currently picked in the create/edit form.
+  const { data: scopeItems = [] } = useQuery<{ id: string; title: string; productType?: string }[]>({
+    queryKey: ['project-scope-items', form.projectId],
+    queryFn: () => api.get(`/projects/${form.projectId}/scope-items`).then(r => r.data),
+    enabled: !!form.projectId,
+  })
 
   if (isLoading) return <Spinner />
   if (isError) return (
@@ -239,28 +255,24 @@ export default function Installations() {
                       </div>
                     </td>
                     <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>{item.clientName}</td>
-                    <td style={{ padding: '12px 16px', fontSize: 10, color: '#B1B1BE' }}>{item.project?.title ?? '—'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: 10, color: '#B1B1BE' }}>
+                      {item.project?.title ?? '—'}
+                      {item.scopeItem && <span style={{ display: 'block', marginTop: 2, color: '#7C3AED', fontWeight: 600 }}>{item.scopeItem.title}</span>}
+                    </td>
                     <td style={{ padding: '12px 16px', fontSize: 11, color: '#374557' }}>{item.scheduledDate?.slice(0, 10) ?? '—'}</td>
                     <td style={{ padding: '12px 16px' }}>
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[item.uiStatus].bg, color: statusStyle[item.uiStatus].color }}>{item.uiStatus}</span>
                     </td>
                     <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
-                      <div style={{ position: 'relative' }}>
-                        <button onClick={e => { e.stopPropagation(); setMenuOpen(menuOpen === item.id ? null : item.id) }} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
-                          <MoreHorizontal size={15} />
-                        </button>
-                        {menuOpen === item.id && (
-                          <div style={dropdownStyle}>
-                            <button onClick={() => { openEdit(item); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
-                            <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
-                            <button onClick={() => quickStatus(item.id, 'In Progress')} style={menuItem}><Play size={12} style={{ marginRight: 6 }} />Mark In Progress</button>
-                            <button onClick={() => quickStatus(item.id, 'Completed')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Completed</button>
-                            <button onClick={() => quickStatus(item.id, 'On Hold')} style={menuItem}><Pause size={12} style={{ marginRight: 6 }} />Mark On Hold</button>
-                            <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
-                            <button onClick={() => { setDeleteConfirm(item.id); setMenuOpen(null) }} style={{ ...menuItem, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
-                          </div>
-                        )}
-                      </div>
+                      <RowMenu open={menuOpen === item.id} onOpenChange={o => setMenuOpen(o ? item.id : null)}>
+                        <button onClick={() => { openEdit(item); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
+                        <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
+                        <button onClick={() => quickStatus(item.id, 'In Progress')} style={menuItem}><Play size={12} style={{ marginRight: 6 }} />Mark In Progress</button>
+                        <button onClick={() => quickStatus(item.id, 'Completed')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Completed</button>
+                        <button onClick={() => quickStatus(item.id, 'On Hold')} style={menuItem}><Pause size={12} style={{ marginRight: 6 }} />Mark On Hold</button>
+                        <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
+                        <button onClick={() => { setDeleteConfirm(item.id); setMenuOpen(null) }} style={{ ...menuItem, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
+                      </RowMenu>
                     </td>
                   </tr>
                 ))}
@@ -287,7 +299,7 @@ export default function Installations() {
 
       {showModal && (
         <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
-          <div className="crm-modal" style={{ width: '100%', maxWidth: 480 }}>
+          <div className="crm-modal" role="dialog" aria-modal="true" style={{ width: '100%', maxWidth: 480 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>{editId ? 'Edit Installation' : 'New Installation'}</p>
               <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
@@ -305,6 +317,20 @@ export default function Installations() {
                 <Field label="Status">
                   <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value as UIStatus })} style={inp(false)}>
                     {uiStatuses.map(s => <option key={s}>{s}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <Field label="Project">
+                  <select value={form.projectId} onChange={e => setForm({ ...form, projectId: e.target.value, scopeItemId: '' })} style={inp(false)}>
+                    <option value="">— None —</option>
+                    {projects.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                  </select>
+                </Field>
+                <Field label="Scope of Supply">
+                  <select value={form.scopeItemId} onChange={e => setForm({ ...form, scopeItemId: e.target.value })} style={inp(false)} disabled={!form.projectId}>
+                    <option value="">— None —</option>
+                    {scopeItems.map(s => <option key={s.id} value={s.id}>{s.title}{s.productType ? ` (${s.productType})` : ''}</option>)}
                   </select>
                 </Field>
               </div>

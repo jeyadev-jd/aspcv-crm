@@ -24,7 +24,25 @@ const itemSchema = z.object({
   notes: z.string().optional(),
 })
 
-const INCLUDE = { dealer: { select: { id: true, name: true } } }
+const INCLUDE = {
+  dealer: { select: { id: true, name: true } },
+  // Alternative vendors for the same part, so procurement can compare.
+  dealerPrices: {
+    include: { dealer: { select: { id: true, name: true } } },
+    orderBy: [{ isPreferred: 'desc' as const }, { price: 'asc' as const }],
+  },
+}
+
+const dealerPriceSchema = z.object({
+  dealerId: z.string().min(1),
+  price: z.number().nonnegative(),
+  currency: z.string().optional(),
+  referenceNumber: z.string().nullish(),
+  leadTimeDays: z.number().int().nonnegative().nullish(),
+  minOrderQty: z.number().int().positive().nullish(),
+  isPreferred: z.boolean().optional(),
+  notes: z.string().nullish(),
+})
 
 router.get('/', requirePermission('dealer_item', 'read_all'), async (req, res) => {
   const { q, dealerId } = req.query as Record<string, string>
@@ -82,9 +100,60 @@ router.put('/:id', requirePermission('dealer_item', 'edit'), async (req, res) =>
   res.json(item)
 })
 
+// ─── Multi-dealer pricing ────────────────────────────────────────────────────
+
+router.get('/:id/dealer-prices', requirePermission('dealer_item', 'read_all'), async (req, res) => {
+  const prices = await prisma.itemDealerPrice.findMany({
+    where: { itemId: req.params.id as string },
+    include: { dealer: { select: { id: true, name: true } } },
+    orderBy: [{ isPreferred: 'desc' }, { price: 'asc' }],
+  })
+  res.json(prices)
+})
+
+// Upsert so re-adding the same dealer updates that row rather than failing on
+// the (itemId, dealerId) uniqueness.
+router.post('/:id/dealer-prices', requirePermission('dealer_item', 'edit'), async (req, res) => {
+  const data = dealerPriceSchema.parse(req.body)
+  const itemId = req.params.id as string
+
+  const item = await prisma.dealerItem.findUnique({ where: { id: itemId } })
+  if (!item) return res.status(404).json({ error: 'Item not found' })
+  const dealer = await prisma.dealer.findUnique({ where: { id: data.dealerId } })
+  if (!dealer) return res.status(404).json({ error: 'Dealer not found' })
+
+  // Only one preferred vendor per item.
+  if (data.isPreferred) {
+    await prisma.itemDealerPrice.updateMany({ where: { itemId }, data: { isPreferred: false } })
+  }
+
+  const price = await prisma.itemDealerPrice.upsert({
+    where: { itemId_dealerId: { itemId, dealerId: data.dealerId } },
+    update: data,
+    create: { ...data, itemId },
+    include: { dealer: { select: { id: true, name: true } } },
+  })
+  res.status(201).json(price)
+})
+
+router.delete('/:id/dealer-prices/:priceId', requirePermission('dealer_item', 'edit'), async (req, res) => {
+  await prisma.itemDealerPrice.deleteMany({
+    where: { id: req.params.priceId as string, itemId: req.params.id as string },
+  })
+  res.status(204).end()
+})
+
 router.delete('/:id', requirePermission('dealer_item', 'delete'), async (req, res) => {
   await prisma.dealerItem.delete({ where: { id: req.params.id as string } })
   res.status(204).end()
+})
+
+// Bulk delete — one DB call for a set of ids selected in the list UI.
+router.post('/bulk-delete', requirePermission('dealer_item', 'delete'), async (req, res) => {
+  const { ids } = req.body as { ids?: string[] }
+  if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array required' }); return }
+  const result = await prisma.dealerItem.deleteMany({ where: { id: { in: ids } } })
+  res.json({ deleted: result.count })
 })
 
 export default router

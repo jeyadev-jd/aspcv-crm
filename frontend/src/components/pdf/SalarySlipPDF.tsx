@@ -69,6 +69,7 @@ export default function SalarySlipPDF({ record, employeeName, designation }: Pro
           <View style={s.row}><Text style={s.label}>ESI (Employee 0.75%)</Text><Text style={s.value}>{fmt(record.esiEmployee)}</Text></View>
           <View style={s.row}><Text style={s.label}>TDS</Text><Text style={s.value}>{fmt(record.tds)}</Text></View>
           {record.lateDeduction > 0 && <View style={s.row}><Text style={s.label}>Late Deduction ({record.fullDayCuts > 0 ? `${record.fullDayCuts} full day` : ''}{record.halfDayCuts > 0 ? ` ${record.halfDayCuts} half day` : ''})</Text><Text style={s.value}>{fmt(record.lateDeduction)}</Text></View>}
+          {(record.absentDeduction ?? 0) > 0 && <View style={s.row}><Text style={s.label}>Loss of Pay ({record.daysAbsent} day{record.daysAbsent === 1 ? '' : 's'} absent)</Text><Text style={s.value}>{fmt(record.absentDeduction)}</Text></View>}
           {record.otherDeduction > 0 && <View style={s.row}><Text style={s.label}>Other Deductions</Text><Text style={s.value}>{fmt(record.otherDeduction)}</Text></View>}
         </View>
 

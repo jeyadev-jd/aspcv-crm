@@ -16,8 +16,19 @@ export interface Invoice {
   date: string
   customer: string
   customerAvatar?: string
-  status: 'Paid' | 'Unpaid' | 'Scheduled' | 'Processing'
+  status: 'Draft' | 'PendingApproval' | 'Approved' | 'Generated' | 'Sent' | 'Unpaid' | 'PartiallyPaid' | 'Paid' | 'Overdue' | 'Closed' | 'Cancelled' | 'Scheduled' | 'Processing'
+  invoiceType?: 'TaxInvoice' | 'BillOfSupply' | 'CreditNote' | 'DebitNote' | 'ProformaInvoice' | 'ExportInvoice'
   amount: number
+  grandTotal?: number
+  subTotal?: number
+  totalCgst?: number
+  totalSgst?: number
+  totalIgst?: number
+  totalCess?: number
+  totalTax?: number
+  roundOff?: number
+  paidAmount?: number
+  financialYear?: string
 }
 
 export interface Task {
@@ -29,24 +40,6 @@ export interface Task {
   comments: number
   attachments: number
   assignee?: string
-}
-
-export interface KanbanCard {
-  id: string
-  title: string
-  category: string
-  progress: number
-  total: number
-  date: string
-  comments: number
-  attachments: number
-  assignees: number
-}
-
-export interface KanbanColumn {
-  id: string
-  title: string
-  cards: KanbanCard[]
 }
 
 export interface CalendarEvent {

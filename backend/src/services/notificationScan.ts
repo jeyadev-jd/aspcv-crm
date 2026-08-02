@@ -72,27 +72,6 @@ export async function checkServiceDue() {
   }
 }
 
-// Overdue Kanban cards: past due date, not archived/done, notify assignees
-export async function checkOverdueCards() {
-  const cards = await prisma.kanbanCard.findMany({
-    where: { isArchived: false, dueDate: { lt: new Date() }, column: { isDoneColumn: false } },
-    include: { assignees: { select: { userId: true } } },
-  })
-  for (const c of cards) {
-    if (!c.assignees.length) continue
-    if (await alreadyNotifiedRecently('task_overdue', c.id)) continue
-    await createNotification({
-      userIds: c.assignees.map(a => a.userId),
-      type: 'task_overdue',
-      severity: 'warning',
-      title: `Overdue: ${c.title}`,
-      message: `"${c.title}" was due on ${c.dueDate!.toLocaleDateString('en-IN')}.`,
-      entityType: 'KanbanCard',
-      entityId: c.id,
-    })
-  }
-}
-
 export async function runNotificationScan() {
-  await Promise.all([checkLowStock(), checkServiceDue(), checkOverdueCards()])
+  await Promise.all([checkLowStock(), checkServiceDue()])
 }

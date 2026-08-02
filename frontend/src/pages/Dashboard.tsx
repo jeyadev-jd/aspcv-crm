@@ -117,6 +117,17 @@ export default function Dashboard() {
   const { data: calendarEvents = [] } = useQuery<any[]>({ queryKey: ['calendar'], queryFn: () => import('@/lib/api').then(m => m.api.get('/calendar').then(r => r.data)) })
   const { data: notifData } = useNotifications()
 
+  const can = useAuthStore(s => s.can)
+  const isHR = can('hr_user', 'read_all')
+  const isYearEnd = new Date().getMonth() >= 10 // Nov = 10, Dec = 11
+  const nextYear = new Date().getFullYear() + 1
+  const { data: nextYearHolidays } = useQuery<any[]>({
+    queryKey: ['holidays-settings', nextYear],
+    queryFn: () => import('@/lib/api').then(m => m.api.get(`/leave/holidays?year=${nextYear}`).then(r => r.data)),
+    enabled: isHR && isYearEnd
+  })
+  const showHolidayAlert = isHR && isYearEnd && nextYearHolidays && nextYearHolidays.length === 0
+
   const activeDeals    = deals.filter((d: any) => !['OrderLost', 'OrderWon'].includes(d.stage))
   const pipelineInr    = activeDeals.reduce((s: number, d: any) => s + (d.value ?? 0), 0)
   const openLeads      = leads.filter((l: any) => !['OrderWon', 'OrderLost'].includes(l.status)).length
@@ -168,7 +179,7 @@ export default function Dashboard() {
         }}>
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <img src="/favicon.svg" alt="ASPCV" style={{ width: 38, height: 38, objectFit: 'contain', borderRadius: 10, flexShrink: 0 }} />
+            <img src="/aspcv-logo1.png" alt="ASPCV" style={{ width: 38, height: 38, objectFit: 'contain', borderRadius: 10, flexShrink: 0 }} />
             <div style={{ minWidth: 0 }}>
               <p style={{ fontSize: 13, fontWeight: 800, color: '#374557', letterSpacing: -0.3, lineHeight: 1.2 }}>ASPCV</p>
               <p style={{ fontSize: 9, color: '#22C55E', fontWeight: 600, lineHeight: 1.4 }}>Aspiration Cleantech Ventures</p>
@@ -327,6 +338,18 @@ export default function Dashboard() {
         </div>
 
         {/* ERP KPI Row */}
+        {showHolidayAlert && (
+          <div style={{ background: '#FFF5EE', border: '1px solid #FF9B52', padding: '14px 18px', borderRadius: 12, marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <CalendarDays size={20} style={{ color: '#FF9B52' }} />
+              <div>
+                <p style={{ fontSize: 13, fontWeight: 700, color: '#92400E', margin: 0 }}>Action Required: Configure Holidays for {nextYear}</p>
+                <p style={{ fontSize: 11, color: '#92400E', margin: '2px 0 0 0' }}>The holiday calendar for {nextYear} is empty. Please set it up before the year ends.</p>
+              </div>
+            </div>
+            <button onClick={() => navigate('/hr')} style={{ background: '#FF9B52', color: '#fff', border: 'none', padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Go to HR Settings</button>
+          </div>
+        )}
         <ERPKPIRow fmt={fmt} isMobile={isMobile} />
 
         {/* Charts */}
@@ -468,7 +491,7 @@ export default function Dashboard() {
 }
 
 function ERPKPIRow({ fmt, isMobile }: { fmt: (v: number) => string; isMobile: boolean }) {
-  const { data: salesOrders } = useQuery<any[]>({ queryKey: ['sales-orders'], queryFn: () => import('@/lib/api').then(m => m.api.get('/sales-orders').then(r => r.data)) })
+  const { data: deals } = useQuery<any[]>({ queryKey: ['deals', 'all'], queryFn: () => import('@/lib/api').then(m => m.api.get('/deals', { params: { pageSize: 1000 } }).then(r => r.data.data)) })
   const { data: projects } = useQuery<any[]>({ queryKey: ['projects'], queryFn: () => import('@/lib/api').then(m => m.api.get('/projects', { params: { pageSize: 1000 } }).then(r => r.data.data)) })
   const { data: purchaseOrders } = useQuery<any[]>({ queryKey: ['purchase-orders'], queryFn: () => import('@/lib/api').then(m => m.api.get('/purchase-orders', { params: { pageSize: 1000 } }).then(r => r.data.data)) })
   const { data: warrantyExpiring } = useQuery<any[]>({ queryKey: ['warranty-expiring', 30], queryFn: () => import('@/lib/api').then(m => m.api.get('/service-records/warranty-expiring', { params: { days: 30 } }).then(r => r.data)) })
@@ -478,7 +501,7 @@ function ERPKPIRow({ fmt, isMobile }: { fmt: (v: number) => string; isMobile: bo
   const completedProjects = projects?.filter((p: any) => p.status === 'Completed').length || 0
   const manufacturingProjects = projects?.filter((p: any) => p.status === 'Manufacturing').length || 0
   const pendingPOs = purchaseOrders?.filter((p: any) => ['Draft', 'Sent'].includes(p.status)).length || 0
-  const wonValue = salesOrders?.filter((s: any) => s.status === 'Won').reduce((s: number, o: any) => s + (o.budget || 0), 0) || 0
+  const wonValue = deals?.filter((d: any) => d.stage === 'OrderWon').reduce((s: number, d: any) => s + (d.value || 0), 0) || 0
   const warrantyCount = warrantyExpiring?.length || 0
   const inventoryValue = components?.reduce((s: number, c: any) => s + (c.price || 0) * (c.quantity || 0), 0) || 0
   const lowStock = components?.filter((c: any) => (c.quantity || 0) < 5).length || 0
@@ -487,13 +510,13 @@ function ERPKPIRow({ fmt, isMobile }: { fmt: (v: number) => string; isMobile: bo
     { label: 'Active Projects', value: String(activeProjects), color: '#5D78FF', sub: `${manufacturingProjects} in mfg` },
     { label: 'Completed', value: String(completedProjects), color: '#2BC155', sub: 'all time' },
     { label: 'Pending POs', value: String(pendingPOs), color: '#FF9B52', sub: 'awaiting delivery' },
-    { label: 'Won Value', value: fmt(wonValue), color: '#22C55E', sub: 'sales orders won' },
+    { label: 'Won Value', value: fmt(wonValue), color: '#22C55E', sub: 'deals won' },
     { label: 'Inventory Value', value: fmt(inventoryValue), color: '#8B5CF6', sub: `${lowStock} low stock` },
     { label: 'Warranty Expiring', value: String(warrantyCount), color: '#EF4444', sub: 'next 30 days' },
   ]
 
   return (
-    <div>
+    <div style={{ paddingBottom: 40 }}>
       <p style={{ fontSize: 12, fontWeight: 700, color: '#B1B1BE', letterSpacing: 1, marginBottom: 10 }}>ERP OVERVIEW</p>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(6, minmax(0, 1fr))', gap: 10 }}>
         {kpis.map(k => (

@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { Plus, X, ChevronDown, ChevronUp, Trash2, MessageSquare } from 'lucide-react'
-import { useDiscussions, useCreateDiscussion, useDeleteDiscussion, DISCUSSION_TYPES } from '@/hooks/useDiscussions'
+import { Plus, X, ChevronDown, ChevronUp, Trash2, MessageSquare, Paperclip, Link as LinkIcon, Send, Check } from 'lucide-react'
+import { useDiscussions, useCreateDiscussion, useDeleteDiscussion, useLinkDiscussionToProject, useUnlinkDiscussionFromProject, DISCUSSION_TYPES } from '@/hooks/useDiscussions'
+import { useDiscussionAttachments } from '@/hooks/useAttachments'
+import AttachmentUploader from './AttachmentUploader'
 import { useAuthStore } from '@/lib/authStore'
 import { toast } from '@/lib/toast'
 
@@ -32,6 +34,7 @@ const blankForm = {
   summary: '',
   decisions: '',
   nextActions: '',
+  followUpAt: '',
   participantContactIds: [] as string[],
 }
 
@@ -40,17 +43,21 @@ interface Props {
   entityId: string
   contacts?: { id: string; name: string; designation?: string }[]
   readOnly?: boolean
+  linkableProjects?: { id: string; title: string }[]
 }
 
-export default function DiscussionPanel({ entityType, entityId, contacts = [], readOnly = false }: Props) {
+export default function DiscussionPanel({ entityType, entityId, contacts = [], readOnly = false, linkableProjects = [] }: Props) {
   const { data: discussions = [] } = useDiscussions(entityType, entityId)
   const createDiscussion = useCreateDiscussion()
   const deleteDiscussion = useDeleteDiscussion()
+  const linkToProject = useLinkDiscussionToProject()
+  const unlinkFromProject = useUnlinkDiscussionFromProject()
   const user = useAuthStore(s => s.user)
   const [showForm, setShowForm] = useState(false)
   const [expanded, setExpanded] = useState<string | null>(null)
   const [form, setForm] = useState(blankForm)
   const [filterCat, setFilterCat] = useState('')
+  const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null)
 
   const categories = entityType === 'Deal' ? DEAL_CATEGORIES : LEAD_CATEGORIES
 
@@ -59,6 +66,11 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
     if (!form.category) { toast.error('Please select a stage tag'); return }
     if (form.scheduledAt && new Date(form.scheduledAt) > new Date()) {
       toast.error('Cannot schedule discussion for future date')
+      return
+    }
+    // A follow-up is by definition ahead of the conversation it came out of.
+    if (form.followUpAt && new Date(form.followUpAt) <= new Date()) {
+      toast.error('Follow-up date must be in the future')
       return
     }
     await createDiscussion.mutateAsync({
@@ -70,6 +82,7 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
       summary: form.summary || undefined,
       decisions: form.decisions || undefined,
       nextActions: form.nextActions || undefined,
+      followUpAt: form.followUpAt || undefined,
       participantContactIds: form.participantContactIds,
     })
     toast.success('Discussion saved')
@@ -159,6 +172,11 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
             <textarea value={form.summary} onChange={e => setForm(f => ({ ...f, summary: e.target.value }))} placeholder="Summary / notes…" rows={2} style={{ ...inpStyle, resize: 'vertical' }} />
             <textarea value={form.decisions} onChange={e => setForm(f => ({ ...f, decisions: e.target.value }))} placeholder="Decisions taken…" rows={2} style={{ ...inpStyle, resize: 'vertical' }} />
             <textarea value={form.nextActions} onChange={e => setForm(f => ({ ...f, nextActions: e.target.value }))} placeholder="Next actions / follow-up…" rows={2} style={{ ...inpStyle, resize: 'vertical' }} />
+            <div>
+              <label style={{ fontSize: 11, color: '#374557', display: 'block', marginBottom: 4 }}>Next Follow-up Date/Time</label>
+              <input type="datetime-local" value={form.followUpAt} onChange={e => setForm(f => ({ ...f, followUpAt: e.target.value }))} style={inpStyle} />
+              <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 3 }}>Adds a calendar reminder and notifies everyone on this thread.</p>
+            </div>
             {contacts.length > 0 && (
               <div>
                 <p style={{ fontSize: 11, color: '#374557', marginBottom: 6 }}>Participants</p>
@@ -208,6 +226,11 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {(d.projectLinks?.length ?? 0) > 0 && (
+                    <span style={{ fontSize: 10, color: '#2BC155', background: '#E7FAF0', padding: '2px 8px', borderRadius: 10 }} title="Linked to a Project">
+                      <Send size={9} style={{ display: 'inline', marginRight: 3, verticalAlign: -1 }} />Sent
+                    </span>
+                  )}
                   {d.participants.length > 0 && (
                     <span style={{ fontSize: 10, color: '#5D78FF', background: '#E8EDFF', padding: '2px 8px', borderRadius: 10 }}>
                       {d.participants.length} ppl
@@ -227,6 +250,11 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
                   {d.summary && <p style={{ fontSize: 11, color: '#374557', marginTop: 10 }}><strong>Summary:</strong> {d.summary}</p>}
                   {d.decisions && <p style={{ fontSize: 11, color: '#374557', marginTop: 6 }}><strong>Decisions:</strong> {d.decisions}</p>}
                   {d.nextActions && <p style={{ fontSize: 11, color: '#374557', marginTop: 6 }}><strong>Next actions:</strong> {d.nextActions}</p>}
+                  {d.followUpAt && (
+                    <p style={{ fontSize: 11, color: '#EA580C', marginTop: 6 }}>
+                      <strong>Follow-up:</strong> {new Date(d.followUpAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  )}
                   {d.participants.length > 0 && (
                     <div style={{ marginTop: 10 }}>
                       <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 4 }}>Participants</p>
@@ -237,6 +265,38 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
                           </span>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  <DiscussionAttachments discussionId={d.id} readOnly={readOnly} />
+
+                  {linkableProjects.length > 0 && !readOnly && (
+                    <div style={{ marginTop: 12, borderTop: '1px dashed #F0F1F5', paddingTop: 10 }}>
+                      {linkPickerFor === d.id ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                          {linkableProjects.map(p => {
+                            const isLinked = d.projectLinks?.some(l => l.projectId === p.id)
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => {
+                                  if (isLinked) unlinkFromProject.mutate({ discussionId: d.id, projectId: p.id, entityType, entityId })
+                                  else linkToProject.mutate({ discussionId: d.id, projectId: p.id, entityType, entityId })
+                                }}
+                                style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', border: '1px solid', borderColor: isLinked ? '#2BC155' : '#E0E0E0', background: isLinked ? '#E7FAF0' : '#fff', color: isLinked ? '#2BC155' : '#374557' }}
+                              >
+                                {isLinked && <Check size={10} />} {p.title}
+                              </button>
+                            )
+                          })}
+                          <button onClick={() => setLinkPickerFor(null)} style={{ fontSize: 10, color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}>Done</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setLinkPickerFor(d.id)} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 600, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer' }}>
+                          <Send size={11} /> Send to Project{(d.projectLinks?.length ?? 0) > 0 ? ` (${d.projectLinks!.length})` : ''}
+                        </button>
+                      )}
+                      <p style={{ fontSize: 9, color: '#B1B1BE', marginTop: 4 }}>Optional — sends this discussion to the engineering team's project view</p>
                     </div>
                   )}
                 </div>
@@ -252,4 +312,38 @@ export default function DiscussionPanel({ entityType, entityId, contacts = [], r
 const inpStyle: React.CSSProperties = {
   width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E8EDFF',
   fontSize: 12, color: '#374557', outline: 'none', background: '#fff', boxSizing: 'border-box',
+}
+
+function DiscussionAttachments({ discussionId, readOnly }: { discussionId: string; readOnly: boolean }) {
+  const { data: attachments = [], refetch } = useDiscussionAttachments(discussionId)
+  const [showUploader, setShowUploader] = useState(false)
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <p style={{ fontSize: 10, color: '#B1B1BE', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Paperclip size={10} /> Attachments {attachments.length > 0 && `(${attachments.length})`}
+        </p>
+        {!readOnly && (
+          <button onClick={() => setShowUploader(v => !v)} style={{ fontSize: 10, fontWeight: 600, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer' }}>
+            {showUploader ? 'Cancel' : '+ Add'}
+          </button>
+        )}
+      </div>
+      {attachments.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: showUploader ? 8 : 0 }}>
+          {attachments.map(a => (
+            <a key={a.id} href={a.externalUrl ?? `http://localhost:4000${a.url}`} target="_blank" rel="noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#374557', textDecoration: 'none', padding: '4px 8px', background: '#FAFBFF', borderRadius: 6 }}>
+              {a.externalUrl ? <LinkIcon size={11} style={{ color: '#5D78FF', flexShrink: 0 }} /> : <Paperclip size={11} style={{ color: '#B1B1BE', flexShrink: 0 }} />}
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.fileName}</span>
+            </a>
+          ))}
+        </div>
+      )}
+      {showUploader && !readOnly && (
+        <AttachmentUploader discussionId={discussionId} onUploaded={() => { setShowUploader(false); refetch() }} />
+      )}
+    </div>
+  )
 }

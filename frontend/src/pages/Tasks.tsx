@@ -2,17 +2,14 @@ import { useState } from 'react'
 import { CheckSquare } from 'lucide-react'
 import TaskPanel from '@/components/shared/TaskPanel'
 import { useTasks } from '@/hooks/useTasks'
-import { useAuthStore } from '@/lib/authStore'
 
 export default function Tasks() {
-  const me = useAuthStore(s => s.user)
   const [scope, setScope] = useState<'all' | 'mine'>('all')
-  // Stats pulled from the same query the panel uses (cache-shared).
-  const { data: allTasks = [] } = useTasks({})
-  const { data: myTasks = [] } = useTasks({ mine: true })
-  const source = scope === 'mine' ? myTasks : allTasks
+  // Single query keyed on scope — stats and the list below both read from it,
+  // so "Assigned to me" actually filters what's shown, not just the counts.
+  const { data: tasks = [] } = useTasks(scope === 'mine' ? { mine: true } : {})
 
-  const stat = (s: string) => source.filter(t => t.status === s).length
+  const stat = (s: string) => tasks.filter(t => t.status === s).length
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' }}>
@@ -31,8 +28,10 @@ export default function Tasks() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
-          { label: 'Total', value: source.length, color: '#5D78FF' },
-          { label: 'Pending', value: stat('Pending') + stat('InProgress'), color: '#FF9B52' },
+          { label: 'Total', value: tasks.length, color: '#5D78FF' },
+          { label: 'Pending', value: stat('Pending'), color: '#FF9B52' },
+          { label: 'In Progress', value: stat('InProgress'), color: '#5D78FF' },
+          { label: 'On Hold', value: stat('OnHold'), color: '#8C8C8C' },
           { label: 'Submitted', value: stat('Submitted'), color: '#A855F7' },
           { label: 'Done', value: stat('Done'), color: '#2BC155' },
         ].map(s => (
@@ -43,13 +42,7 @@ export default function Tasks() {
         ))}
       </div>
 
-      {/* Global task list. When scope==='mine' we still render the full panel but note
-          the panel itself lists all tasks; the "Assigned to me" scope is reflected in the
-          stat cards above. For a strictly-mine list the panel could take a `mine` prop,
-          but showing all with assignee chips is more useful for coordinators. */}
-      {scope === 'mine' && !me
-        ? null
-        : <TaskPanel title={scope === 'mine' ? 'My Tasks' : 'All Tasks'} />}
+      <TaskPanel title={scope === 'mine' ? 'My Tasks' : 'All Tasks'} mine={scope === 'mine'} />
     </div>
   )
 }

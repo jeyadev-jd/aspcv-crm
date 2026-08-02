@@ -5,13 +5,14 @@ import { useIsMobile } from '@/lib/useIsMobile'
 import {
   Users, CheckCircle, XCircle, Clock, ChevronDown, ShieldCheck, ChevronRight,
   UserCheck, Handshake, Contact, Building2, FolderOpen, CheckSquare,
-  KanbanSquare, Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
+  Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
   FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
   MessageSquare, ClipboardCheck, Shield, Briefcase, Plus, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { useDepartments, useCreateDepartment, useDeleteDepartment, useDepartmentMembers } from '@/hooks/useDepartments'
 import EmptyState from '@/components/shared/EmptyState'
 import { useAuthStore } from '@/lib/authStore'
+import { useConfirm } from '@/components/shared/useConfirm'
 
 interface User {
   id: string; name: string; email: string; role: string; roleName: string
@@ -69,17 +70,12 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
     { key: 'task:edit',     label: 'Edit tasks' },
     { key: 'task:delete',   label: 'Delete tasks' },
   ]},
-  { label: 'Kanban', Icon: KanbanSquare, perms: [
-    { key: 'kanban:read_all', label: 'View board' },
-    { key: 'kanban:create',   label: 'Add cards' },
-    { key: 'kanban:edit',     label: 'Move & edit cards' },
-    { key: 'kanban:delete',   label: 'Delete cards' },
-  ]},
   { label: 'Calendar', Icon: Calendar, perms: [
     { key: 'calendar:read_all', label: 'View calendar' },
     { key: 'calendar:create',   label: 'Add events' },
     { key: 'calendar:edit',     label: 'Edit events' },
     { key: 'calendar:delete',   label: 'Delete events' },
+    { key: 'calendar:manage',   label: 'Schedule for any department' },
   ]},
   { label: 'Employees (HR)', Icon: UserCircle, perms: [
     { key: 'hr_user:create',     label: 'Add new employees' },
@@ -127,12 +123,19 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
     { key: 'component:read_all', label: 'View inventory' },
     { key: 'component:edit',     label: 'Edit components' },
     { key: 'component:assign',   label: 'Assign to projects' },
+    { key: 'component:delete',   label: 'Delete components' },
   ]},
   { label: 'Installation', Icon: Wrench, perms: [
     { key: 'installation:read_all', label: 'View installations' },
     { key: 'installation:create',   label: 'Add installations' },
     { key: 'installation:edit',     label: 'Edit installations' },
     { key: 'installation:delete',   label: 'Delete installations' },
+  ]},
+  { label: 'Service & Warranty', Icon: Wrench, perms: [
+    { key: 'service_record:read_all', label: 'View service records' },
+    { key: 'service_record:create',   label: 'Create service requests' },
+    { key: 'service_record:edit',     label: 'Edit service records' },
+    { key: 'service_record:delete',   label: 'Delete service requests' },
   ]},
   { label: 'Support Tickets', Icon: Headphones, perms: [
     { key: 'support:read_all', label: 'View all tickets' },
@@ -375,6 +378,7 @@ function DepartmentMemberRow({ user, departments }: { user: User; departments: {
 }
 
 function DepartmentRow({ dept, users }: { dept: { id: string; name: string }; users: User[] }) {
+  const { confirm, confirmDialog } = useConfirm()
   const [open, setOpen] = useState(false)
   const deleteDept = useDeleteDepartment()
   const { data: members = [] } = useDepartmentMembers(open ? dept.id : null)
@@ -382,17 +386,21 @@ function DepartmentRow({ dept, users }: { dept: { id: string; name: string }; us
   const can = useAuthStore(s => s.can)
   const canDeleteDept = can('hr_user', 'deactivate')
 
+  // Count only users belonging to THIS department — `users` is the full list.
+  const memberCount = users.filter(u => u.department?.id === dept.id).length
+
   return (
     <div style={{ background: '#fff', border: '1px solid #f0f1f5', borderRadius: 10, overflow: 'hidden' }}>
+      {confirmDialog}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px' }}>
         <Briefcase size={15} color="#5D78FF" />
         <span style={{ fontSize: 13, fontWeight: 600, color: '#374557', flex: 1 }}>{dept.name}</span>
-        <span style={{ fontSize: 11, color: '#aaa' }}>{users.length} member{users.length === 1 ? '' : 's'}</span>
+        <span style={{ fontSize: 11, color: '#aaa' }}>{memberCount} member{memberCount === 1 ? '' : 's'}</span>
         <button onClick={() => setOpen(o => !o)} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: '#f4f5f9', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', fontSize: 12, color: '#555', fontWeight: 600 }}>
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Members
         </button>
         {canDeleteDept && (
-          <button onClick={() => { if (confirm(`Delete department "${dept.name}"?`)) deleteDept.mutate(dept.id) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#EF4444', padding: 4 }}>
+          <button onClick={() => { confirm({ title: `Delete department "${dept.name}"?`, onConfirm: () => deleteDept.mutate(dept.id) }) }} style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#EF4444', padding: 4 }}>
             <Trash2 size={14} />
           </button>
         )}
@@ -443,12 +451,15 @@ function DepartmentsPanel({ users }: { users: User[] }) {
 }
 
 export default function UserManagement() {
+  const { confirm, confirmDialog } = useConfirm()
   const qc = useQueryClient()
   const can = useAuthStore(s => s.can)
   const canDeactivate = can('hr_user', 'deactivate')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | 'active' | 'pending'>('all')
   const [view, setView] = useState<'users' | 'departments'>('users')
+  const [deptFilter, setDeptFilter] = useState('all')
+  const [roleFilter, setRoleFilter] = useState('all')
 
   const { data: users = [], isLoading, isError, refetch } = useQuery<User[]>({
     queryKey: ['users', 'all'],
@@ -460,17 +471,26 @@ export default function UserManagement() {
     queryFn: () => api.get('/role-definitions').then(r => r.data),
   })
 
+  const { data: departments = [] } = useDepartments()
+
   const deactivate = useMutation({
     mutationFn: (userId: string) => api.delete(`/users/${userId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
   })
 
-  const filtered = users.filter(u =>
-    filter === 'active' ? u.isActive : filter === 'pending' ? !u.isActive : true
-  )
+  const filtered = users.filter(u => {
+    if (filter === 'active' && !u.isActive) return false
+    if (filter === 'pending' && u.isActive) return false
+    if (deptFilter !== 'all' && u.department?.id !== (deptFilter === 'none' ? undefined : deptFilter)) {
+      if (!(deptFilter === 'none' && !u.department)) return false
+    }
+    if (roleFilter !== 'all' && u.roleName !== roleFilter) return false
+    return true
+  })
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' }}>
+      {confirmDialog}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <Users size={20} color="#5D78FF" />
@@ -519,6 +539,27 @@ export default function UserManagement() {
         ))}
       </div>
 
+      {/* Category filters: department + role */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)}
+          style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #f0f1f5', fontSize: 12, color: '#374557', background: '#fff', cursor: 'pointer' }}>
+          <option value="all">All departments</option>
+          <option value="none">— No department —</option>
+          {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+        <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}
+          style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #f0f1f5', fontSize: 12, color: '#374557', background: '#fff', cursor: 'pointer' }}>
+          <option value="all">All roles</option>
+          {roles.map(r => <option key={r.name} value={r.name}>{r.displayName ?? r.name}</option>)}
+        </select>
+        {(deptFilter !== 'all' || roleFilter !== 'all') && (
+          <button onClick={() => { setDeptFilter('all'); setRoleFilter('all') }}
+            style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid #f0f1f5', background: '#fff', fontSize: 12, color: '#5D78FF', fontWeight: 600, cursor: 'pointer' }}>
+            Clear
+          </button>
+        )}
+      </div>
+
       {isLoading ? (
         <p style={{ color: '#999', fontSize: 14 }}>Loading…</p>
       ) : (
@@ -556,7 +597,7 @@ export default function UserManagement() {
                 )}
                 {user.isActive && canDeactivate && (
                   <button
-                    onClick={() => { if (confirm(`Deactivate ${user.name}?`)) deactivate.mutate(user.id) }}
+                    onClick={() => { confirm({ title: `Deactivate ${user.name}?`, onConfirm: () => deactivate.mutate(user.id) }) }}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#EF4444', background: '#FEF2F2', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}
                   >
                     <XCircle size={11} /> Deactivate

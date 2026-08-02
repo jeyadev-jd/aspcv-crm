@@ -5,8 +5,10 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+import { useAuthStore } from './authStore'
+
 api.interceptors.request.use(config => {
-  const token = localStorage.getItem('crm_token')
+  const token = useAuthStore.getState().token
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })

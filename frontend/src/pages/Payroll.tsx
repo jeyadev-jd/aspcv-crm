@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { useAllSalary, useGenerateSalary, useApproveSalary, useMarkSalaryPaid } from '../hooks/useSalary'
+import { useAllSalary, useGenerateSalary, useApproveSalary, useMarkSalaryPaid, useManualEditSalary } from '../hooks/useSalary'
 import { useUsers } from '../hooks/useUsers'
 import { useAuthStore } from '../lib/authStore'
-import { Play, CheckCircle, DollarSign } from 'lucide-react'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import { toast } from '@/lib/toast'
+import { Play, CheckCircle, DollarSign, Pencil } from 'lucide-react'
+import type { SalaryRecord } from '../hooks/useSalary'
+import SalaryEditModal from '@/components/hr/SalaryEditModal'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 function fmt(n: number) { return `₹${Math.round(n).toLocaleString('en-IN')}` }
@@ -11,6 +15,7 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   draft:    { bg: '#FEF3C7', color: '#92400E' },
   approved: { bg: '#DBEAFE', color: '#1D4ED8' },
   paid:     { bg: '#D1FAE5', color: '#065F46' },
+  pending:  { bg: '#FEE2E2', color: '#B91C1C' },
 }
 
 export default function Payroll() {
@@ -26,9 +31,16 @@ export default function Payroll() {
   const generate = useGenerateSalary()
   const approve = useApproveSalary()
   const markPaid = useMarkSalaryPaid()
+  const manualEdit = useManualEditSalary()
+  const [editFor, setEditFor] = useState<SalaryRecord | null>(null)
 
   const canGenerate = user && ['SuperAdmin', 'HR'].includes(user.role)
   const canPay = user && ['SuperAdmin', 'HR', 'Accountant'].includes(user.role)
+
+  // Approving and paying payroll are one-way doors — an approved record feeds
+  // the NEFT export, so both ask before firing.
+  const [approveFor, setApproveFor] = useState<SalaryRecord | null>(null)
+  const [payFor, setPayFor] = useState<SalaryRecord | null>(null)
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
@@ -71,7 +83,7 @@ export default function Payroll() {
         {(() => {
           const totalGross = records.reduce((a, r) => a + r.grossSalary, 0)
           const totalNet = records.reduce((a, r) => a + r.netSalary, 0)
-          const totalDeductions = records.reduce((a, r) => a + r.pfEmployee + r.esiEmployee + r.tds + r.lateDeduction + r.otherDeduction, 0)
+          const totalDeductions = records.reduce((a, r) => a + r.pfEmployee + r.esiEmployee + r.tds + r.lateDeduction + (r.absentDeduction ?? 0) + r.otherDeduction, 0)
           const paidCount = records.filter(r => r.status === 'paid').length
           const employerCost = records.reduce((a, r) => a + r.grossSalary + r.pfEmployer + r.esiEmployer, 0)
           return [
@@ -135,13 +147,21 @@ export default function Payroll() {
                     </td>
                     <td style={{ padding: '10px 14px' }}>
                       <div style={{ display: 'flex', gap: 6 }}>
+                        {canGenerate && r.status !== 'paid' && r.status !== 'pending' && (
+                          <button onClick={() => setEditFor(r)} title="Correct a wrong calculation (needs admin approval)" style={{ background: '#F3F4F6', color: '#374151', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <Pencil size={11} />Edit
+                          </button>
+                        )}
+                        {r.status === 'pending' && (
+                          <span style={{ fontSize: 11, color: '#B91C1C', fontWeight: 600 }}>Awaiting admin approval</span>
+                        )}
                         {r.status === 'draft' && canGenerate && (
-                          <button onClick={() => approve.mutate(r.id)} style={{ background: '#DBEAFE', color: '#1D4ED8', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <button onClick={() => setApproveFor(r)} style={{ background: '#DBEAFE', color: '#1D4ED8', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center' }}>
                             <CheckCircle size={11} />Approve
                           </button>
                         )}
                         {r.status === 'approved' && canPay && (
-                          <button onClick={() => markPaid.mutate(r.id)} style={{ background: '#D1FAE5', color: '#065F46', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <button onClick={() => setPayFor(r)} style={{ background: '#D1FAE5', color: '#065F46', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center' }}>
                             <DollarSign size={11} />Mark Paid
                           </button>
                         )}
@@ -153,6 +173,47 @@ export default function Payroll() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {approveFor && (
+        <ConfirmDialog
+          title="Approve this salary record?"
+          message={`${approveFor.user?.name ?? 'This employee'} — net ${fmt(approveFor.netSalary)} for ${MONTHS[approveFor.month - 1]} ${approveFor.year}. Approved records are included in the NEFT export.`}
+          confirmLabel="Approve"
+          danger={false}
+          isPending={approve.isPending}
+          onCancel={() => setApproveFor(null)}
+          onConfirm={() => { approve.mutate(approveFor.id); setApproveFor(null) }}
+        />
+      )}
+
+      {editFor && (
+        <SalaryEditModal
+          record={editFor}
+          isPending={manualEdit.isPending}
+          onClose={() => setEditFor(null)}
+          onSubmit={async (fields, reason) => {
+            try {
+              await manualEdit.mutateAsync({ id: editFor.id, ...fields, reason })
+              toast.success('Correction sent for admin approval')
+              setEditFor(null)
+            } catch (e: any) {
+              toast.error(e?.response?.data?.error ?? 'Failed to submit correction')
+            }
+          }}
+        />
+      )}
+
+      {payFor && (
+        <ConfirmDialog
+          title="Mark this salary as paid?"
+          message={`${payFor.user?.name ?? 'This employee'} — ${fmt(payFor.netSalary)} for ${MONTHS[payFor.month - 1]} ${payFor.year}. This records the payment permanently and cannot be undone.`}
+          confirmLabel="Mark paid"
+          countdownSeconds={3}
+          isPending={markPaid.isPending}
+          onCancel={() => setPayFor(null)}
+          onConfirm={() => { markPaid.mutate(payFor.id); setPayFor(null) }}
+        />
       )}
     </div>
   )

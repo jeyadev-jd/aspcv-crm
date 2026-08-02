@@ -20,96 +20,85 @@ export default function CompletedProjects() {
   const totalProfit = allProjects.reduce((s: number, p: any) => s + (p.profit || 0), 0)
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Completed Projects</h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Immutable archive of all completed projects</p>
-        </div>
-      </div>
-
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       {/* KPIs */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Completed Projects</div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{allProjects.length}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+        {[
+          { label: 'Completed Projects', value: String(allProjects.length), iconBg: '#EEF2FF', iconColor: '#5D78FF', Icon: Archive },
+          { label: 'Total Budget', value: fmt(totalBudget), iconBg: '#ECFDF5', iconColor: '#10B981', Icon: DollarSign },
+          { label: 'Total Profit', value: fmt(totalProfit), iconBg: '#F5F3FF', iconColor: '#8B5CF6', Icon: DollarSign, valueColor: totalProfit >= 0 ? '#16A34A' : '#DC2626' },
+        ].map(kpi => (
+          <div key={kpi.label} style={{ background: '#fff', borderRadius: 12, padding: 16, border: '1px solid #F0F1F5', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#8A8B9F', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{kpi.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: kpi.valueColor || '#23263B', marginTop: 4 }}>{kpi.value}</div>
+            </div>
+            <div style={{ width: 36, height: 36, borderRadius: 8, background: kpi.iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <kpi.Icon size={16} color={kpi.iconColor} />
+            </div>
           </div>
-          <div className="w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center"><Archive className="w-4 h-4 text-blue-500" /></div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total Budget</div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{fmt(totalBudget)}</div>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center"><DollarSign className="w-4 h-4 text-emerald-500" /></div>
-        </div>
-        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700 flex items-center justify-between">
-          <div>
-            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Total Profit</div>
-            <div className={`text-2xl font-bold mt-1 ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(totalProfit)}</div>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center"><DollarSign className="w-4 h-4 text-purple-500" /></div>
-        </div>
+        ))}
       </div>
 
       {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      <div style={{ position: 'relative' }}>
+        <Search style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', width: 16, height: 16, color: '#B1B1BE' }} />
         <input
-          className="w-full pl-10 pr-4 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm bg-white dark:bg-gray-700 dark:text-white"
+          style={{ width: '100%', paddingLeft: 40, paddingRight: 16, paddingTop: 10, paddingBottom: 10, border: '1px solid #E5E7EB', borderRadius: 12, fontSize: 13, background: '#fff', color: '#23263B', outline: 'none' }}
           placeholder="Search by project name or customer…"
           value={search}
           onChange={e => setSearch(e.target.value)}
+          onFocus={e => { e.currentTarget.style.borderColor = '#5D78FF' }}
+          onBlur={e => { e.currentTarget.style.borderColor = '#E5E7EB' }}
         />
       </div>
 
       {/* Project List */}
       {isLoading ? (
-        <div className="text-center py-12 text-gray-400">Loading...</div>
+        <div style={{ textAlign: 'center', padding: '48px 0', color: '#B1B1BE' }}>Loading...</div>
       ) : isError ? (
         <EmptyState icon={AlertTriangle} title="Failed to load completed projects" subtitle="Something went wrong fetching this data."
           action={<button onClick={() => refetch()} style={{ padding: '8px 16px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>Retry</button>} />
       ) : filtered.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">{allProjects.length === 0 ? 'No completed projects yet' : 'No completed projects match your search'}</div>
+        <div style={{ textAlign: 'center', padding: '48px 0', color: '#B1B1BE' }}>{allProjects.length === 0 ? 'No completed projects yet' : 'No completed projects match your search'}</div>
       ) : (
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filtered.map((project: any) => (
-            <div key={project.id} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300">Completed</span>
-                    {project.isLocked && <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700">🔒 Locked</span>}
+            <div key={project.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 500, background: '#DCFCE7', color: '#15803D' }}>Completed</span>
+                    {project.isLocked && <span style={{ padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 500, background: '#F3F4F6', color: '#6B7280' }}>🔒 Locked</span>}
                   </div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white">{project.title}</h3>
-                  <p className="text-sm text-gray-500 mt-0.5">{project.company?.name}</p>
+                  <h3 style={{ fontWeight: 600, color: '#23263B', fontSize: 14 }}>{project.title}</h3>
+                  <p style={{ fontSize: 13, color: '#8A8B9F', marginTop: 2 }}>{project.company?.name}</p>
 
-                  <div className="grid grid-cols-3 md:grid-cols-6 gap-3 mt-3">
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginTop: 12 }}>
                     {[
-                      { label: 'Budget', value: fmt(project.budget || 0), color: 'text-blue-600' },
-                      { label: 'Mfg Cost', value: fmt(project.manufacturingCost || 0), color: 'text-indigo-600' },
-                      { label: 'Service Cost', value: fmt(project.serviceCost || 0), color: 'text-purple-600' },
-                      { label: 'Total Expenses', value: fmt(project.totalExpenses || 0), color: 'text-orange-600' },
-                      { label: 'Profit', value: fmt(project.profit || 0), color: (project.profit || 0) >= 0 ? 'text-green-600' : 'text-red-600' },
-                      { label: 'Completed', value: project.completedAt ? new Date(project.completedAt).toLocaleDateString() : '—', color: 'text-gray-700 dark:text-gray-200' },
+                      { label: 'Budget', value: fmt(project.budget || 0), color: '#2563EB' },
+                      { label: 'Mfg Cost', value: fmt(project.manufacturingCost || 0), color: '#4F46E5' },
+                      { label: 'Service Cost', value: fmt(project.serviceCost || 0), color: '#7C3AED' },
+                      { label: 'Total Expenses', value: fmt(project.totalExpenses || 0), color: '#EA580C' },
+                      { label: 'Profit', value: fmt(project.profit || 0), color: (project.profit || 0) >= 0 ? '#16A34A' : '#DC2626' },
+                      { label: 'Completed', value: project.completedAt ? new Date(project.completedAt).toLocaleDateString() : '—', color: '#374151' },
                     ].map(item => (
                       <div key={item.label}>
-                        <div className="text-xs text-gray-400">{item.label}</div>
-                        <div className={`text-sm font-semibold ${item.color}`}>{item.value}</div>
+                        <div style={{ fontSize: 11, color: '#8A8B9F' }}>{item.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: item.color }}>{item.value}</div>
                       </div>
                     ))}
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-3 mt-2">
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginTop: 8 }}>
                     {project.warrantyPeriod && (
-                      <span className="flex items-center gap-1 text-xs text-purple-600 bg-purple-50 dark:bg-purple-900/20 px-2 py-0.5 rounded-full">
-                        <Shield className="w-3 h-3" /> {project.warrantyPeriod} months warranty
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#7C3AED', background: '#F5F3FF', padding: '2px 8px', borderRadius: 99 }}>
+                        <Shield size={12} /> {project.warrantyPeriod} months warranty
                       </span>
                     )}
                     {(project.warrantyStart || project.warrantyEnd) && (
-                      <span className="flex items-center gap-1 text-xs text-gray-500">
-                        <Calendar className="w-3 h-3" />
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: '#8A8B9F' }}>
+                        <Calendar size={12} />
                         {project.warrantyStart ? new Date(project.warrantyStart).toLocaleDateString() : '?'} → {project.warrantyEnd ? new Date(project.warrantyEnd).toLocaleDateString() : '?'}
                       </span>
                     )}
@@ -117,13 +106,14 @@ export default function CompletedProjects() {
                 </div>
                 <button
                   onClick={() => setSelectedId(project.id === selectedId ? null : project.id)}
-                  className="ml-4 p-2 hover:bg-gray-50 dark:hover:bg-gray-750 rounded-lg text-gray-400"
+                  style={{ marginLeft: 16, padding: 8, background: 'transparent', border: 'none', borderRadius: 8, cursor: 'pointer', color: '#B1B1BE' }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#F4F5F9' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}
                 >
-                  <ChevronRight className={`w-4 h-4 transition-transform ${selectedId === project.id ? 'rotate-90' : ''}`} />
+                  <ChevronRight size={16} style={{ transition: 'transform 0.2s', transform: selectedId === project.id ? 'rotate(90deg)' : 'none' }} />
                 </button>
               </div>
 
-              {/* Expanded ERP Details */}
               {selectedId === project.id && (
                 <ProjectERPExpanded projectId={project.id} fmt={fmt} />
               )}
@@ -138,15 +128,14 @@ export default function CompletedProjects() {
 function ProjectERPExpanded({ projectId, fmt }: { projectId: string; fmt: any }) {
   const { data: erp, isLoading } = useProjectERP(projectId)
 
-  if (isLoading) return <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 text-sm text-gray-400">Loading ERP data…</div>
+  if (isLoading) return <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #F0F1F5', fontSize: 13, color: '#B1B1BE' }}>Loading ERP data…</div>
   if (!erp) return null
 
   return (
-    <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 space-y-4">
-      {/* Cost breakdown */}
+    <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #F0F1F5', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Cost Breakdown</h4>
-        <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
+        <h4 style={{ fontSize: 11, fontWeight: 600, color: '#8A8B9F', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Cost Breakdown</h4>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12 }}>
           {[
             { label: 'Purchase', value: erp.purchaseCost },
             { label: 'Manufacturing', value: erp.manufacturingCost },
@@ -154,49 +143,36 @@ function ProjectERPExpanded({ projectId, fmt }: { projectId: string; fmt: any })
             { label: 'Installation', value: erp.installationCost },
             { label: 'Service', value: erp.serviceCost },
           ].map(item => (
-            <div key={item.label} className="bg-gray-50 dark:bg-gray-750 rounded-lg p-2.5 text-center">
-              <div className="text-xs text-gray-400 mb-1">{item.label}</div>
-              <div className="text-sm font-medium text-gray-900 dark:text-white">{fmt(item.value || 0)}</div>
+            <div key={item.label} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: '#8A8B9F', marginBottom: 4 }}>{item.label}</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#23263B' }}>{fmt(item.value || 0)}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* BOMs */}
-      {erp.boms?.length > 0 && (
+      {erp.purchaseOrders?.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Bill of Materials</h4>
-          {erp.boms.map((bom: any) => (
-            <div key={bom.id} className="text-xs text-gray-500 mb-1">{bom.refNumber} · {bom.items?.length} items · {bom.status}</div>
+          <h4 style={{ fontSize: 11, fontWeight: 600, color: '#8A8B9F', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Purchase Orders</h4>
+          {erp.purchaseOrders.map((po: any) => (
+            <div key={po.id} style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{po.refNumber} · {po.supplierName} · {fmt(po.totalAmount)} · {po.status}</div>
           ))}
         </div>
       )}
 
-      {/* Purchase Orders */}
-      {erp.boms?.flatMap((b: any) => b.purchaseOrders || []).length > 0 && (
-        <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Purchase Orders</h4>
-          {erp.boms.flatMap((b: any) => b.purchaseOrders || []).map((po: any) => (
-            <div key={po.id} className="text-xs text-gray-500 mb-1">{po.refNumber} · {po.supplierName} · {fmt(po.totalAmount)} · {po.status}</div>
-          ))}
-        </div>
-      )}
-
-      {/* Work Orders */}
       {erp.workOrders?.length > 0 && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Manufacturing</h4>
+          <h4 style={{ fontSize: 11, fontWeight: 600, color: '#8A8B9F', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Manufacturing</h4>
           {erp.workOrders.map((wo: any) => (
-            <div key={wo.id} className="text-xs text-gray-500 mb-1">{wo.refNumber} · {wo.title} · {wo.status} · Total: {fmt(wo.totalCost)}</div>
+            <div key={wo.id} style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{wo.refNumber} · {wo.title} · {wo.status} · Total: {fmt(wo.totalCost)}</div>
           ))}
         </div>
       )}
 
-      {/* Service */}
       {erp.serviceRecord && (
         <div>
-          <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Service Record</h4>
-          <div className="text-xs text-gray-500">
+          <h4 style={{ fontSize: 11, fontWeight: 600, color: '#8A8B9F', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Service Record</h4>
+          <div style={{ fontSize: 12, color: '#6B7280' }}>
             Warranty: {erp.serviceRecord.warrantyStart ? new Date(erp.serviceRecord.warrantyStart).toLocaleDateString() : '?'} → {erp.serviceRecord.warrantyEnd ? new Date(erp.serviceRecord.warrantyEnd).toLocaleDateString() : '?'}
             · {erp.serviceRecord.serviceRequests?.length || 0} service requests
           </div>

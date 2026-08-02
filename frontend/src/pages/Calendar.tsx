@@ -1,6 +1,15 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
-import { ChevronLeft, ChevronRight, Plus, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, X, Lock, Users, Building2, Trash2 } from 'lucide-react'
+import Spinner from '@/components/shared/Spinner'
+import { toast } from '@/lib/toast'
+import { useAuthStore } from '@/lib/authStore'
+import { useDepartments } from '@/hooks/useDepartments'
+import {
+  useCalendarEvents, useCreateCalendarEvent, useDeleteCalendarEvent,
+  AUDIENCE_LABEL, AUDIENCE_HINT,
+} from '@/hooks/useCalendarEvents'
+import type { CalendarAudience, CalendarEventAPI } from '@/hooks/useCalendarEvents'
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
   isSameMonth, isSameDay, addMonths, subMonths, getDay,
@@ -16,6 +25,9 @@ interface CalEvent {
   endTime: string
   bg: string
   text: string
+  audience: CalendarAudience
+  departmentName?: string | null
+  createdById?: string | null
 }
 
 const COLOR_OPTIONS = [
@@ -26,29 +38,60 @@ const COLOR_OPTIONS = [
   { bg: '#F4F5F9', text: '#8C8C8C', label: 'Grey' },
 ]
 
-const initEvents: CalEvent[] = [
-  { id: '1', title: 'Team Meeting',              date: new Date(2026, 4, 4),  startTime: '10:00', endTime: '11:00', bg: '#E8EDFF', text: '#5D78FF' },
-  { id: '2', title: 'Design new pages',           date: new Date(2026, 4, 7),  startTime: '10:00', endTime: '11:00', bg: '#E7FAF0', text: '#2BC155' },
-  { id: '3', title: 'Client presentation',        date: new Date(2026, 4, 11), startTime: '14:00', endTime: '15:30', bg: '#F4F5F9', text: '#8C8C8C' },
-  { id: '4', title: 'Design new UI & check sales',date: new Date(2026, 4, 19), startTime: '9:00',  endTime: '13:00', bg: '#FFF5EE', text: '#FF9B52' },
-  { id: '5', title: 'Visit course',               date: new Date(2026, 4, 21), startTime: '10:00', endTime: '11:00', bg: '#FFF3F3', text: '#FF5353' },
-  { id: '6', title: 'Team standup',               date: new Date(2026, 4, 25), startTime: '09:30', endTime: '10:00', bg: '#E8EDFF', text: '#5D78FF' },
-]
-
-const barData = [3, 5, 4, 7, 6, 9, 8, 5, 7, 6, 8, 5].map((v, i) => ({ v, i }))
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const HOURS = Array.from({ length: 13 }, (_, i) => i + 8) // 8am - 8pm
 
-const blankForm = { title: '', date: '', startTime: '09:00', endTime: '10:00', colorIdx: 0 }
+const AUDIENCE_ICON: Record<CalendarAudience, typeof Lock> = {
+  Private: Lock, Department: Building2, Everyone: Users,
+}
+const AUDIENCE_ORDER: CalendarAudience[] = ['Private', 'Department', 'Everyone']
+
+/** Colour is stored as a name on the server; map both ways for the swatches. */
+const COLOR_NAMES = ['blue', 'green', 'orange', 'red', 'grey']
+function colorFor(name: string) {
+  const idx = Math.max(0, COLOR_NAMES.indexOf(name))
+  return COLOR_OPTIONS[idx] ?? COLOR_OPTIONS[0]
+}
+
+const blankForm = {
+  title: '', date: '', startTime: '09:00', endTime: '10:00', colorIdx: 0,
+  audience: 'Private' as CalendarAudience, departmentId: '',
+}
 
 export default function CalendarPage() {
   const isMobile = useIsMobile()
-  const [current, setCurrent]   = useState(new Date(2026, 4, 1))
+  const authUser = useAuthStore(s => s.user)
+  const can = useAuthStore(s => s.can)
+  const { data: departments = [] } = useDepartments()
+
+  const [current, setCurrent]   = useState(new Date())
   const [view, setView]         = useState<'Month' | 'Week' | 'Day'>('Month')
-  const [events, setEvents]     = useState(initEvents)
   const [showModal, setShowModal] = useState(false)
   const [form, setForm]         = useState(blankForm)
   const [formErr, setFormErr]   = useState('')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+
+  // The server already filters by audience, so whatever comes back is what this
+  // user is allowed to see.
+  const { data: apiEvents = [], isLoading } = useCalendarEvents({ limit: 500 })
+  const createEvent = useCreateCalendarEvent()
+  const deleteEvent = useDeleteCalendarEvent()
+
+  const events: CalEvent[] = useMemo(() => apiEvents.map((e: CalendarEventAPI) => {
+    const c = colorFor(e.color)
+    return {
+      id: e.id,
+      title: e.title,
+      date: new Date(e.date),
+      startTime: e.startTime,
+      endTime: e.endTime,
+      bg: c.bg,
+      text: c.text,
+      audience: e.audience ?? 'Everyone',
+      departmentName: e.department?.name ?? null,
+      createdById: e.createdById ?? null,
+    }
+  }), [apiEvents])
 
   // navigation
   const prev = () => {
@@ -61,7 +104,19 @@ export default function CalendarPage() {
     else if (view === 'Week') setCurrent(addWeeks(current, 1))
     else setCurrent(addDays(current, 1))
   }
-  const today = () => setCurrent(new Date(2026, 4, 21))
+  const today = () => setCurrent(new Date())
+
+  // Event count per month across the trailing year — real data, not a mock series.
+  const barData = useMemo(() => {
+    const now = new Date()
+    return Array.from({ length: 12 }, (_, k) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - (11 - k), 1)
+      return {
+        i: k,
+        v: events.filter(e => e.date.getFullYear() === d.getFullYear() && e.date.getMonth() === d.getMonth()).length,
+      }
+    })
+  }, [events])
 
   const getEventsForDay = (day: Date) => events.filter(e => isSameDay(e.date, day))
 
@@ -79,29 +134,70 @@ export default function CalendarPage() {
     setShowModal(true)
   }
 
-  const submitModal = () => {
+  const myDepartmentId = (authUser as { departmentId?: string | null } | null)?.departmentId ?? ''
+  // Only calendar:manage holders may target a department other than their own —
+  // the server enforces this, so the picker is hidden for everyone else rather
+  // than offering a choice that would be rejected.
+  const canPickDepartment = can('calendar', 'manage')
+  const needsDepartmentPick = form.audience === 'Department' && canPickDepartment
+  // Without a department of their own and without the manage permission, there
+  // is no department this user could legitimately publish to.
+  const departmentBlocked = !myDepartmentId && !canPickDepartment
+
+  const submitModal = async () => {
     if (!form.title.trim()) { setFormErr('Title is required'); return }
     if (!form.date) { setFormErr('Date is required'); return }
-    const color = COLOR_OPTIONS[form.colorIdx]
-    const [y, m, d] = form.date.split('-').map(Number)
-    setEvents(prev => [...prev, {
-      id: Date.now().toString(),
-      title: form.title.trim(),
-      date: new Date(y, m - 1, d),
-      startTime: form.startTime,
-      endTime: form.endTime,
-      bg: color.bg,
-      text: color.text,
-    }])
-    setShowModal(false)
-    setForm(blankForm)
+    if (form.audience === 'Department' && !myDepartmentId && !form.departmentId) { setFormErr('Pick a department'); return }
+    try {
+      await createEvent.mutateAsync({
+        title: form.title.trim(),
+        date: form.date,
+        startTime: form.startTime,
+        endTime: form.endTime,
+        color: COLOR_NAMES[form.colorIdx],
+        audience: form.audience,
+        ...(form.audience === 'Department' && form.departmentId ? { departmentId: form.departmentId } : {}),
+      })
+      toast.success(
+        form.audience === 'Private'
+          ? 'Event added'
+          : `Event added — ${form.audience === 'Everyone' ? 'everyone' : 'your department'} notified`,
+      )
+      setShowModal(false)
+      setForm(blankForm)
+    } catch (e: any) {
+      setFormErr(e?.response?.data?.error ?? 'Failed to create event')
+    }
   }
+
+  async function confirmDelete(id: string) {
+    try {
+      await deleteEvent.mutateAsync(id)
+      toast.success('Event deleted')
+    } catch {
+      toast.error('Failed to delete event')
+    }
+    setDeleteId(null)
+  }
+
+  // "Upcoming" means from the start of today onward, not simply the first five
+  // rows by date — a calendar full of past events showed nothing useful before.
+  const upcomingAll = useMemo(() => {
+    const dayStart = new Date()
+    dayStart.setHours(0, 0, 0, 0)
+    return events
+      .filter(e => e.date.getTime() >= dayStart.getTime())
+      .sort((a, b) => a.date.getTime() - b.date.getTime())
+  }, [events])
+  const upcoming = upcomingAll.slice(0, 5)
 
   const headerLabel = view === 'Month'
     ? format(current, 'MMMM yyyy')
     : view === 'Week'
     ? `${format(weekStart, 'd MMM')} – ${format(endOfWeek(current, { weekStartsOn: 1 }), 'd MMM yyyy')}`
     : format(current, 'EEEE, d MMMM yyyy')
+
+  if (isLoading) return <Spinner label="Loading calendar…" />
 
   return (
     <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 12 : 20, alignItems: 'flex-start', height: '100%' }}>
@@ -119,25 +215,38 @@ export default function CalendarPage() {
           </div>
           <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 16 }}>Don't miss scheduled events</p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {[...events]
-              .sort((a, b) => a.date.getTime() - b.date.getTime())
-              .slice(0, 5)
-              .map(e => (
+            {upcoming.length === 0 && (
+              <p style={{ fontSize: 11, color: '#C4C4CF' }}>No upcoming events. Use + to add one.</p>
+            )}
+            {upcoming.map(e => {
+              const Icon = AUDIENCE_ICON[e.audience]
+              return (
                 <div key={e.id} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                   <div style={{ width: 3, borderRadius: 2, background: e.text, flexShrink: 0, alignSelf: 'stretch', minHeight: 40 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <p style={{ fontSize: 10, color: e.text, fontWeight: 600, marginBottom: 2 }}>{e.startTime}–{e.endTime}</p>
                     <p style={{ fontSize: 11, fontWeight: 700, color: '#374557', lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.title}</p>
-                    <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 1 }}>{format(e.date, 'd MMM yyyy')}</p>
+                    <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      {format(e.date, 'd MMM yyyy')}
+                      <Icon size={9} />
+                      {e.audience === 'Department' ? (e.departmentName ?? 'Department') : AUDIENCE_LABEL[e.audience]}
+                    </p>
                   </div>
+                  {e.createdById === authUser?.id && (
+                    <button onClick={() => setDeleteId(e.id)} title="Delete event"
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#C4C4CF', padding: 0, flexShrink: 0 }}>
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                 </div>
-              ))}
+              )
+            })}
           </div>
         </div>
 
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 16 }}>
-          <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 2 }}>Conversion history</p>
-          <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 12 }}>Week to week performance</p>
+          <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', marginBottom: 2 }}>Event activity</p>
+          <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 12 }}>Events per month, last 12 months</p>
           <ResponsiveContainer width="100%" height={70}>
             <BarChart data={barData} barSize={7} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
               <XAxis dataKey="i" hide />
@@ -146,12 +255,12 @@ export default function CalendarPage() {
           </ResponsiveContainer>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
             <div>
-              <p style={{ fontSize: 12, fontWeight: 700, color: '#374557' }}>₹28,45,700</p>
-              <p style={{ fontSize: 10, color: '#B1B1BE' }}>Total sales</p>
+              <p style={{ fontSize: 12, fontWeight: 700, color: '#374557' }}>{events.length}</p>
+              <p style={{ fontSize: 10, color: '#B1B1BE' }}>Visible to you</p>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: '#374557' }}>₹16,70,000</p>
-              <p style={{ fontSize: 10, color: '#B1B1BE' }}>Spendings</p>
+              <p style={{ fontSize: 12, fontWeight: 700, color: '#374557' }}>{upcomingAll.length}</p>
+              <p style={{ fontSize: 10, color: '#B1B1BE' }}>Upcoming</p>
             </div>
           </div>
         </div>
@@ -331,10 +440,25 @@ export default function CalendarPage() {
         </div>
       </div>
 
+      {deleteId && (
+        <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setDeleteId(null) }}>
+          <div className="crm-modal" role="dialog" aria-modal="true" style={{ width: '100%', maxWidth: 360 }}>
+            <div className="crm-modal-body">
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Delete this event?</p>
+              <p style={{ fontSize: 12, color: '#B1B1BE' }}>It is removed for everyone who can see it. This cannot be undone.</p>
+            </div>
+            <div className="crm-modal-footer" style={{ justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteId(null)} style={{ padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#F4F5F9', color: '#374557', border: 'none', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => confirmDelete(deleteId)} style={{ padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#FF5353', color: '#fff', border: 'none', cursor: 'pointer' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Event Modal */}
       {showModal && (
         <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) setShowModal(false) }}>
-          <div className="crm-modal" style={{ width: '100%', maxWidth: 420 }}>
+          <div className="crm-modal" role="dialog" aria-modal="true" style={{ width: '100%', maxWidth: 420 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>New Event</p>
               <button onClick={() => setShowModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE' }}>
@@ -380,6 +504,44 @@ export default function CalendarPage() {
               </div>
 
               <div>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 6 }}>Who can see this</p>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {AUDIENCE_ORDER.map(a => {
+                    const Icon = AUDIENCE_ICON[a]
+                    const on = form.audience === a
+                    const disabled = a === 'Department' && departmentBlocked
+                    return (
+                      <button key={a} disabled={disabled}
+                        title={disabled ? 'You are not assigned to a department' : undefined}
+                        onClick={() => { setForm(f => ({ ...f, audience: a })); setFormErr('') }}
+                        style={{
+                          flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+                          padding: '8px 6px', borderRadius: 8, fontSize: 11, fontWeight: 600,
+                          cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1,
+                          border: `1px solid ${on ? '#5D78FF' : '#F0F1F5'}`,
+                          background: on ? '#EEF2FF' : '#fff', color: on ? '#5D78FF' : '#8C8C8C',
+                        }}>
+                        <Icon size={12} />{AUDIENCE_LABEL[a]}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 5 }}>{AUDIENCE_HINT[form.audience]}</p>
+              </div>
+
+              {needsDepartmentPick && (
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 6 }}>Department</p>
+                  <select value={form.departmentId} onChange={e => { setForm(f => ({ ...f, departmentId: e.target.value })); setFormErr('') }}
+                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}>
+                    <option value="">{myDepartmentId ? 'My department' : '— Select department —'}</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 4 }}>You may schedule for any department.</p>
+                </div>
+              )}
+
+              <div>
                 <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Color</p>
                 <div style={{ display: 'flex', gap: 8 }}>
                   {COLOR_OPTIONS.map((c, i) => (
@@ -399,8 +561,8 @@ export default function CalendarPage() {
               <button onClick={() => setShowModal(false)} style={{ padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#F4F5F9', color: '#374557', border: 'none', cursor: 'pointer' }}>
                 Cancel
               </button>
-              <button onClick={submitModal} style={{ padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                Add Event
+              <button onClick={submitModal} disabled={createEvent.isPending} style={{ padding: '9px 20px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: createEvent.isPending ? 'default' : 'pointer', opacity: createEvent.isPending ? 0.7 : 1 }}>
+                {createEvent.isPending ? 'Adding…' : 'Add Event'}
               </button>
             </div>
           </div>

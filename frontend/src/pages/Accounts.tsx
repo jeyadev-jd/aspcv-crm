@@ -1,4 +1,5 @@
 import Pagination from '@/components/shared/Pagination'
+import RowMenu from '@/components/shared/RowMenu'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
@@ -199,20 +200,13 @@ export default function Accounts() {
                   <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 12, fontWeight: 700, color: acct.openDeals > 0 ? '#5D78FF' : '#B1B1BE' }}>{acct.openDeals}</span></td>
                   <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: getStatusStyle(acct.status).bg, color: getStatusStyle(acct.status).color }}>{acct.status}</span></td>
                   <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
-                    <div style={{ position: 'relative' }}>
-                      <button onClick={e => { e.stopPropagation(); setMenuOpen(menuOpen === acct.id ? null : acct.id) }} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
-                        <MoreHorizontal size={15} />
-                      </button>
-                      {menuOpen === acct.id && (
-                        <div style={dropdownStyle}>
-                          <button onClick={() => { openEdit(acct); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
-                          <button onClick={() => { api.patch(`/companies/${acct.id}`, { isActive: true }); setMenuOpen(null) }} style={menuItem}><CheckCircle2 size={12} style={{marginRight:6}}/>Mark Active</button>
-                          <button onClick={() => { api.patch(`/companies/${acct.id}`, { isActive: false }); setMenuOpen(null) }} style={menuItem}><PauseCircle size={12} style={{marginRight:6}}/>Mark Inactive</button>
-                          <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
-                          <button onClick={() => { setDeleteConfirm(acct.id); setMenuOpen(null) }} style={{ ...menuItem, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
-                        </div>
-                      )}
-                    </div>
+                    <RowMenu open={menuOpen === acct.id} onOpenChange={o => setMenuOpen(o ? acct.id : null)}>
+                      <button onClick={() => { openEdit(acct); setMenuOpen(null) }} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
+                      <button onClick={() => { api.patch(`/companies/${acct.id}`, { isActive: true }); setMenuOpen(null) }} style={menuItem}><CheckCircle2 size={12} style={{marginRight:6}}/>Mark Active</button>
+                      <button onClick={() => { api.patch(`/companies/${acct.id}`, { isActive: false }); setMenuOpen(null) }} style={menuItem}><PauseCircle size={12} style={{marginRight:6}}/>Mark Inactive</button>
+                      <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
+                      <button onClick={() => { setDeleteConfirm(acct.id); setMenuOpen(null) }} style={{ ...menuItem, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
+                    </RowMenu>
                   </td>
                 </tr>
               ))}
@@ -227,8 +221,10 @@ export default function Accounts() {
       {deleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Delete Account?</p>
-            <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>This action cannot be undone.</p>
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Archive this account?</p>
+            <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>
+              The account is hidden from lists but its contacts, deals, projects and invoices are kept. An admin can restore it later.
+            </p>
             <div style={{ display: 'flex', gap: 12 }}>
               <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={() => handleDelete(deleteConfirm)} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#FF5353', color: '#fff', cursor: 'pointer' }}>Delete</button>

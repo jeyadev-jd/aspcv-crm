@@ -6,6 +6,13 @@ import { X, Cake, Mail, Building, Plus, Edit2, Trash2, Phone, CreditCard, Calend
 import EmptyState from '../components/shared/EmptyState'
 import { CsvImportExport } from '../components/shared/CsvImportExport'
 import type { CsvColDef } from '../components/shared/CsvImportExport'
+import Payroll from './Payroll'
+import SalaryStructure from './SalaryStructure'
+import Recruitment from './Recruitment'
+import Onboarding from './Onboarding'
+import HRSettings from './HRSettings'
+import Performance from './Performance'
+import FnFSettlement from './FnFSettlement'
 
 const HR_CSV_COLS: CsvColDef<CrmUser>[] = [
   { header: 'Name',            accessor: r => r.name },
@@ -18,7 +25,9 @@ const HR_CSV_COLS: CsvColDef<CrmUser>[] = [
   { header: 'HRA',             accessor: r => r.hra != null ? String(r.hra) : '' },
   { header: 'Allowances',      accessor: r => r.allowances != null ? String(r.allowances) : '' },
   { header: 'PF',              accessor: r => r.pfApplicable ? 'true' : 'false' },
+  { header: 'UAN',             accessor: r => r.uan ?? '' },
   { header: 'ESI',             accessor: r => r.esiApplicable ? 'true' : 'false' },
+  { header: 'ESINumber',       accessor: r => r.esiNumber ?? '' },
   { header: 'PAN',             accessor: r => r.pan ?? '' },
   { header: 'BankAccount',     accessor: r => r.bankAccount ?? '' },
   { header: 'IFSC',            accessor: r => r.ifsc ?? '' },
@@ -79,19 +88,21 @@ function fmtDate(iso?: string | null) {
 const blankForm = () => ({
   name: '', email: '', password: '', role: 'Engineer', departmentId: '',
   dateOfBirth: '', joiningDate: '', baseSalary: '', hra: '', allowances: '',
-  pfApplicable: true, esiApplicable: true, pan: '', bankAccount: '', ifsc: '', bankName: '',
+  pfApplicable: true, uan: '', esiApplicable: true, esiNumber: '', pan: '', bankAccount: '', ifsc: '', bankName: '',
   emergencyContact: '',
 })
 
 type FormState = ReturnType<typeof blankForm>
 
-export default function HR() {
+function DirectoryTab() {
   const me = useAuthStore(s => s.user)
   const canManage = me && ['SuperAdmin', 'HR'].includes(me.role)
 
   const { data: users = [], isLoading, isError, refetch } = useUsers()
   const { data: departments = [] } = useDepartments()
   const createUser = useCreateUser()
+  const updateUser = useUpdateUser()
+  const deactivateUser = useDeactivateUser()
 
   async function importEmployees(rows: Record<string, string>[]) {
     let success = 0; const errors: string[] = []
@@ -100,19 +111,18 @@ export default function HR() {
       const validRole = CRM_ROLES.includes(row.Role as never) ? row.Role : 'Engineer'
       const matchedDept = departments.find(d => d.name.toLowerCase() === (row.Department ?? '').toLowerCase())
       try {
-        await createUser.mutateAsync({ name: row.Name, email: row.Email, password: row.Password || 'TempPass@123', role: validRole, departmentId: matchedDept?.id, dateOfBirth: row.DateOfBirth || undefined, joiningDate: row.JoiningDate || undefined, baseSalary: row.BaseSalary ? Number(row.BaseSalary) : undefined, hra: row.HRA ? Number(row.HRA) : undefined, allowances: row.Allowances ? Number(row.Allowances) : undefined, pfApplicable: row.PF !== 'false', esiApplicable: row.ESI !== 'false', pan: row.PAN || undefined, bankAccount: row.BankAccount || undefined, ifsc: row.IFSC || undefined, bankName: row.BankName || undefined, emergencyContact: row.EmergencyContact || undefined })
+        await createUser.mutateAsync({ name: row.Name, email: row.Email, password: row.Password || 'TempPass@123', role: validRole, departmentId: matchedDept?.id, dateOfBirth: row.DateOfBirth || undefined, joiningDate: row.JoiningDate || undefined, baseSalary: row.BaseSalary ? Number(row.BaseSalary) : undefined, hra: row.HRA ? Number(row.HRA) : undefined, allowances: row.Allowances ? Number(row.Allowances) : undefined, pfApplicable: row.PF !== 'false', uan: row.UAN || undefined, esiApplicable: row.ESI !== 'false', esiNumber: row.ESINumber || undefined, pan: row.PAN || undefined, bankAccount: row.BankAccount || undefined, ifsc: row.IFSC || undefined, bankName: row.BankName || undefined, emergencyContact: row.EmergencyContact || undefined })
         success++
       } catch (e: unknown) { errors.push(`"${row.Name}": ${e instanceof Error ? e.message : 'Error'}`) }
     }
     return { total: rows.length, success, errors }
   }
-  const updateUser = useUpdateUser()
-  const deactivateUser = useDeactivateUser()
 
   const [search, setSearch] = useState('')
   const [filterDept, setFilterDept] = useState('')
   const [filterRole, setFilterRole] = useState('')
   const [detail, setDetail] = useState<CrmUser | null>(null)
+  const [detailTab, setDetailTab] = useState<'info' | 'performance' | 'fnf'>('info')
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(blankForm())
   const [editId, setEditId] = useState<string | null>(null)
@@ -143,7 +153,9 @@ export default function HR() {
       hra: u.hra != null ? String(u.hra) : '',
       allowances: u.allowances != null ? String(u.allowances) : '',
       pfApplicable: u.pfApplicable ?? true,
+      uan: u.uan ?? '',
       esiApplicable: u.esiApplicable ?? true,
+      esiNumber: u.esiNumber ?? '',
       pan: u.pan ?? '', bankAccount: u.bankAccount ?? '', ifsc: u.ifsc ?? '', bankName: u.bankName ?? '',
       emergencyContact: u.emergencyContact ?? '',
     })
@@ -161,7 +173,9 @@ export default function HR() {
       hra: form.hra !== '' ? Number(form.hra) : undefined,
       allowances: form.allowances !== '' ? Number(form.allowances) : undefined,
       pfApplicable: form.pfApplicable,
+      uan: form.uan || undefined,
       esiApplicable: form.esiApplicable,
+      esiNumber: form.esiNumber || undefined,
       pan: form.pan || undefined,
       bankAccount: form.bankAccount || undefined,
       ifsc: form.ifsc || undefined,
@@ -191,10 +205,7 @@ export default function HR() {
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Employees</h1>
-          <p style={{ fontSize: 13, color: '#8A8FA8', marginTop: 4 }}>{users.length} team members</p>
-        </div>
+        <p style={{ fontSize: 13, color: '#8A8FA8', margin: 0 }}>{users.length} team members</p>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <CsvImportExport data={users} columns={HR_CSV_COLS} filename="employees.csv" templateRow={HR_CSV_TEMPLATE} onImport={importEmployees} />
           {canManage && (
@@ -249,7 +260,7 @@ export default function HR() {
           const rc = ROLE_COLORS[u.role] ?? ROLE_COLORS.Viewer
           const isBday = isBirthdayThisWeek(u.dateOfBirth)
           return (
-            <div key={u.id} onClick={() => setDetail(u)} style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 6px rgba(0,0,0,0.07)', border: isBday ? '1.5px solid #FDE68A' : '1.5px solid transparent', position: 'relative', cursor: 'pointer' }}>
+            <div key={u.id} onClick={() => { setDetail(u); setDetailTab('info'); }} style={{ background: '#fff', borderRadius: 14, padding: 20, boxShadow: '0 1px 6px rgba(0,0,0,0.07)', border: isBday ? '1.5px solid #FDE68A' : '1.5px solid transparent', position: 'relative', cursor: 'pointer' }}>
               {isBday && <div style={{ position: 'absolute', top: 12, right: 12, fontSize: 18 }}>🎂</div>}
               <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 12 }}>
                 <div style={{ width: 44, height: 44, borderRadius: '50%', background: avatarColor(u.name), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 16, fontWeight: 700, flexShrink: 0 }}>
@@ -275,8 +286,8 @@ export default function HR() {
       {detail && (
         <>
           <div onClick={() => setDetail(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 40 }} />
-          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(420px, 100vw)', background: '#fff', zIndex: 50, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', overflowY: 'auto', padding: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+          <div style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(800px, 100vw)', background: '#fff', zIndex: 50, boxShadow: '-4px 0 24px rgba(0,0,0,0.12)', overflowY: 'auto', padding: 24, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexShrink: 0 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
                 <div style={{ width: 56, height: 56, borderRadius: '50%', background: avatarColor(detail.name), display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 22, fontWeight: 700 }}>
                   {detail.name.charAt(0).toUpperCase()}
@@ -289,16 +300,36 @@ export default function HR() {
               <button onClick={() => setDetail(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A8FA8' }}><X size={18} /></button>
             </div>
 
-            {/* Personal */}
-            <Section title="Personal">
-              <InfoRow icon={<Mail size={13} />} label="Email" value={detail.email} />
-              <InfoRow icon={<Cake size={13} />} label="Date of Birth" value={fmtDate(detail.dateOfBirth)} />
-              <InfoRow icon={<Phone size={13} />} label="Emergency Contact" value={detail.emergencyContact ?? '—'} />
-            </Section>
+            {/* Tabs for detail panel */}
+            <div style={{ display: 'flex', gap: 16, borderBottom: '1px solid #E5E7EB', marginBottom: 20 }}>
+              {(['info', 'performance', 'fnf'] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setDetailTab(t)}
+                  style={{
+                    padding: '8px 4px', fontSize: 13, fontWeight: 600,
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: detailTab === t ? '#2563EB' : '#6B7280',
+                    borderBottom: detailTab === t ? '2px solid #2563EB' : '2px solid transparent'
+                  }}
+                >
+                  {t === 'info' ? 'Personal Info' : t === 'performance' ? 'Performance' : 'Full & Final'}
+                </button>
+              ))}
+            </div>
 
-            {/* Employment */}
-            <Section title="Employment">
-              <InfoRow icon={<Building size={13} />} label="Department" value={detail.department?.name ?? '—'} />
+            {detailTab === 'info' && (
+              <>
+                {/* Personal */}
+                <Section title="Personal">
+                  <InfoRow icon={<Mail size={13} />} label="Email" value={detail.email} />
+                  <InfoRow icon={<Cake size={13} />} label="Date of Birth" value={fmtDate(detail.dateOfBirth)} />
+                  <InfoRow icon={<Phone size={13} />} label="Emergency Contact" value={detail.emergencyContact ?? '—'} />
+                </Section>
+
+                {/* Employment */}
+                <Section title="Employment">
+                  <InfoRow icon={<Building size={13} />} label="Department" value={detail.department?.name ?? '—'} />
               <InfoRow icon={<Calendar size={13} />} label="Joining Date" value={fmtDate(detail.joiningDate)} />
               <InfoRow icon={<Calendar size={13} />} label="Tenure" value={tenure(detail.joiningDate)} />
             </Section>
@@ -310,6 +341,8 @@ export default function HR() {
                 <InfoRow icon={<Wallet size={13} />} label="HRA" value={detail.hra != null ? `₹${detail.hra.toLocaleString('en-IN')}` : '—'} />
                 <InfoRow icon={<Wallet size={13} />} label="Allowances" value={detail.allowances != null ? `₹${detail.allowances.toLocaleString('en-IN')}` : '—'} />
                 <InfoRow icon={<CreditCard size={13} />} label="PF / ESI" value={`${detail.pfApplicable ? 'PF ✓' : 'PF ✗'}  ${detail.esiApplicable ? 'ESI ✓' : 'ESI ✗'}`} />
+                {detail.uan && <InfoRow icon={<CreditCard size={13} />} label="UAN" value={detail.uan} />}
+                {detail.esiNumber && <InfoRow icon={<CreditCard size={13} />} label="ESI No." value={detail.esiNumber} />}
                 <InfoRow icon={<CreditCard size={13} />} label="PAN" value={detail.pan ?? '—'} />
               </Section>
             )}
@@ -323,7 +356,7 @@ export default function HR() {
               </Section>
             )}
 
-            {canManage && (
+            {canManage && detailTab === 'info' && (
               <div style={{ display: 'flex', gap: 8, marginTop: 16, borderTop: '1px solid #F0F1F5', paddingTop: 16 }}>
                 <button onClick={() => openEdit(detail)} style={{ flex: 1, background: '#EEF2FF', color: '#5D78FF', border: 'none', borderRadius: 8, padding: '9px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 5, alignItems: 'center', justifyContent: 'center' }}>
                   <Edit2 size={12} />Edit
@@ -331,6 +364,20 @@ export default function HR() {
                 <button onClick={() => setDeleteConfirm(detail.id)} style={{ background: '#FFF5F5', color: '#FF5353', border: '1px solid #FFD5D5', borderRadius: 8, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Trash2 size={12} />
                 </button>
+              </div>
+            )}
+              </>
+            )}
+
+            {detailTab === 'performance' && (
+              <div style={{ margin: '-24px', height: 'calc(100% + 24px)' }}>
+                <Performance employeeId={detail.id} />
+              </div>
+            )}
+
+            {detailTab === 'fnf' && (
+              <div style={{ margin: '-24px', height: 'calc(100% + 24px)' }}>
+                <FnFSettlement employeeId={detail.id} />
               </div>
             )}
           </div>
@@ -385,9 +432,11 @@ export default function HR() {
               <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.pfApplicable} onChange={e => setForm(p => ({ ...p, pfApplicable: e.target.checked }))} />PF Applicable
               </label>
+              {form.pfApplicable && <Field label="UAN Number"><input value={form.uan} onChange={e => setForm(p => ({ ...p, uan: e.target.value }))} style={fInp} /></Field>}
               <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
                 <input type="checkbox" checked={form.esiApplicable} onChange={e => setForm(p => ({ ...p, esiApplicable: e.target.checked }))} />ESI Applicable
               </label>
+              {form.esiApplicable && <Field label="ESI Number"><input value={form.esiNumber} onChange={e => setForm(p => ({ ...p, esiNumber: e.target.value }))} style={fInp} /></Field>}
             </div>
 
             <GroupLabel>Bank & Statutory</GroupLabel>
@@ -455,6 +504,78 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
       <div style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12, color: '#8A8FA8' }}>{icon}{label}</div>
       <div style={{ fontSize: 12, fontWeight: 600, color: '#374557', textAlign: 'right' }}>{value}</div>
+    </div>
+  )
+}
+
+// ─── HR Hub ───────────────────────────────────────────────────────────────────
+
+type HRTab =
+  | 'directory' | 'attendance' | 'payroll' | 'salary'
+  | 'recruitment' | 'onboarding' | 'settings'
+
+/**
+ * Single entry point for the HR module. The standalone Payroll, Recruitment,
+ * Onboarding, Salary Structure and HR Settings pages are mounted here as tabs
+ * instead of separate routes; each tab is gated on the same permission its old
+ * route used, so an employee who only had Attendance still lands on Attendance.
+ */
+export default function HR() {
+  const can = useAuthStore(s => s.can)
+  const isHR = can('hr_user', 'read_all')
+
+  const tabs = [
+    isHR && { key: 'directory' as HRTab, label: 'Directory' },
+    can('salary', 'read_own') && { key: 'payroll' as HRTab, label: 'Payroll' },
+    can('salary', 'read_own') && { key: 'salary' as HRTab, label: 'Salary Structure' },
+    isHR && { key: 'recruitment' as HRTab, label: 'Recruitment' },
+    isHR && { key: 'onboarding' as HRTab, label: 'Onboarding' },
+    isHR && { key: 'settings' as HRTab, label: 'HR Settings' },
+  ].filter(Boolean) as { key: HRTab; label: string }[]
+
+  const [tab, setTab] = useState<HRTab | null>(tabs[0]?.key ?? null)
+  const activeTab = tab && tabs.some(t => t.key === tab) ? tab : tabs[0]?.key ?? null
+
+  if (!activeTab) {
+    return (
+      <div style={{ padding: 24 }}>
+        <p style={{ fontSize: 14, color: '#8A8FA8' }}>You don't have access to any HR module.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ marginBottom: 16 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Employees</h1>
+        <p style={{ fontSize: 13, color: '#8A8FA8', margin: '4px 0 0' }}>People, attendance, pay and hiring in one place</p>
+      </div>
+
+      {tabs.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #F0F1F5', flexWrap: 'wrap', marginBottom: 20 }}>
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                padding: '10px 16px', fontSize: 14, fontWeight: 500,
+                border: 'none', background: 'none', cursor: 'pointer',
+                borderBottom: activeTab === t.key ? '2px solid #2563EB' : '2px solid transparent',
+                color: activeTab === t.key ? '#2563EB' : '#8A8B9F',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'directory' && <DirectoryTab />}
+      {activeTab === 'payroll' && <Payroll />}
+      {activeTab === 'salary' && <SalaryStructure />}
+      {activeTab === 'recruitment' && <Recruitment />}
+      {activeTab === 'onboarding' && <Onboarding />}
+      {activeTab === 'settings' && <HRSettings />}
     </div>
   )
 }

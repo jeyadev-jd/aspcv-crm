@@ -30,6 +30,7 @@ router.get('/', requirePermission('installation', 'read_own'), async (req: AuthR
       include: {
         company: { select: { id: true, name: true } },
         project: { select: { id: true, title: true } },
+        scopeItem: { select: { id: true, title: true, productType: true } },
       },
       orderBy: { [pagination.sort as string]: pagination.order },
       skip: pagination.skip,
@@ -65,7 +66,7 @@ router.post('/', requirePermission('installation', 'create'), async (req: AuthRe
       scheduledDate: data.scheduledDate ? new Date(data.scheduledDate) : undefined,
       completedDate: data.completedDate ? new Date(data.completedDate) : undefined,
     },
-    include: { company: { select: { id: true, name: true } } },
+    include: { company: { select: { id: true, name: true } }, scopeItem: { select: { id: true, title: true, productType: true } } },
   })
   await appendEvent('Installation', installation.id, 'CREATED', `Installation "${installation.title}" created`, req.user?.id)
   if (installation.scheduledDate) {
@@ -89,7 +90,7 @@ router.put('/:id', requirePermission('installation', 'edit'), async (req: AuthRe
       scheduledDate: data.scheduledDate ? new Date(data.scheduledDate) : undefined,
       completedDate: data.completedDate ? new Date(data.completedDate) : undefined,
     },
-    include: { company: { select: { id: true, name: true } } },
+    include: { company: { select: { id: true, name: true } }, scopeItem: { select: { id: true, title: true, productType: true } } },
   })
   await appendEvent('Installation', installation.id, 'UPDATED', `Installation "${installation.title}" updated`, req.user?.id)
   if (installation.scheduledDate) {
@@ -104,8 +105,20 @@ router.put('/:id', requirePermission('installation', 'edit'), async (req: AuthRe
   res.json(installation)
 })
 
+const VALID_INSTALLATION_STATUSES = ['Scheduled', 'InProgress', 'Completed', 'OnHold']
+
 router.patch('/:id/status', requirePermission('installation', 'edit'), async (req: AuthRequest, res) => {
   const { status } = req.body as { status: string }
+  if (!VALID_INSTALLATION_STATUSES.includes(status)) {
+    res.status(400).json({ error: `Invalid status: ${status}` })
+    return
+  }
+
+  // An archived installation must not accept further status changes.
+  const existing = await prisma.installation.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ error: 'Not found' }); return }
+  if (!rejectIfInactive(existing, res)) return
+
   const installation = await prisma.installation.update({
     where: { id: req.params.id as string },
     data: { status: status as any },
@@ -130,6 +143,10 @@ router.delete('/:id', requirePermission('installation', 'delete'), async (req: A
 router.post('/:id/restore', requirePermission('installation', 'delete'), async (req: AuthRequest, res) => {
   const existing = await prisma.installation.findUnique({ where: { id: req.params.id as string } })
   if (!existing) { res.status(404).json({ error: 'Not found' }); return }
+  // Idempotent, mirroring DELETE — restoring an already-active record is a no-op
+  // rather than a second RESTORED entry on the timeline.
+  if (existing.isActive) { res.json(existing); return }
+
   const installation = await prisma.installation.update({ where: { id: req.params.id as string }, data: { isActive: true } })
   await appendEvent('Installation', installation.id, 'RESTORED', `Installation "${installation.title}" restored`, req.user?.id)
   res.json(installation)

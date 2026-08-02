@@ -69,7 +69,9 @@ export async function checkApprovalToken(
   roleName: string,
   entityType: string,
   entityId: string,
-  action: 'edit' | 'delete'
+  // Beyond plain edit/delete this also gates ownership changes such as
+  // 'assign', 'add_engineer' and 'remove_engineer'.
+  action: string
 ): Promise<{ allowed: boolean; approvalId?: string }> {
   if (roleName === 'SuperAdmin') return { allowed: true }
 

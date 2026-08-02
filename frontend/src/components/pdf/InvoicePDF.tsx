@@ -1,17 +1,20 @@
-import { Document, Page, View, Text, Image, StyleSheet, Font } from '@react-pdf/renderer'
+import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 
-// ─── Company constants ────────────────────────────────────────────────────────
+// ─── Company defaults (fallback when no CompanyProfile loaded) ───────────────
 const CO = {
-  name:    'Aspiration Cleantech Ventures Pvt.Ltd.',
-  addr1:   '2nd Floor, No.18/4, Munusamy Maistry Street,',
-  addr2:   'Issa Pallavaram, Chennai - 600043, Tamil Nadu, India',
-  phone:   '+91 96777 63170',
-  email:   'info@aspcv.com',
-  web:     'www.aspcv.com',
-  gstin:   '33AAPCAI794H1ZH',
-  pan:     'AAPCA1794H',
-  udyam:   'UDYAM-TN-02-0087917',
-  state:   'Tamil Nadu',
+  name:      'Aspiration Cleantech Ventures Pvt.Ltd.',
+  legalName: 'Aspiration Cleantech Ventures Private Limited',
+  addr1:     '2nd Floor, No.18/4,',
+  addr2:     'Munusamy Maistry Street,',
+  addr3:     'Issa Pallavaram,',
+  addr4:     'Chennai – 600043, Tamil Nadu, India',
+  phone:     '+ +91 96777 63170',
+  email:     'info@aspcv.com',
+  web:       'www.aspcv.com',
+  gstin:     '33AAPCA1794H1ZH',
+  pan:       'AAPCA1794H',
+  udyam:     'UDYAM-TN-02-0087917',
+  state:     'Tamil Nadu',
   stateCode: '33',
 }
 
@@ -34,66 +37,116 @@ function numToWords(n: number): string {
 }
 
 function amountWords(total: number): string {
-  const rupees = Math.floor(total)
-  const paise  = Math.round((total - rupees) * 100)
-  let w = numToWords(rupees) + ' Rupees'
+  const rupees = Math.floor(Math.abs(total))
+  const paise  = Math.round((Math.abs(total) - rupees) * 100)
+  let w = numToWords(rupees)
   if (paise > 0) w += ' and ' + numToWords(paise) + ' Paise'
   return w + ' Only'
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
-const s = StyleSheet.create({
-  page:      { fontSize: 8, fontFamily: 'Helvetica', padding: '20 30', color: '#111' },
-  row:       { flexDirection: 'row' },
-  bold:      { fontFamily: 'Helvetica-Bold' },
-  orange:    { color: '#E07B00' },
-  blue:      { color: '#1A3A6B' },
+// ─── Styles ──────────────────────────────────────────────────────────────────
+// Mirrors the printed ASPCV tax-invoice stationery: one outer bordered frame,
+// square black rules, no fills.
+const B = '1 solid #000'
 
-  // Header
-  header:    { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
-  logo:      { width: 240, height: 70, objectFit: 'contain' },
-  coAddr:    { textAlign: 'right' },
+/**
+ * The invoice must always fit one A4 page, so everything that consumes vertical
+ * space is scaled against the item count rather than fixed. Up to BASE_ROWS the
+ * layout renders at full size; past that, type, padding, leading and the logo /
+ * seal shrink on a smooth curve down to MIN_SCALE, which keeps ~40 line items
+ * legible on a single page.
+ */
+const BASE_ROWS = 8
+const MAX_ROWS = 40
+const MIN_SCALE = 0.55
+const FLOOR_SCALE = 0.32
 
-  // Title box
-  titleBox:  { border: '1 solid #999', padding: '4 0', alignItems: 'center', marginBottom: 4 },
+function densityScale(itemCount: number): number {
+  if (itemCount <= BASE_ROWS) return 1
+  const span = MAX_ROWS - BASE_ROWS
+  if (itemCount <= MAX_ROWS) {
+    const over = itemCount - BASE_ROWS
+    return 1 - (over / span) * (1 - MIN_SCALE)
+  }
+  // Past MAX_ROWS keep shrinking inversely with the row count — clamping here
+  // instead would let a very long invoice overflow onto a second page.
+  return Math.max(FLOOR_SCALE, MIN_SCALE * (MAX_ROWS / itemCount))
+}
 
-  // Table
-  table:     { border: '1 solid #aaa', marginBottom: 0 },
-  tRow:      { flexDirection: 'row', borderBottom: '0.5 solid #aaa' },
-  tRowLast:  { flexDirection: 'row' },
-  th:        { fontFamily: 'Helvetica-Bold', backgroundColor: '#f2f2f2', padding: '3 4' },
-  td:        { padding: '3 4' },
+function makeStyles(k: number) {
+  // Round to 2dp so @react-pdf isn't handed long floats for every metric.
+  const r = (n: number) => Math.round(n * 100) / 100
+  const font = r(9 * k)
+  const pad = r(3 * k)
+  const padX = r(5 * k)
+  const lh = 1.1
 
-  // Cell widths for items table
-  cNum:  { width: 20 },
-  cDesc: { flex: 1 },
-  cHsn:  { width: 45 },
-  cAmt:  { width: 55, textAlign: 'right' },
-  cQty:  { width: 30, textAlign: 'center' },
-  cTot:  { width: 65, textAlign: 'right' },
+  return StyleSheet.create({
+    page:      { fontSize: font, fontFamily: 'Helvetica', padding: `${r(24 * k)} 28`, color: '#000' },
+    bold:      { fontFamily: 'Helvetica-Bold' },
 
-  // Summary right-side rows
-  sumRow:    { flexDirection: 'row', justifyContent: 'flex-end', padding: '2 4' },
-  sumLabel:  { width: 100, textAlign: 'right', marginRight: 8 },
-  sumValue:  { width: 70, textAlign: 'right' },
+    header:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: r(10 * k) },
+    logo:      { width: r(280 * k), height: r(72 * k), objectFit: 'contain' },
+    coBlock:   { width: r(240 * k) },
+    // Single Text with \n keeps the letterhead lines tight; separate <Text>
+    // blocks each add their own leading and space the address out too far.
+    coLine:    { lineHeight: lh, fontSize: r(8.5 * k) },
 
-  // Footer
-  footSection: { marginTop: 6 },
-  footRow:     { flexDirection: 'row', marginBottom: 2 },
-  footLabel:   { fontFamily: 'Helvetica-Bold', width: 80 },
+    frame:     { borderTop: B, borderLeft: B, borderRight: B },
+    row:       { flexDirection: 'row', borderBottom: B },
+    cell:      { padding: `${pad} ${padX}`, justifyContent: 'center' },
+    cellR:     { padding: `${pad} ${padX}`, justifyContent: 'center', borderRight: B },
 
-  sigArea:   { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, alignItems: 'flex-end' },
-  sigBlock:  { alignItems: 'center', width: 150 },
-  sigImg:    { width: 120, height: 50, objectFit: 'contain', marginBottom: 2 },
-  sealImg:   { width: 80, height: 80, objectFit: 'contain' },
-})
+    // Meta grid columns (label | value | label | value)
+    mLabel:    { width: r(130 * k) },
+    mMid:      { width: r(120 * k) },
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+    thc:       { fontFamily: 'Helvetica-Bold', textAlign: 'center' },
+
+    // Item table columns
+    cNum:   { width: r(22 * k), textAlign: 'center' },
+    cDesc:  { flex: 1 },
+    cHsn:   { width: r(62 * k), textAlign: 'center' },
+    cAmt:   { width: r(66 * k), textAlign: 'right' },
+    cQty:   { width: r(52 * k), textAlign: 'right' },
+    cTot:   { width: r(74 * k), textAlign: 'right' },
+
+    // Totals block sits flush right under the items table
+    totLabel:  { flex: 1, textAlign: 'right', padding: `${pad} ${padX}`, fontFamily: 'Helvetica-Bold' },
+    totValue:  { width: r(74 * k), textAlign: 'right', padding: `${pad} ${padX}`, fontFamily: 'Helvetica-Bold', borderLeft: B },
+
+    footBlock: { borderLeft: B, borderRight: B, borderBottom: B, padding: `${r(6 * k)} ${padX}` },
+
+    sigArea:   { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'flex-end', marginTop: r(4 * k) },
+    sealImg:   { width: r(78 * k), height: r(78 * k), objectFit: 'contain' },
+    sigImg:    { width: r(96 * k), height: r(40 * k), objectFit: 'contain' },
+
+    line:      { lineHeight: lh },
+    legalName: { fontFamily: 'Helvetica-Bold', fontSize: r(10 * k), lineHeight: lh },
+    coName:    { fontFamily: 'Helvetica-Bold', fontSize: r(10 * k), lineHeight: lh },
+    small:     { fontSize: r(7.5 * k) },
+
+    cancelled: { position: 'absolute', top: 300, left: 100, fontSize: 60, color: '#FF000033', fontFamily: 'Helvetica-Bold', transform: 'rotate(-30deg)' },
+  })
+}
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 export interface PDFItem {
   item: string
   hsnCode?: string | null
+  quantity?: number
+  unit?: string
   rate?: number | null
-  hours?: number | null  // qty
+  hours?: number | null
+  discountPct?: number
+  taxableValue?: number
+  gstRate?: number
+  cgstAmt?: number
+  sgstAmt?: number
+  igstAmt?: number
+  cessRate?: number
+  cessAmt?: number
+  lineTotal?: number
   amount: number
 }
 
@@ -102,184 +155,338 @@ export interface InvoicePDFProps {
   date: string
   customer: string
   toAddr?: string
+  shippingAddr?: string
   customerGstin?: string
   customerState?: string
+  customerStateCode?: string
   placeOfSupply?: string
+  supplyType?: string
   typeOfSupply?: string
+  reverseCharge?: boolean
   poNo?: string
   poDate?: string
-  gstRate?: number       // each leg e.g. 9
+  gstRate?: number
   paymentTerms?: string
+  invoiceType?: string
   items: PDFItem[]
+  // Computed totals (from backend)
+  subTotal?: number
+  totalCgst?: number
+  totalSgst?: number
+  totalIgst?: number
+  totalCess?: number
+  totalTax?: number
+  roundOff?: number
+  grandTotal?: number
+  invoiceDiscount?: number
+  // CN/DN
+  originalInvoiceNo?: string
+  cnDnReason?: string
+  // Company profile override
+  companyName?: string
+  companyAddr?: string
+  companyGstin?: string
+  companyPan?: string
+  companyState?: string
+  companyStateCode?: string
+  companyUdyam?: string
+  companyLegalName?: string
+  companyPhone?: string
+  companyEmail?: string
+  companyWebsite?: string
+  // Signatory
   signatoryName?: string
   signatoryDesignation?: string
-  signatureData?: string | null  // base64 PNG
+  signatureData?: string | null
+  // Bank
   bankName?: string
   bankAccountNumber?: string
   bankIfsc?: string
+  bankUpiId?: string
+  // Assets
   logoUrl?: string
   sealUrl?: string
+  // Status
+  status?: string
+  declarationText?: string
+  termsText?: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-function fmt(n: number) { return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
+function fmtInt(n: number) { return n.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }
 function fmtDate(d: string) {
   if (!d) return ''
   const dt = new Date(d)
-  return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' })
+  // Matches the stationery's 22-May-26 style.
+  const day = String(dt.getDate()).padStart(2, '0')
+  const mon = dt.toLocaleDateString('en-IN', { month: 'short' })
+  const yr = String(dt.getFullYear()).slice(2)
+  return `${day}-${mon}-${yr}`
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+const TITLE_MAP: Record<string, string> = {
+  TaxInvoice: 'TAX INVOICE',
+  BillOfSupply: 'BILL OF SUPPLY',
+  CreditNote: 'CREDIT NOTE',
+  DebitNote: 'DEBIT NOTE',
+  ProformaInvoice: 'PROFORMA INVOICE',
+  ExportInvoice: 'EXPORT INVOICE',
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 export function InvoicePDF(p: InvoicePDFProps) {
-  const gstRate = p.gstRate ?? 9
+  // Shrinks the whole layout as the line-item count grows so the invoice
+  // never spills onto a second page.
+  const k = densityScale(p.items.length)
+  const s = makeStyles(k)
   const logoUrl = p.logoUrl ?? `${window.location.origin}/aspcv-logo.png`
   const sealUrl = p.sealUrl ?? `${window.location.origin}/aspcv-seal.png`
-  const subTotal = p.items.reduce((s, i) => s + i.amount, 0)
-  const sgst     = Math.round(subTotal * gstRate / 100)
-  const cgst     = Math.round(subTotal * gstRate / 100)
-  const grandTotal = subTotal + sgst + cgst
-  const taxTotal   = sgst + cgst
+  // Every letterhead value falls back to the built-in ASPCV defaults, so an
+  // invoice still renders correctly before a CompanyProfile is configured.
+  const co = {
+    name: p.companyName || CO.name,
+    legalName: p.companyLegalName || p.companyName || CO.legalName,
+    gstin: p.companyGstin || CO.gstin,
+    pan: p.companyPan || CO.pan,
+    state: p.companyState || CO.state,
+    stateCode: p.companyStateCode || CO.stateCode,
+    udyam: p.companyUdyam || CO.udyam,
+    phone: p.companyPhone || CO.phone,
+    email: p.companyEmail || CO.email,
+    web: p.companyWebsite || CO.web,
+  }
+
+  const isInterState = p.supplyType === 'InterState' || co.stateCode !== (p.placeOfSupply || p.customerStateCode || co.stateCode)
+  const title = TITLE_MAP[p.invoiceType || 'TaxInvoice'] || 'TAX INVOICE'
+
+  const subTotal = p.subTotal ?? p.items.reduce((sum, i) => sum + (i.taxableValue ?? i.amount), 0)
+  const totalCgst = p.totalCgst ?? (isInterState ? 0 : p.items.reduce((sum, i) => sum + (i.cgstAmt ?? 0), 0))
+  const totalSgst = p.totalSgst ?? (isInterState ? 0 : p.items.reduce((sum, i) => sum + (i.sgstAmt ?? 0), 0))
+  const totalIgst = p.totalIgst ?? (isInterState ? p.items.reduce((sum, i) => sum + (i.igstAmt ?? 0), 0) : 0)
+  const totalCess = p.totalCess ?? p.items.reduce((sum, i) => sum + (i.cessAmt ?? 0), 0)
+  const roundOff = p.roundOff ?? 0
+  const grandTotal = p.grandTotal ?? (subTotal + totalCgst + totalSgst + totalIgst + totalCess + roundOff)
+  const totalTax = totalCgst + totalSgst + totalIgst + totalCess
+
+  // Half of the combined GST rate labels each of the CGST/SGST rows.
+  const halfRate = (p.items[0]?.gstRate ?? (p.gstRate ? p.gstRate * 2 : 18)) / 2
+  const igstRate = p.items[0]?.gstRate ?? (p.gstRate ? p.gstRate * 2 : 18)
+
+  const companyAddrLines = p.companyAddr
+    ? p.companyAddr.split('\n')
+    : [CO.addr1, CO.addr2, CO.addr3, CO.addr4]
 
   return (
     <Document>
       <Page size="A4" style={s.page}>
 
-        {/* ── Header ── */}
+        {p.status === 'Cancelled' && <Text style={s.cancelled}>CANCELLED</Text>}
+
+        {/* Letterhead */}
         <View style={s.header}>
-          <View>
-            <Image src={logoUrl} style={s.logo} />
-          </View>
-          <View style={s.coAddr}>
-            <Text style={[s.bold, { fontSize: 9, marginBottom: 1 }]}>{CO.name}</Text>
-            <Text style={{ lineHeight: 1 }}>{CO.addr1}{'\n'}{CO.addr2}{'\n'}Phone: {CO.phone}{'\n'}{CO.email}  |  {CO.web}</Text>
-          </View>
-        </View>
-
-        {/* ── TAX INVOICE title ── */}
-        <View style={s.titleBox}>
-          <Text style={[s.bold, { fontSize: 10, letterSpacing: 1 }]}>TAX INVOICE</Text>
-        </View>
-
-        {/* ── From block ── */}
-        <View style={[s.table, { marginBottom: 0 }]}>
-          <View style={[s.tRow, { backgroundColor: '#fafafa', padding: '4 6' }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.bold}>{CO.name}</Text>
-              <Text>{CO.addr1}</Text>
-              <Text>{CO.addr2}</Text>
-            </View>
-          </View>
-
-          {/* Meta row */}
-          <View style={s.tRow}>
-            <View style={{ flex: 1, padding: '3 6', borderRight: '0.5 solid #aaa' }}>
-              <Text><Text style={s.bold}>State: </Text>{CO.state}</Text>
-              <Text><Text style={s.bold}>State Code: </Text>{CO.stateCode}</Text>
-              <Text><Text style={s.bold}>GSTIN: </Text>{CO.gstin}</Text>
-              <Text><Text style={s.bold}>PAN: </Text>{CO.pan}</Text>
-              <Text><Text style={s.bold}>UDYAM No: </Text>{CO.udyam}</Text>
-              <Text><Text style={s.bold}>Invoice No: </Text>{p.number}</Text>
-            </View>
-            <View style={{ flex: 1, padding: '3 6' }}>
-              <Text><Text style={s.bold}>Date of Invoice: </Text>{fmtDate(p.date)}</Text>
-              <Text><Text style={s.bold}>Place of Supply: </Text>{p.placeOfSupply ?? ''}</Text>
-              <Text><Text style={s.bold}>Type of Supply: </Text>{p.typeOfSupply ?? 'Service and Supply'}</Text>
-              <Text><Text style={s.bold}>PO No: </Text>{p.poNo ?? 'Mail Confirm'}</Text>
-              <Text><Text style={s.bold}>PO Date: </Text>{p.poDate ? fmtDate(p.poDate) : '-'}</Text>
-            </View>
-          </View>
-
-          {/* Bill to */}
-          <View style={[s.tRow, { padding: '4 6', backgroundColor: '#f9f9f9' }]}>
-            <View>
-              <Text style={s.bold}>Bill to :</Text>
-              <Text style={[s.bold, { fontSize: 9 }]}>{p.customer}</Text>
-              {p.toAddr && <Text>{p.toAddr}</Text>}
-              {p.customerGstin && <Text><Text style={s.bold}>GSTIN: </Text>{p.customerGstin}</Text>}
-              {p.customerState && <Text><Text style={s.bold}>State: </Text>{p.customerState}</Text>}
-            </View>
+          <Image src={logoUrl} style={s.logo} />
+          <View style={s.coBlock}>
+            <Text style={s.coName}>{co.name}</Text>
+            <Text style={s.coLine}>
+              {[...companyAddrLines, `Phone: ${co.phone}`, co.email, co.web]
+                .filter(Boolean)
+                .join('\n')}
+            </Text>
           </View>
         </View>
 
-        {/* ── Items table ── */}
-        <View style={[s.table, { marginTop: 6 }]}>
-          {/* Header */}
-          <View style={[s.tRow, { backgroundColor: '#e8e8e8' }]}>
-            <Text style={[s.th, s.cNum]}>#</Text>
-            <Text style={[s.th, s.cDesc]}>Description of Services</Text>
-            <Text style={[s.th, s.cHsn]}>HSN</Text>
-            <Text style={[s.th, s.cAmt]}>Amount</Text>
-            <Text style={[s.th, s.cQty]}>Qty</Text>
-            <Text style={[s.th, s.cTot]}>Total</Text>
+        <View style={s.frame}>
+          {/* ORIGINAL marker */}
+          <View style={s.row}>
+            <View style={[s.cellR, { flex: 1 }]} />
+            <View style={[s.cell, { width: Math.round(200 * k), alignItems: 'center' }]}>
+              <Text style={s.bold}>ORIGINAL</Text>
+            </View>
           </View>
 
-          {/* Rows */}
-          {p.items.map((item, i) => {
-            const qty = item.hours ?? 1
-            const rate = item.rate ?? item.amount
-            return (
-              <View key={i} style={i < p.items.length - 1 ? s.tRow : s.tRowLast}>
-                <Text style={[s.td, s.cNum]}>{i + 1}</Text>
-                <Text style={[s.td, s.cDesc]}>{item.item}</Text>
-                <Text style={[s.td, s.cHsn]}>{item.hsnCode ?? ''}</Text>
-                <Text style={[s.td, s.cAmt]}>{fmt(rate)}</Text>
-                <Text style={[s.td, s.cQty]}>{qty}</Text>
-                <Text style={[s.td, s.cTot]}>{fmt(item.amount)}</Text>
+          {/* Document title */}
+          <View style={s.row}>
+            <View style={[s.cell, { flex: 1, alignItems: 'center' }]}>
+              <Text style={s.bold}>{title}</Text>
+            </View>
+          </View>
+
+          {/* Seller identity */}
+          <View style={s.row}>
+            <View style={[s.cellR, s.mLabel]} />
+            <View style={[s.cell, { flex: 1 }]}>
+              <Text style={s.legalName}>{co.legalName}</Text>
+              <Text style={s.line}>{companyAddrLines.join('\n')}</Text>
+            </View>
+          </View>
+
+          {/* CN/DN reference, only for credit/debit notes */}
+          {(p.invoiceType === 'CreditNote' || p.invoiceType === 'DebitNote') && p.originalInvoiceNo && (
+            <View style={s.row}>
+              <View style={[s.cell, { flex: 1 }]}>
+                <Text><Text style={s.bold}>Original Invoice: </Text>{p.originalInvoiceNo}</Text>
+                {p.cnDnReason && <Text><Text style={s.bold}>Reason: </Text>{p.cnDnReason}</Text>}
               </View>
-            )
-          })}
-        </View>
-
-        {/* ── Summary ── */}
-        <View style={{ borderLeft: '1 solid #aaa', borderRight: '1 solid #aaa', borderBottom: '1 solid #aaa' }}>
-          <View style={[s.sumRow, { borderBottom: '0.5 solid #ddd' }]}>
-            <Text style={s.sumLabel}>Sub-Total</Text>
-            <Text style={s.sumValue}>{fmt(subTotal)}</Text>
-          </View>
-          <View style={[s.sumRow, { borderBottom: '0.5 solid #ddd' }]}>
-            <Text style={s.sumLabel}>SGST @ {gstRate}%</Text>
-            <Text style={s.sumValue}>{fmt(sgst)}</Text>
-          </View>
-          <View style={[s.sumRow, { borderBottom: '0.5 solid #ddd' }]}>
-            <Text style={s.sumLabel}>CGST @ {gstRate}%</Text>
-            <Text style={s.sumValue}>{fmt(cgst)}</Text>
-          </View>
-          <View style={s.sumRow}>
-            <Text style={[s.sumLabel, s.bold]}>Grand Total</Text>
-            <Text style={[s.sumValue, s.bold]}>₹ {fmt(grandTotal)}</Text>
-          </View>
-        </View>
-
-        {/* ── Footer text ── */}
-        <View style={s.footSection}>
-          <Text><Text style={s.bold}>Invoice Total: </Text>{amountWords(grandTotal)}</Text>
-          <Text style={{ marginTop: 2 }}><Text style={s.bold}>Tax: </Text>{amountWords(taxTotal)}</Text>
-
-          {p.paymentTerms && (
-            <View style={{ marginTop: 6 }}>
-              <Text style={s.bold}>Payment Terms:</Text>
-              <Text>{p.paymentTerms}</Text>
             </View>
           )}
 
-          <View style={{ marginTop: 6 }}>
-            <Text><Text style={s.bold}>Bank Name & Branch : </Text>{p.bankName ?? 'Yes Bank - Nungambakkam'}</Text>
-            <Text><Text style={s.bold}>A/C number : </Text>{p.bankAccountNumber ?? '0005619000003093'}</Text>
-            <Text><Text style={s.bold}>IFSC code : </Text>{p.bankIfsc ?? 'YESB0000005'}</Text>
+          {/* Meta grid */}
+          <View style={s.row}>
+            <View style={[s.cellR, s.mLabel]}><Text><Text style={s.bold}>State- </Text>{co.state}</Text></View>
+            <View style={[s.cellR, s.mMid]}><Text style={s.bold}>Date of Invoice</Text></View>
+            <View style={[s.cell, { flex: 1 }]}><Text>{fmtDate(p.date)}</Text></View>
+          </View>
+          <View style={s.row}>
+            <View style={[s.cellR, s.mLabel]}><Text><Text style={s.bold}>State Code</Text> : {co.stateCode}</Text></View>
+            <View style={[s.cellR, s.mMid]}><Text style={s.bold}>Place of Supply</Text></View>
+            <View style={[s.cell, { flex: 1 }]}><Text>{p.placeOfSupply ?? ''}</Text></View>
+          </View>
+          <View style={s.row}>
+            <View style={[s.cellR, s.mLabel]}><Text style={s.bold}>GSTIN- {co.gstin}</Text></View>
+            <View style={[s.cellR, s.mMid]}><Text style={s.bold}>Type of supply</Text></View>
+            <View style={[s.cell, { flex: 1 }]}><Text>{p.typeOfSupply ?? (isInterState ? 'Inter-State' : 'Intra-State')}</Text></View>
+          </View>
+          <View style={s.row}>
+            <View style={[s.cellR, s.mLabel]}><Text><Text style={s.bold}>PAN: </Text>{co.pan}</Text></View>
+            <View style={[s.cellR, s.mMid]}><Text style={s.bold}>PO No</Text></View>
+            <View style={[s.cell, { flex: 1 }]}><Text>{p.poNo ?? ''}</Text></View>
+          </View>
+          <View style={s.row}>
+            <View style={[s.cellR, s.mLabel]}><Text><Text style={s.bold}>Invoice No: </Text>{p.number}</Text></View>
+            <View style={[s.cellR, s.mMid]}><Text style={s.bold}>PO Date</Text></View>
+            <View style={[s.cell, { flex: 1 }]}><Text>{p.poDate ? fmtDate(p.poDate) : ''}</Text></View>
+          </View>
+          <View style={s.row}>
+            <View style={[s.cellR, { width: Math.round(250 * k) }]}><Text style={s.bold}>UDAYAM REGISTRATION NUMBER</Text></View>
+            <View style={[s.cell, { flex: 1 }]}><Text>{co.udyam}</Text></View>
+          </View>
+
+          {/* Bill to */}
+          <View style={s.row}>
+            <View style={[s.cell, { flex: 1 }]}>
+              <Text style={[s.bold, s.line]}>Bill to :</Text>
+              <Text style={[s.bold, s.line]}>{p.customer}</Text>
+              {p.toAddr && <Text style={s.line}>{p.toAddr}</Text>}
+              {p.customerGstin && <Text style={[s.bold, s.line]}>GSTIN: {p.customerGstin}</Text>}
+              {p.customerStateCode && <Text style={[s.bold, s.line]}>State Code : {p.customerStateCode}</Text>}
+              {p.reverseCharge && <Text style={[s.bold, { marginTop: Math.round(3 * k) }]}>Tax payable under Reverse Charge</Text>}
+            </View>
+          </View>
+
+          {/* Items header */}
+          <View style={s.row}>
+            <View style={[s.cellR, s.cNum]}><Text style={s.bold}>#</Text></View>
+            <View style={[s.cellR, s.cDesc, { alignItems: 'center' }]}><Text style={s.bold}>Description of Services</Text></View>
+            <View style={[s.cellR, s.cHsn]}><Text style={s.thc}>HSN</Text></View>
+            <View style={[s.cellR, s.cAmt, { alignItems: 'center' }]}><Text style={s.bold}>Amount</Text></View>
+            <View style={[s.cellR, s.cQty, { alignItems: 'center' }]}><Text style={s.bold}>Qty</Text></View>
+            <View style={[s.cell, s.cTot, { alignItems: 'center' }]}><Text style={s.bold}>Total</Text></View>
+          </View>
+
+          {/* Item rows */}
+          {p.items.map((item, i) => {
+            const qty = item.quantity ?? item.hours ?? 1
+            const taxable = item.taxableValue ?? item.amount
+            const total = item.lineTotal ?? item.amount
+            return (
+              <View key={i} style={s.row}>
+                <View style={[s.cellR, s.cNum]}><Text>{i + 1}</Text></View>
+                <View style={[s.cellR, s.cDesc]}>
+                  {/* Long descriptions are clamped so one verbose line item
+                      cannot push the invoice onto a second page. */}
+                  <Text style={[s.line, { maxLines: 2, textOverflow: 'ellipsis' }]}>{item.item}</Text>
+                </View>
+                <View style={[s.cellR, s.cHsn]}><Text style={{ textAlign: 'right' }}>{item.hsnCode ?? ''}</Text></View>
+                <View style={[s.cellR, s.cAmt]}><Text style={{ textAlign: 'right' }}>{fmtInt(taxable)}</Text></View>
+                <View style={[s.cellR, s.cQty]}><Text style={{ textAlign: 'right' }}>{qty}</Text></View>
+                <View style={[s.cell, s.cTot]}><Text style={{ textAlign: 'right' }}>{fmtInt(total)}</Text></View>
+              </View>
+            )
+          })}
+
+          {/* Totals ladder */}
+          <View style={s.row}>
+            <Text style={s.totLabel}>Sub-Total</Text>
+            <Text style={s.totValue}>{fmtInt(subTotal)}</Text>
+          </View>
+          {(p.invoiceDiscount ?? 0) > 0 && (
+            <View style={s.row}>
+              <Text style={s.totLabel}>Discount</Text>
+              <Text style={s.totValue}>-{fmtInt(p.invoiceDiscount!)}</Text>
+            </View>
+          )}
+          {!isInterState && (
+            <>
+              <View style={s.row}>
+                <Text style={s.totLabel}>SGST @ {halfRate}%</Text>
+                <Text style={s.totValue}>{fmtInt(totalSgst)}</Text>
+              </View>
+              <View style={s.row}>
+                <Text style={s.totLabel}>CGST @ {halfRate}%</Text>
+                <Text style={s.totValue}>{fmtInt(totalCgst)}</Text>
+              </View>
+            </>
+          )}
+          {isInterState && (
+            <View style={s.row}>
+              <Text style={s.totLabel}>IGST @ {igstRate}%</Text>
+              <Text style={s.totValue}>{fmtInt(totalIgst)}</Text>
+            </View>
+          )}
+          {totalCess > 0 && (
+            <View style={s.row}>
+              <Text style={s.totLabel}>CESS</Text>
+              <Text style={s.totValue}>{fmtInt(totalCess)}</Text>
+            </View>
+          )}
+          {roundOff !== 0 && (
+            <View style={s.row}>
+              <Text style={s.totLabel}>Round Off</Text>
+              <Text style={s.totValue}>{roundOff > 0 ? '+' : ''}{fmtInt(roundOff)}</Text>
+            </View>
+          )}
+          <View style={s.row}>
+            <Text style={s.totLabel}>Grand Total</Text>
+            <Text style={s.totValue}>{fmtInt(grandTotal)}</Text>
           </View>
         </View>
 
-        {/* ── Signatory ── */}
-        <View style={s.sigArea}>
-          <View style={s.sigBlock}>
+        {/* Words, terms, bank, signature — all inside the same frame */}
+        <View style={s.footBlock}>
+          <Text style={s.line}>
+            <Text style={s.bold}>Invoice Total:</Text>{amountWords(grandTotal)}
+          </Text>
+          <Text style={s.line}>
+            <Text style={s.bold}>Tax: </Text>{amountWords(totalTax).replace(/ Only$/, '')}
+          </Text>
+
+          <Text style={[s.bold, { marginTop: Math.round(10 * k) }]}>Payment Terms:</Text>
+          <Text style={s.line}>{p.paymentTerms || '100% Against Purchase Order'}</Text>
+
+          <Text style={[s.line, { marginTop: Math.round(16 * k) }]}>
+            {[
+              `Bank Name & Branch : ${p.bankName ?? 'Yes Bank - Nungambakkam'}`,
+              `A/C number : ${p.bankAccountNumber ?? '000561900003093'}`,
+              `IFSC code : ${p.bankIfsc ?? 'YESB0000005'}`,
+              ...(p.bankUpiId ? [`UPI : ${p.bankUpiId}`] : []),
+            ].join('\n')}
+          </Text>
+
+          {p.declarationText && (
+            <Text style={[s.small, { marginTop: Math.round(8 * k) }]}>{p.declarationText}</Text>
+          )}
+          {p.termsText && (
+            <Text style={[s.small, { marginTop: Math.round(4 * k) }]}>{p.termsText}</Text>
+          )}
+
+          {/* Signature block */}
+          <Text style={[s.bold, { textAlign: 'right', marginTop: Math.round(12 * k), fontFamily: 'Helvetica-BoldOblique' }]}>
+            For {co.legalName}
+          </Text>
+          <View style={s.sigArea}>
             <Image src={sealUrl} style={s.sealImg} />
-          </View>
-          <View style={[s.sigBlock, { alignItems: 'flex-end' }]}>
-            <Text style={[s.bold, { marginBottom: 4 }]}>For {CO.name}</Text>
-            {p.signatureData && (
-              <Image src={p.signatureData} style={s.sigImg} />
-            )}
-            <View style={{ borderTop: '0.5 solid #666', width: 120, paddingTop: 3, alignItems: 'center' }}>
+            <View style={{ alignItems: 'center', marginLeft: Math.round(24 * k) }}>
+              {p.signatureData && <Image src={p.signatureData} style={s.sigImg} />}
               <Text style={s.bold}>{p.signatoryName ?? 'Authorised Signatory'}</Text>
               {p.signatoryDesignation && <Text>{p.signatoryDesignation}</Text>}
             </View>

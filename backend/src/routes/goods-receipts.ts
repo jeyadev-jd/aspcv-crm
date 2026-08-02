@@ -4,6 +4,8 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 import { parsePagination, paginate } from '../lib/pagination'
 import { appendEvent } from '../services/timeline'
+import { nextGRNumber } from '../lib/sequences'
+import { createNotification, notifyRoles } from '../services/notify'
 import { z } from 'zod'
 
 const router = createSafeRouter()
@@ -62,20 +64,46 @@ router.post('/', requirePermission('goods_receipt', 'create'), async (req: AuthR
     const data = grSchema.parse(req.body)
     const userId = req.user?.id
 
-    const po = await prisma.purchaseOrder.findUnique({ where: { id: data.purchaseOrderId }, include: { bom: { include: { project: true } } } })
+    const po = await prisma.purchaseOrder.findUnique({
+      where: { id: data.purchaseOrderId },
+      include: { project: true, items: true },
+    })
     if (!po) return res.status(404).json({ error: 'Purchase order not found' })
+    const linkedProjectId = po.projectId ?? null
 
-    const count = await prisma.goodsReceipt.count()
-    const refNumber = `GR-${String(count + 1).padStart(4, '0')}`
+    // ─── 3-way PO match: validate GRN quantities against PO line items ──────
+    if (po.items.length > 0) {
+      for (const grItem of data.items) {
+        const poLine = po.items.find(
+          p => p.itemName.trim().toLowerCase() === grItem.itemName.trim().toLowerCase()
+        )
+        if (poLine) {
+          const incoming = grItem.quantity || 1
+          const alreadyReceived = poLine.receivedQty || 0
+          const ordered = poLine.quantity
+          if (alreadyReceived + incoming > ordered) {
+            return res.status(400).json({
+              error: `Over-receipt: "${grItem.itemName}" — PO ordered ${ordered}, already received ${alreadyReceived}, trying to receive ${incoming}. Max allowed: ${ordered - alreadyReceived}.`,
+              itemName: grItem.itemName,
+              ordered,
+              alreadyReceived,
+              incoming,
+            })
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    const refNumber = await nextGRNumber()
     const totalCost = data.items.reduce((s, i) => s + ((i.unitPrice || 0) * (i.quantity || 1)), 0)
 
     const gr = await prisma.$transaction(async tx => {
       const rawComponentIds: string[] = []
       for (const item of data.items) {
-        const rcCount = await tx.rawComponent.count()
         const rc = await tx.rawComponent.create({
           data: {
-            refNumber: `RC-${String(rcCount + 1).padStart(5, '0')}`,
+            refNumber: `RC-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
             name: item.itemName,
             category: 'Raw', // ALWAYS raw materials first
             quantity: item.quantity || 1,
@@ -118,18 +146,34 @@ router.post('/', requirePermission('goods_receipt', 'create'), async (req: AuthR
         include: { items: true },
       })
 
+      // Update receivedQty on matched PO line items
+      for (const grItem of data.items) {
+        const poLine = po.items.find(
+          p => p.itemName.trim().toLowerCase() === grItem.itemName.trim().toLowerCase()
+        )
+        if (poLine) {
+          await tx.pOItem.update({
+            where: { id: poLine.id },
+            data: { receivedQty: { increment: grItem.quantity || 1 } },
+          })
+        }
+      }
+
+      // Check if all PO lines are fully received
+      const updatedPoItems = await tx.pOItem.findMany({ where: { purchaseOrderId: data.purchaseOrderId } })
+      const allReceived = updatedPoItems.every(i => i.receivedQty >= i.quantity)
       await tx.purchaseOrder.update({
         where: { id: data.purchaseOrderId },
-        data: { status: 'Delivered', deliveredAt: new Date() },
+        data: { status: allReceived ? 'Closed' : 'Delivered', deliveredAt: new Date() },
       })
 
-      if (po.bom?.projectId) {
-        const project = await tx.project.findUnique({ where: { id: po.bom.projectId } })
+      if (linkedProjectId) {
+        const project = await tx.project.findUnique({ where: { id: linkedProjectId } })
         if (project) {
           const newPurchaseCost = (project.purchaseCost || 0) + totalCost
           const newTotalExpenses = (project.manufacturingCost || 0) + newPurchaseCost + (project.serviceCost || 0) + (project.labourCost || 0) + (project.installationCost || 0)
           await tx.project.update({
-            where: { id: po.bom.projectId },
+            where: { id: linkedProjectId },
             data: {
               purchaseCost: newPurchaseCost,
               totalExpenses: newTotalExpenses,
@@ -143,8 +187,26 @@ router.post('/', requirePermission('goods_receipt', 'create'), async (req: AuthR
     })
 
     await appendEvent('GoodsReceipt', gr.id, 'CREATED', `Goods receipt "${gr.refNumber}" recorded against PO ${po.refNumber}`, req.user?.id)
-    if (po.bom?.projectId) {
-      await appendEvent('Project', po.bom.projectId, 'GOODS_RECEIVED', `Goods receipt "${gr.refNumber}" recorded, inventory cost updated`, req.user?.id)
+    if (linkedProjectId) {
+      await appendEvent('Project', linkedProjectId, 'GOODS_RECEIVED', `Goods receipt "${gr.refNumber}" recorded, inventory cost updated`, req.user?.id)
+
+      // Stock lands in the central warehouse, never straight onto the project — ping
+      // whoever owns the project so they come and allocate it.
+      const owner = await prisma.project.findUnique({
+        where: { id: linkedProjectId },
+        select: { title: true, assignedPMId: true, department: { select: { headUserId: true } } },
+      })
+      const recipients = [owner?.assignedPMId, owner?.department?.headUserId].filter(Boolean) as string[]
+      const payload = {
+        type: 'goods_arrived',
+        severity: 'info' as const,
+        title: 'Goods arrived in Warehouse',
+        message: `Goods receipt ${gr.refNumber} for "${owner?.title ?? 'project'}" is in the Central Warehouse. Please allocate to your project.`,
+        entityType: 'Project',
+        entityId: linkedProjectId,
+      }
+      if (recipients.length > 0) await createNotification({ userIds: [...new Set(recipients)], ...payload })
+      else await notifyRoles(['ProjectHead', 'SuperAdmin'], payload)
     }
     res.status(201).json(gr)
   } catch (e: any) {

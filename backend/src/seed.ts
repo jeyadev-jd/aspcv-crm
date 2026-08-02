@@ -46,16 +46,6 @@ async function main() {
     skipDuplicates: false,
   })
 
-  // Kanban cards
-  await prisma.kanbanCard.createMany({
-    data: [
-      { title: 'Design new UI presentation', category: 'Website Development', progress: 7, total: 14, date: '24 Aug 2019', columnId: 'todo', order: 0 },
-      { title: 'Add more UI/UX mockups', category: 'UI/UX', progress: 8, total: 16, date: '24 Sep 2019', columnId: 'todo', order: 1 },
-      { title: 'Create a new wireframe', category: 'Website Development', progress: 6, total: 12, date: '27 May 2019', columnId: 'inprogress', order: 0 },
-      { title: 'Add product to the market', category: 'Product Design', progress: 4, total: 4, date: '31 Aug 2019', columnId: 'done', order: 0 },
-    ],
-  })
-
   // Calendar events
   await prisma.calendarEvent.createMany({
     data: [

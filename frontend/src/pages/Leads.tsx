@@ -12,7 +12,12 @@ import {
 import EmptyState from '@/components/shared/EmptyState'
 import { useCrmData } from '@/lib/crmDataContext'
 import { api } from '@/lib/api'
-import { useLeads, useCreateLead, useUpdateLead, useDeleteLead, useChangeLeadStatus } from '@/hooks/useLeads'
+import { useQueryClient } from '@tanstack/react-query'
+import ScopeItemsPanel, { saveDraftScopeItems, type ScopeItem } from '@/components/shared/ScopeItemsPanel'
+import { useLeads, useCreateLead, useUpdateLead, useDeleteLead, useBulkDeleteLeads, useChangeLeadStatus } from '@/hooks/useLeads'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
+import BulkActionBar from '@/components/shared/BulkActionBar'
+import BulkDeleteDialog from '@/components/shared/BulkDeleteDialog'
 import DesignationInput from '@/components/shared/DesignationInput'
 import IndustryInput from '@/components/shared/IndustryInput'
 import { useUsers } from '@/hooks/useUsers'
@@ -20,13 +25,13 @@ import { useAuthStore } from '@/lib/authStore'
 import { useDepartments } from '@/hooks/useDepartments'
 import { useRegions } from '@/hooks/useRegions'
 import { useCommercialModels } from '@/hooks/useCommercialModels'
-import { useCapacityUnits } from '@/hooks/useCapacityUnits'
 import { useLeadSourcesMaster } from '@/hooks/useLeadSourcesMaster'
 import LeadDetailPanel from '@/components/shared/LeadDetailPanel'
 import type React from 'react'
 import { CsvImportExport } from '@/components/shared/CsvImportExport'
 import type { CsvColDef } from '@/components/shared/CsvImportExport'
 import type { Lead } from '@/hooks/useLeads'
+import { handleVersionConflict } from '@/lib/conflict'
 
 const LEAD_CSV_COLS: CsvColDef<Lead>[] = [
   { header: 'RefNumber',        accessor: r => r.refNumber ?? '' },
@@ -119,7 +124,6 @@ export default function Leads() {
   const { data: departments = [] } = useDepartments()
   const { data: regions = [] } = useRegions()
   const { data: commercialModels = [] } = useCommercialModels()
-  const { data: capacityUnits = [] } = useCapacityUnits()
   const { data: leadSourcesMaster = [] } = useLeadSourcesMaster()
   const createLead = useCreateLead()
 
@@ -161,6 +165,7 @@ export default function Leads() {
   }
   const updateLead = useUpdateLead()
   const deleteLead = useDeleteLead()
+  const bulkDeleteLeads = useBulkDeleteLeads()
   const changeStatus = useChangeLeadStatus()
 
   const [filters, setFilters] = useState<{ status: string[]; source: string[]; region: string[]; commercialType: string[]; salesPerson: string[]; clientType: string[]; stage: string[]; state: string[]; closeDate: string[] }>({ status: [], source: [], region: [], commercialType: [], salesPerson: [], clientType: [], stage: [], state: [], closeDate: [] })
@@ -170,15 +175,34 @@ export default function Leads() {
   const [sort, setSort] = useState('')
   const [sources, setSources] = useState<SourceRow[]>([blankSource()])
   const [showModal, setShowModal] = useState(false)
+  const qc = useQueryClient()
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState(blankForm)
+  // Scope lines collected in the modal. On create there's no lead id yet, so the
+  // rows are held here and written once the lead exists.
+  const [scopeRows, setScopeRows] = useState<ScopeItem[]>([])
+  // Whether the lead already had scope when the modal opened — decides if an
+  // empty list on save means "delete them" or "nothing to do".
+  const [hadScope, setHadScope] = useState(false)
   const [contacts, setContacts] = useState<ContactRow[]>([blankContact()])
   const [formOwners, setFormOwners] = useState<{ id: string; name: string }[]>([])
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
-  const [menuPos, setMenuPos] = useState({ x: 0, y: 0 })
+  const [menuPos, setMenuPos] = useState({ x: 0, y: 0, openUp: false })
+  // Status list + Edit/Delete makes this menu ~230px tall — a static
+  // `top: bottom + 4` clips against rows near the bottom of a long table, so
+  // flip to opening upward whenever there isn't room below.
+  const MENU_EST_HEIGHT = 260
+  function openRowMenu(id: string, r: DOMRect) {
+    const spaceBelow = window.innerHeight - r.bottom
+    const openUp = spaceBelow < MENU_EST_HEIGHT && r.top > spaceBelow
+    setMenuPos({ x: r.right, y: openUp ? r.top - 4 : r.bottom + 4, openUp })
+    setMenuOpen(prev => (prev === id ? null : id))
+  }
   const [page, setPage] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  // Status transition warning: { leadId, status } for OrderWon/OrderLost confirmations
+  const [statusConfirm, setStatusConfirm] = useState<{ leadId: string; status: string; label: string } | null>(null)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [statusDropOpen, setStatusDropOpen] = useState(false)
   const [statusDropRect, setStatusDropRect] = useState<DOMRect | null>(null)
@@ -247,18 +271,47 @@ export default function Leads() {
   })
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Scoped to the visible page so "select all" never picks up hidden rows.
+  const bulk = useBulkSelect(paginated.map(l => l.id))
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
+
+  async function handleBulkDelete() {
+    try {
+      const res = await bulkDeleteLeads.mutateAsync(bulk.selectedIds)
+      if (res.blocked?.length) {
+        toast.error(`${res.deleted} archived · ${res.blocked.length} need approval`)
+      } else {
+        toast.success(`Archived ${res.deleted} lead${res.deleted === 1 ? '' : 's'}`)
+      }
+      bulk.clear()
+      setPage(1)
+    } catch {
+      toast.error('Bulk delete failed')
+    }
+    setShowBulkDelete(false)
+  }
   const pipeline = leads.filter(l => l.status !== 'OrderLost' && l.status !== 'Hibernated').reduce((s, l) => s + (l.estimatedValue ?? 0), 0)
   const counts = Object.fromEntries(UI_STATUSES.map(s => [s, leads.filter(l => STATUS_LABEL[l.status] === s).length])) as Record<UIStatus, number>
   const salesPersonNames = Array.from(new Set(leads.flatMap(l => l.owners?.map(o => o.user?.name).filter(Boolean) ?? []))) as string[]
   const activeFilterCount = Object.values(filters).reduce((n, arr) => n + arr.length, 0) + (sort ? 1 : 0) + (valueMin ? 1 : 0) + (valueMax ? 1 : 0)
 
   function openCreate() {
-    setEditId(null); setForm(blankForm); setCompanyName(''); setContacts([blankContact()]); setSources([blankSource()]); setFormOwners([]); setErrors({}); setShowModal(true)
+    setEditId(null); setForm(blankForm); setCompanyName(''); setContacts([blankContact()]); setSources([blankSource()]); setFormOwners([]); setScopeRows([]); setHadScope(false); setErrors({}); setShowModal(true)
   }
 
   function openEdit(lead: typeof leads[0]) {
     setEditId(lead.id)
     setCompanyName(lead.company?.name ?? '')
+    // Pull the saved scope so the modal edits the real list rather than a blank one.
+    setScopeRows([]); setHadScope(false)
+    api.get('/scope-items', { params: { entityType: 'Lead', entityId: lead.id } })
+      .then(r => {
+        const rows = (r.data as ScopeItem[]).map(s => ({ ...s, customFields: Array.isArray(s.customFields) ? s.customFields : [] }))
+        setScopeRows(rows)
+        setHadScope(rows.length > 0)
+      })
+      .catch(() => setScopeRows([]))
     setForm({
       title: lead.title, companyId: lead.companyId,
       regionId: lead.regionId ?? lead.regionRef?.id ?? '',
@@ -357,7 +410,15 @@ export default function Leads() {
     }
     let savedId = editId
     if (editId) {
-      await updateLead.mutateAsync({ id: editId, ...payload })
+      const editing = leads.find(l => l.id === editId)
+      try {
+        // Echo the loaded version so a concurrent edit is rejected, not clobbered.
+        await updateLead.mutateAsync({ id: editId, ...payload, expectedUpdatedAt: editing?.updatedAt })
+      } catch (e) {
+        // Leave the form open on conflict rather than discarding the user's input.
+        if (handleVersionConflict(e, () => qc.invalidateQueries({ queryKey: ['leads'] }))) return
+        throw e
+      }
     } else {
       const created = await createLead.mutateAsync(payload) as { id: string }
       savedId = created.id
@@ -373,6 +434,10 @@ export default function Leads() {
       for (const o of formOwners.filter(o => !existingIds.includes(o.id))) {
         await api.post(`/leads/${savedId}/owners`, { userId: o.id, role: 'primary' })
       }
+
+      // Scope lines can only be written once the lead has an id.
+      await saveDraftScopeItems('Lead', savedId, scopeRows, { hadExisting: hadScope })
+      qc.invalidateQueries({ queryKey: ['scope-items', 'Lead', savedId] })
     }
     closeModal()
   }
@@ -728,12 +793,18 @@ export default function Leads() {
                       {primary && <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 0 }}>{primary.name}{primary.designation ? ` · ${primary.designation}` : ''}</p>}
                     </div>
                     <div onClick={e => e.stopPropagation()} style={{ position: 'relative', flexShrink: 0 }}>
-                      <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right, y: r.bottom + 4 }); setMenuOpen(menuOpen === lead.id ? null : lead.id) }}
+                      <button onClick={e => { e.stopPropagation(); openRowMenu(lead.id, e.currentTarget.getBoundingClientRect()) }}
                         style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
                         <MoreHorizontal size={15} />
                       </button>
                       {menuOpen === lead.id && (
-                        <div style={{ ...dropdownStyle, position: 'fixed', top: menuPos.y, right: 'auto', left: Math.min(menuPos.x - 170, window.innerWidth - 180), zIndex: 200 }}>
+                        <div style={{
+                          ...dropdownStyle, position: 'fixed', zIndex: 200, right: 'auto',
+                          left: Math.min(menuPos.x - 170, window.innerWidth - 180),
+                          ...(menuPos.openUp
+                            ? { top: 'auto', bottom: window.innerHeight - menuPos.y, maxHeight: menuPos.y - 8, overflowY: 'auto' }
+                            : { top: menuPos.y, maxHeight: window.innerHeight - menuPos.y - 8, overflowY: 'auto' }),
+                        }}>
                           <button onClick={() => { openEdit(lead); setMenuOpen(null) }} style={menuItemStyle}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
                           <button onClick={() => { setDeleteConfirm(lead.id); setMenuOpen(null) }} style={{ ...menuItemStyle, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
                           <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
@@ -746,7 +817,16 @@ export default function Leads() {
                             { api: 'OrderWon', label: 'Order Won', color: '#2BC155' },
                             { api: 'OrderLost', label: 'Order Lost', color: '#FF5353' },
                           ]).filter(s => s.api !== lead.status).map(s => (
-                            <button key={s.api} onClick={() => { setMenuOpen(null); changeStatus.mutate({ id: lead.id, status: s.api }, { onSuccess: (data: any) => { if (s.api === 'OrderWon' && data?.promotedDeal) navigate('/deals') } }) }}
+                            <button key={s.api} onClick={() => {
+                              setMenuOpen(null)
+                              if (s.api === 'OrderWon' || s.api === 'OrderLost') {
+                                setStatusConfirm({ leadId: lead.id, status: s.api, label: s.label })
+                              } else {
+                                changeStatus.mutate({ id: lead.id, status: s.api }, {
+                                  onSuccess: (data: any) => { if (s.api === 'OrderWon' && data?.promotedDeal) navigate('/deals') }
+                                })
+                              }
+                            }}
                               style={{ ...menuItemStyle, color: s.color }}>
                               <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, marginRight: 8, flexShrink: 0, display: 'inline-block' }} />{s.label}
                             </button>
@@ -779,6 +859,11 @@ export default function Leads() {
           <table className="crm-leads-table" style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #F4F5F9', background: '#FAFBFF' }}>
+                <th style={{ padding: '8px 0 8px 10px', width: 30 }}>
+                  <input type="checkbox" checked={bulk.allSelected}
+                    ref={el => { if (el) el.indeterminate = bulk.someSelected }}
+                    onChange={bulk.toggleAll} style={{ cursor: 'pointer' }} />
+                </th>
                 {['Lead / Contacts', 'Company', 'Source', 'Region', 'Status', 'Est. Value', 'Owner', ''].map(h => (
                   <th key={h} style={{ textAlign: h === 'Est. Value' ? 'center' : 'left', padding: '8px 10px', fontSize: 10, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.4 }}>{h}</th>
                 ))}
@@ -792,6 +877,9 @@ export default function Leads() {
                   <tr key={lead.id} onClick={() => setDetailLead(lead)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer', transition: 'background 0.1s' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <td style={{ padding: '7px 0 7px 10px' }} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={bulk.isSelected(lead.id)} onChange={() => bulk.toggle(lead.id)} style={{ cursor: 'pointer' }} />
+                    </td>
                     <td style={{ padding: '7px 10px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <div style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -824,12 +912,18 @@ export default function Leads() {
                     </td>
                     <td style={{ padding: '7px 10px' }} onClick={e => e.stopPropagation()}>
                       <div style={{ position: 'relative' }}>
-                        <button onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuPos({ x: r.right, y: r.bottom + 4 }); setMenuOpen(menuOpen === lead.id ? null : lead.id) }}
+                        <button onClick={e => { e.stopPropagation(); openRowMenu(lead.id, e.currentTarget.getBoundingClientRect()) }}
                           style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', borderRadius: 4 }}>
                           <MoreHorizontal size={15} />
                         </button>
                         {menuOpen === lead.id && (
-                          <div style={{ ...dropdownStyle, position: 'fixed', top: menuPos.y, right: 'auto', left: menuPos.x - 170, zIndex: 200 }}>
+                          <div style={{
+                            ...dropdownStyle, position: 'fixed', zIndex: 200, right: 'auto',
+                            left: Math.min(menuPos.x - 170, window.innerWidth - 180),
+                            ...(menuPos.openUp
+                              ? { top: 'auto', bottom: window.innerHeight - menuPos.y, maxHeight: menuPos.y - 8, overflowY: 'auto' }
+                              : { top: menuPos.y, maxHeight: window.innerHeight - menuPos.y - 8, overflowY: 'auto' }),
+                          }}>
                             <button onClick={() => { openEdit(lead); setMenuOpen(null) }} style={menuItemStyle}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>
                             <button onClick={() => { setDeleteConfirm(lead.id); setMenuOpen(null) }} style={{ ...menuItemStyle, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>
                             <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />
@@ -844,9 +938,13 @@ export default function Leads() {
                             ]).filter(s => s.api !== lead.status).map(s => (
                               <button key={s.api} onClick={() => {
                                 setMenuOpen(null)
-                                changeStatus.mutate({ id: lead.id, status: s.api }, {
-                                  onSuccess: (data: any) => { if (s.api === 'OrderWon' && data?.promotedDeal) navigate('/deals') },
-                                })
+                                if (s.api === 'OrderWon' || s.api === 'OrderLost') {
+                                  setStatusConfirm({ leadId: lead.id, status: s.api, label: s.label })
+                                } else {
+                                  changeStatus.mutate({ id: lead.id, status: s.api }, {
+                                    onSuccess: (data: any) => { if (s.api === 'OrderWon' && data?.promotedDeal) navigate('/deals') },
+                                  })
+                                }
                               }} style={{ ...menuItemStyle, color: s.color }}>
                                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, marginRight: 8, flexShrink: 0, display: 'inline-block' }} />
                                 {s.label}
@@ -860,10 +958,22 @@ export default function Leads() {
                 )
               })}
               {paginated.length === 0 && (
-                <tr><td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: '#B1B1BE', fontSize: 12 }}>No leads found.</td></tr>
+                <tr><td colSpan={9} style={{ padding: '32px', textAlign: 'center', color: '#B1B1BE', fontSize: 12 }}>No leads found.</td></tr>
               )}
             </tbody>
           </table>
+
+          <BulkActionBar count={bulk.count} entityLabel="leads" onDelete={() => setShowBulkDelete(true)} onClear={bulk.clear} />
+          {showBulkDelete && (
+            <BulkDeleteDialog
+              count={bulk.count}
+              entityLabel="leads"
+              archive
+              isPending={bulkDeleteLeads.isPending}
+              onCancel={() => setShowBulkDelete(false)}
+              onConfirm={handleBulkDelete}
+            />
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px 20px', borderTop: '1px solid #F4F5F9', gap: 4 }}>
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} style={{ ...pagBtn, color: page === 1 ? '#D5D5D5' : '#374557', cursor: page === 1 ? 'default' : 'pointer' }}>
@@ -889,10 +999,55 @@ export default function Leads() {
         />
       )}
 
+      {/* Status transition confirmation modal */}
+      {statusConfirm && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+          <div role="dialog" aria-modal="true" aria-label="Confirm Status Change" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.18)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {statusConfirm.status === 'OrderWon' ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 24 }}>🏆</span>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Mark as Order Won?</p>
+                </div>
+                <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
+                  This will automatically <strong>create a new Deal</strong> in the Deals module linked to this lead. You will be redirected to Deals on success. Ensure all lead details, contacts and estimated value are complete.
+                </p>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 22 }}>⚠️</span>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Mark as Order Lost?</p>
+                </div>
+                <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
+                  This will mark the lead as <strong>Order Lost</strong>. The lead will remain visible in the list and can be re-activated by changing the status again.
+                </p>
+              </>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <button onClick={() => setStatusConfirm(null)}
+                style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button
+                onClick={() => {
+                  const { leadId, status } = statusConfirm
+                  setStatusConfirm(null)
+                  changeStatus.mutate({ id: leadId, status }, {
+                    onSuccess: (data: any) => { if (status === 'OrderWon' && data?.promotedDeal) navigate('/deals') }
+                  })
+                }}
+                style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none',
+                  background: statusConfirm.status === 'OrderWon' ? '#2BC155' : '#FF5353', color: '#fff', cursor: 'pointer' }}>
+                {statusConfirm.status === 'OrderWon' ? '🏆 Confirm Order Won' : '⚠️ Confirm Order Lost'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete confirmation */}
       {deleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+          <div role="dialog" aria-modal="true" aria-label="Delete Lead confirmation" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Delete Lead?</p>
             <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>This action cannot be undone.</p>
             <div style={{ display: 'flex', gap: 12 }}>
@@ -906,7 +1061,7 @@ export default function Leads() {
       {/* Create / Edit Modal */}
       {showModal && (
         <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
-          <div className="crm-modal" style={{ width: '100%', maxWidth: isMobile ? '100%' : 1100, height: isMobile ? '100dvh' : 'calc(100vh - 24px)', borderRadius: isMobile ? 0 : undefined }}>
+          <div className="crm-modal" role="dialog" aria-modal="true" aria-label={editId ? 'Edit Lead' : 'New Lead'} style={{ width: '100%', maxWidth: isMobile ? '100%' : 1100, height: isMobile ? '100dvh' : 'calc(100vh - 24px)', borderRadius: isMobile ? 0 : undefined }}>
             {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>{editId ? 'Edit Lead' : 'New Lead'}</p>
@@ -1097,23 +1252,15 @@ export default function Leads() {
                 </Field>
               </div>
 
-              {/* Capacity / Temperature */}
-              <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: 10 }}>
-                <Field label="Capacity">
-                  <input value={form.capacityValue} onChange={e => setForm({ ...form, capacityValue: e.target.value })} placeholder="0" type="number" min="0" style={inp(false)} />
-                </Field>
-                <Field label="Capacity Unit">
-                  <select value={form.capacityUnitId} onChange={e => setForm({ ...form, capacityUnitId: e.target.value })} style={inp(false)}>
-                    <option value="">— Select —</option>
-                    {capacityUnits.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                  </select>
-                </Field>
-                <Field label="Temp Range (°C)">
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <input value={form.tempRangeMin} onChange={e => setForm({ ...form, tempRangeMin: e.target.value })} placeholder="Min" type="number" style={inp(false)} />
-                    <input value={form.tempRangeMax} onChange={e => setForm({ ...form, tempRangeMax: e.target.value })} placeholder="Max" type="number" style={inp(false)} />
-                  </div>
-                </Field>
+              {/* Scope of supply. Specs are per-product custom fields rather than
+                  four lead-level columns, so each item carries what it needs. */}
+              <div style={{ borderTop: '1px solid #F0F1F5', paddingTop: 12 }}>
+                <ScopeItemsPanel
+                  entityType="Lead"
+                  entityId={editId ?? undefined}
+                  value={scopeRows}
+                  onChange={setScopeRows}
+                />
               </div>
 
               {/* Ownership tiers */}
@@ -1182,7 +1329,7 @@ export default function Leads() {
 
               {/* Company Ref Number fields */}
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: '#374557', display: 'block', marginBottom: 6 }}>Account Ref Fields <span style={{ fontSize: 10, color: '#B1B1BE', fontWeight: 400 }}>(used in lead reference number)</span></label>
+                <label style={{ fontSize: 11, fontWeight: 600, color: '#374557', display: 'block', marginBottom: 6 }}>Sales ID Fields <span style={{ fontSize: 10, color: '#B1B1BE', fontWeight: 400 }}>(builds the unique ID shared across this Lead, its Deal, and its Project)</span></label>
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 8 }}>
                   <input value={form.companyNickname} onChange={e => setForm({ ...form, companyNickname: e.target.value })} placeholder="Account nickname (e.g. HMML)" style={inp(false)} />
                   <input value={form.companyStateCode} onChange={e => setForm({ ...form, companyStateCode: e.target.value })} placeholder="State code override (e.g. TN)" style={inp(false)} />

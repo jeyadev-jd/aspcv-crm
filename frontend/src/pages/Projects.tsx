@@ -1,29 +1,47 @@
 import Pagination from '@/components/shared/Pagination'
 import Spinner from '@/components/shared/Spinner'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import RowMenu from '@/components/shared/RowMenu'
 import EmptyState from '@/components/shared/EmptyState'
 import KpiCard from '@/components/shared/KpiCard'
 import Toolbar from '@/components/shared/Toolbar'
 import FilterChips from '@/components/shared/FilterChips'
 import SectionHeader from '@/components/shared/SectionHeader'
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import FilterPanel, { applyFilters, emptyFilters } from '@/components/shared/FilterPanel'
+import type { FilterDef, FilterValues } from '@/components/shared/FilterPanel'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
+import BulkActionBar from '@/components/shared/BulkActionBar'
+import BulkDeleteDialog from '@/components/shared/BulkDeleteDialog'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCurrency } from '@/lib/currencyContext'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, FolderOpen, Edit2, Trash2, CheckCircle2, Play, Pause, Loader2, Download, Check, RefreshCw, ClipboardList, Cpu, Shield, XCircle, Wrench, AlertTriangle, FolderKanban, Wallet, TrendingUp, AlertOctagon } from 'lucide-react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, FolderOpen, Edit2, Trash2, CheckCircle2, Play, Pause, Loader2, Download, Check, RefreshCw, ClipboardList, Cpu, Shield, XCircle, Wrench, AlertTriangle, FolderKanban, Wallet, TrendingUp, AlertOctagon, Archive, Zap, RotateCcw } from 'lucide-react'
+import WarrantyAllocationModal, { type WarrantyAllocation } from '@/components/projects/WarrantyAllocationModal'
+import EntityReimbursements from '@/components/shared/EntityReimbursements'
+import ScopeItemsPanel from '@/components/shared/ScopeItemsPanel'
+import PushToInventoryModal from '@/components/shared/PushToInventoryModal'
+import CompletedProjects from './CompletedProjects'
+import Budget from './Budget'
+import Service from './Service'
+import Manufacturing from './Manufacturing'
+import Installations from './Installations'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
 import { api } from '@/lib/api'
-import { useProjects, useCreateProject, useUpdateProject, useUpdateProjectStatus, useDeleteProject, STATUS_LABEL } from '@/hooks/useProjects'
+import { useProjects, useCreateProject, useUpdateProject, useUpdateProjectStatus, useDeleteProject, useBulkDeleteProjects, useRevertProjectToDeal, STATUS_LABEL } from '@/hooks/useProjects'
 import { useDepartments } from '@/hooks/useDepartments'
 import type { ProjectAPI } from '@/hooks/useProjects'
 import { CsvImportExport } from '@/components/shared/CsvImportExport'
+import DiscussionPanel from '@/components/shared/DiscussionPanel'
 import type { CsvColDef } from '@/components/shared/CsvImportExport'
-import { useProjectERP, useCompleteProject, useCancelProject, useAssignProject } from '@/hooks/useERP'
+import { useProjectERP, useCompleteProject, useCancelProject, type PurchaseOrderAPI, type WorkOrderAPI } from '@/hooks/useERP'
 import { useInstallations, useCreateInstallation, useUpdateInstallationStatus, useDeleteInstallation } from '@/hooks/useInstallations'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/lib/authStore'
 import { toast } from '@/lib/toast'
+import { handleVersionConflict } from '@/lib/conflict'
 import TaskPanel from '@/components/shared/TaskPanel'
 import { useProjectBilling, useGenerateProjectInvoice, useRecordPayment, useSendInvoice, useCancelInvoice, type BillingInvoice } from '@/hooks/useProjectBilling'
 import { PDFDownloadLink } from '@react-pdf/renderer'
@@ -31,7 +49,7 @@ import { PurchaseOrderPDF } from '@/components/pdf/PurchaseOrderPDF'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UIStatus = 'Planning' | 'Active' | 'On Hold' | 'Completed'
+type UIStatus = 'Planning' | 'Active' | 'On Hold' | 'Completed' | 'Cancelled'
 type ProjectWithUI = ProjectAPI & { uiStatus: UIStatus; clientName: string }
 interface Milestone { id: string; text: string; done: boolean; dueDate?: string }
 interface GanttTask { id: string; name: string; start: string; end: string; progress: number; color: string }
@@ -51,7 +69,12 @@ const PROJ_CSV_COLS: CsvColDef<ProjectAPI>[] = [
 const PROJ_STATUS_MAP: Record<string, ProjectAPI['status']> = {
   planning: 'Planning', active: 'Active', 'on hold': 'OnHold', onhold: 'OnHold', completed: 'Completed',
 }
-const PROJ_CSV_TEMPLATE = { Title: 'Solar Installation Project', Company: 'Acme Corp', Status: 'Planning', StartDate: '2026-07-01', EndDate: '2026-12-31', Budget: '1000000', Notes: '' }
+const PROJ_CSV_TEMPLATE = {
+  Title: 'Solar Installation Project', Company: 'Acme Corp', Status: 'Planning',
+  StartDate: new Date().toISOString().slice(0, 10),
+  EndDate: new Date(Date.now() + 180 * 864e5).toISOString().slice(0, 10),
+  Budget: '1000000', Notes: '',
+}
 
 // ─── Style constants ──────────────────────────────────────────────────────────
 
@@ -60,16 +83,17 @@ const statusStyle: Record<UIStatus, { bg: string; color: string }> = {
   Active: { bg: '#E7FAF0', color: '#2BC155' },
   'On Hold': { bg: '#FFF5EE', color: '#FF9B52' },
   Completed: { bg: '#F4F5F9', color: '#8C8C8C' },
+  Cancelled: { bg: '#FEE2E2', color: '#DC2626' },
 }
 const apiToUI: Record<string, UIStatus> = {
   Planning: 'Planning', Active: 'Active', OnHold: 'On Hold', Completed: 'Completed',
   Engineering: 'Active', Procurement: 'Active', Manufacturing: 'Active',
-  Installation: 'Active', Testing: 'Active', Cancelled: 'On Hold',
+  Installation: 'Active', Testing: 'Active', Cancelled: 'Cancelled',
 }
 const uiToAPI: Record<UIStatus, ProjectAPI['status']> = {
-  Planning: 'Planning', Active: 'Active', 'On Hold': 'OnHold', Completed: 'Completed',
+  Planning: 'Planning', Active: 'Active', 'On Hold': 'OnHold', Completed: 'Completed', Cancelled: 'Cancelled',
 }
-const uiStatuses: UIStatus[] = ['Planning', 'Active', 'On Hold', 'Completed']
+const uiStatuses: UIStatus[] = ['Planning', 'Active', 'On Hold', 'Completed', 'Cancelled']
 const blankForm = { name: '', client: '', startDate: '', endDate: '', status: 'Planning' as UIStatus, budget: '', description: '', departmentId: '' }
 const PAGE_SIZE = 5
 const GANTT_COLORS = ['#5D78FF', '#2BC155', '#FF9B52', '#FF5353', '#A855F7', '#EC4899', '#06B6D4', '#84CC16']
@@ -271,6 +295,16 @@ function GanttCanvas({ tasks, projectId }: { tasks: GanttTask[]; projectId: stri
 
   useEffect(() => { redraw() }, [redraw])
 
+  // Redraw when the wrapper's width changes (modal resize, sidebar toggle, etc.) —
+  // the canvas otherwise keeps whatever width it had on first mount.
+  useEffect(() => {
+    const wrap = wrapRef.current
+    if (!wrap) return
+    const ro = new ResizeObserver(() => redraw())
+    ro.observe(wrap)
+    return () => ro.disconnect()
+  }, [redraw])
+
   function exportPNG() {
     const cv = cvRef.current; if (!cv) return
     const a = document.createElement('a')
@@ -309,7 +343,9 @@ function StatCard({ label, value, color, bg }: { label: string; value: string; c
 // anyone else's save returns 403 approval_required → we file an ApprovalRequest with
 // the exact payload, which an admin approves to apply (payload-based, no retry).
 function EditableProjectPanel({ proj, symbol, onApplied }: { proj: ProjectWithUI; symbol: string; onApplied: (p: Partial<ProjectAPI>) => void }) {
+  const qc = useQueryClient()
   const can = useAuthStore(s => s.can)
+  const user = useAuthStore(s => s.user)
   const { data: departments = [] } = useDepartments()
   const { data: users = [] } = useUsers(can('hr_user', 'read_all'))
   const [saving, setSaving] = useState(false)
@@ -321,35 +357,75 @@ function EditableProjectPanel({ proj, symbol, onApplied }: { proj: ProjectWithUI
     warrantyStart: proj.warrantyStart?.slice(0, 10) ?? '', warrantyEnd: proj.warrantyEnd?.slice(0, 10) ?? '',
     startDate: proj.startDate?.slice(0, 10) ?? '', endDate: proj.endDate?.slice(0, 10) ?? '',
     departmentId: proj.department?.id ?? '', assignedPMId: (proj as any).assignedPMId ?? '',
+    handoverOneDriveUrl: (proj as any).handoverOneDriveUrl ?? '',
   })
   const set = (k: keyof typeof f, v: string) => setF(p => ({ ...p, [k]: v }))
 
+  // Ownership is deliberately excluded — it has its own approval-gated endpoint
+  // and would be silently dropped by the PUT schema.
   function buildPayload() {
     const p: Record<string, unknown> = {}
     const nk: (keyof typeof f)[] = ['purchaseCost', 'manufacturingCost', 'labourCost', 'serviceCost', 'installationCost', 'warrantyPeriod']
     for (const k of nk) if (f[k] !== '') p[k] = Number(f[k])
     for (const k of ['warrantyStart', 'warrantyEnd', 'startDate', 'endDate'] as const) if (f[k]) p[k] = f[k]
     if (f.departmentId) p.departmentId = f.departmentId
-    if (f.assignedPMId) p.assignedPMId = f.assignedPMId
+    // Sent as null (not omitted) so clearing the field actually clears it server-side.
+    if (f.handoverOneDriveUrl !== ((proj as any).handoverOneDriveUrl ?? '')) {
+      p.handoverOneDriveUrl = f.handoverOneDriveUrl.trim() || null
+    }
     return p
+  }
+
+  /** Files an approval request when the API rejects a direct write. */
+  async function requestApproval(action: string, payload: Record<string, unknown>, reason: string) {
+    await api.post('/approval-requests', { entityType: 'project', entityId: proj.id, action, payload, reason })
+    toast.success('Sent to admin for approval')
   }
 
   async function save() {
     const payload = buildPayload()
-    if (!Object.keys(payload).length) { toast.error('Nothing to save'); return }
+    const pmChanged = f.assignedPMId !== ((proj as any).assignedPMId ?? '')
+    if (!Object.keys(payload).length && !pmChanged) { toast.error('Nothing to save'); return }
+    if (f.handoverOneDriveUrl.trim() && !/^https?:\/\/.+/i.test(f.handoverOneDriveUrl.trim())) {
+      toast.error('Handover link must be a valid URL'); return
+    }
     setSaving(true)
     try {
-      const { data } = await api.put(`/projects/${proj.id}`, payload)
-      onApplied(data)
-      toast.success('Project updated')
-    } catch (e: any) {
-      if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') {
-        // Not allowed to apply directly — file the change for admin approval.
-        await api.post('/approval-requests', { entityType: 'project', entityId: proj.id, action: 'edit', payload, reason: `Project cost/detail edit on ${proj.title}` })
-        toast.success('Sent to admin for approval')
-      } else {
-        toast.error(e?.response?.data?.error ?? 'Save failed')
+      let applied: unknown = null
+      if (Object.keys(payload).length) {
+        try {
+          // Echo back the version we loaded so a concurrent edit is rejected
+          // rather than silently overwritten.
+          const { data } = await api.put(`/projects/${proj.id}`, { ...payload, expectedUpdatedAt: proj.updatedAt })
+          applied = data
+        } catch (e: any) {
+          if (handleVersionConflict(e, () => qc.invalidateQueries({ queryKey: ['projects'] }))) {
+            setSaving(false)
+            return
+          }
+          if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') {
+            await requestApproval('edit', payload, `Project cost/detail edit on ${proj.title}`)
+          } else throw e
+        }
       }
+
+      // Reassignment goes to its own route so the ASSIGNED timeline event fires
+      // and the assign-specific approval gate applies.
+      if (pmChanged) {
+        const assignPayload = { assignedPMId: f.assignedPMId || null }
+        try {
+          const { data } = await api.patch(`/projects/${proj.id}/assign`, assignPayload)
+          applied = data ?? applied
+        } catch (e: any) {
+          if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') {
+            await requestApproval('assign', assignPayload, `Reassign project manager on ${proj.title}`)
+          } else throw e
+        }
+      }
+
+      if (applied) { onApplied(applied as Partial<ProjectAPI>); toast.success('Project updated') }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Save failed')
     } finally { setSaving(false) }
   }
 
@@ -384,24 +460,368 @@ function EditableProjectPanel({ proj, symbol, onApplied }: { proj: ProjectWithUI
             <option value="">— None —</option>{users.map((u: any) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select></div>
       </div>
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Handover Document Link</label>
+        <input
+          type="url"
+          placeholder="https://... (any shareable link)"
+          value={f.handoverOneDriveUrl}
+          onChange={e => set('handoverOneDriveUrl', e.target.value)}
+          style={inp}
+          disabled={!can('project', 'edit')}
+        />
+        {f.handoverOneDriveUrl && (
+          <a href={f.handoverOneDriveUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#5D78FF', marginTop: 4, display: 'inline-block' }}>
+            Open link ↗
+          </a>
+        )}
+      </div>
       {can('project', 'edit') && (
         <button onClick={save} disabled={saving} style={{ width: '100%', padding: '9px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: saving ? 0.6 : 1 }}>
-          {saving ? 'Saving…' : useAuthStore.getState().user?.roleName === 'SuperAdmin' ? 'Save changes' : 'Propose changes (needs admin approval)'}
+          {saving ? 'Saving…' : user?.roleName === 'SuperAdmin' ? 'Save changes' : 'Propose changes (needs admin approval)'}
         </button>
       )}
     </div>
   )
 }
 
+// ─── Budget allocation (cost centres) ─────────────────────────────────────────
+
+interface BudgetLine {
+  id: string
+  label: string
+  planned: number
+  actual: number
+  actualSourceKey: string | null
+  manualActual: number | null
+  sortOrder: number
+}
+
+function ProjectBudgetPanel({ proj, symbol }: {
+  proj: ProjectWithUI; symbol: string; onApplied: (p: Partial<ProjectAPI>) => void
+}) {
+  const can = useAuthStore(s => s.can)
+  const editable = can('project', 'edit')
+  const qc = useQueryClient()
+
+  const { data: lines = [], isLoading } = useQuery<BudgetLine[]>({
+    queryKey: ['project-budget-lines', proj.id],
+    queryFn: () => api.get(`/projects/${proj.id}/budget-lines`).then(r => r.data),
+  })
+
+  // Local text buffers so typing doesn't fight the server value between keystrokes.
+  const [planned, setPlanned] = useState<Record<string, string>>({})
+  const [manualActual, setManualActual] = useState<Record<string, string>>({})
+  const [newLabel, setNewLabel] = useState('')
+
+  const [label, setLabel] = useState<Record<string, string>>({})
+  const labelOf = (l: BudgetLine) => (label[l.id] !== undefined ? label[l.id] : l.label)
+  const plannedOf = (l: BudgetLine) => (planned[l.id] !== undefined ? planned[l.id] : String(l.planned))
+  const actualOf = (l: BudgetLine) =>
+    l.actualSourceKey ? l.actual : Number(manualActual[l.id] !== undefined ? manualActual[l.id] : (l.manualActual ?? 0))
+
+  const money = (n: number) => `${symbol}${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+  const plannedTotal = lines.reduce((s, l) => s + (Number(plannedOf(l)) || 0), 0)
+  const actualTotal = lines.reduce((s, l) => s + actualOf(l), 0)
+  const projectBudget = proj.budget ?? 0
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['project-budget-lines', proj.id] })
+
+  const updateLine = useMutation({
+    mutationFn: ({ id, ...data }: { id: string; planned?: number; manualActual?: number; label?: string }) =>
+      api.patch(`/projects/${proj.id}/budget-lines/${id}`, data).then(r => r.data),
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(e?.response?.data?.error ?? 'Save failed'),
+  })
+  const addLine = useMutation({
+    mutationFn: (label: string) => api.post(`/projects/${proj.id}/budget-lines`, { label }).then(r => r.data),
+    onSuccess: () => { setNewLabel(''); invalidate() },
+    onError: (e: any) => toast.error(e?.response?.data?.error ?? 'Failed to add cost centre'),
+  })
+  const removeLine = useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${proj.id}/budget-lines/${id}`),
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(e?.response?.data?.error ?? 'Failed to remove cost centre'),
+  })
+
+  const cell: React.CSSProperties = { padding: '9px 12px', fontSize: 12, color: '#374557' }
+
+  if (isLoading) return <Spinner label="Loading budget…" />
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+        <StatCard label="Project Budget" value={money(projectBudget)} color="#5D78FF" bg="#E8EDFF" />
+        <StatCard label="Allocated" value={money(plannedTotal)} color={plannedTotal > projectBudget && projectBudget > 0 ? '#FF5353' : '#374557'} bg="#FAFBFF" />
+        <StatCard label="Actual Spend" value={money(actualTotal)} color="#FF9B52" bg="#FFF5EE" />
+        <StatCard label="Variance" value={money(plannedTotal - actualTotal)} color={plannedTotal - actualTotal < 0 ? '#FF5353' : '#2BC155'} bg="#E7FAF0" />
+      </div>
+
+      {projectBudget > 0 && plannedTotal > projectBudget && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#FFF0F0', border: '1px solid #FFD9D9', borderRadius: 10, padding: '10px 12px' }}>
+          <AlertTriangle size={14} style={{ color: '#FF5353' }} />
+          <p style={{ fontSize: 12, color: '#FF5353', fontWeight: 600 }}>
+            Allocation exceeds the project budget by {money(plannedTotal - projectBudget)}.
+          </p>
+        </div>
+      )}
+
+      <div style={{ border: '1px solid #F0F1F5', borderRadius: 12, overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#FAFBFF', borderBottom: '1px solid #F0F1F5' }}>
+              {['Cost Centre', `Planned (${symbol})`, `Actual (${symbol})`, 'Variance', ''].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '9px 12px', fontSize: 10, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.4 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {lines.map(l => {
+              const plannedVal = Number(plannedOf(l)) || 0
+              const actual = actualOf(l)
+              const variance = plannedVal - actual
+              return (
+                <tr key={l.id} style={{ borderBottom: '1px solid #F4F5F9' }}>
+                  <td style={{ padding: '6px 12px' }}>
+                    <input
+                      value={labelOf(l)}
+                      disabled={!editable}
+                      onChange={e => setLabel(p => ({ ...p, [l.id]: e.target.value }))}
+                      onBlur={e => e.target.value.trim() && e.target.value !== l.label && updateLine.mutate({ id: l.id, label: e.target.value.trim() })}
+                      style={{ width: '100%', padding: '4px 6px', borderRadius: 6, border: '1px solid transparent', fontSize: 12, fontWeight: 600, color: '#374557', outline: 'none', boxSizing: 'border-box', background: 'transparent' }}
+                    />
+                  </td>
+                  <td style={{ padding: '6px 12px' }}>
+                    <input
+                      type="number" min="0" value={plannedOf(l)}
+                      disabled={!editable}
+                      onChange={e => setPlanned(p => ({ ...p, [l.id]: e.target.value }))}
+                      onBlur={e => updateLine.mutate({ id: l.id, planned: Math.max(0, Number(e.target.value) || 0) })}
+                      style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', outline: 'none', boxSizing: 'border-box', background: editable ? '#fff' : '#F4F5F9' }}
+                    />
+                  </td>
+                  <td style={cell}>
+                    {l.actualSourceKey ? money(actual) : (
+                      <input
+                        type="number" min="0" value={actualOf(l)}
+                        disabled={!editable}
+                        onChange={e => setManualActual(p => ({ ...p, [l.id]: e.target.value }))}
+                        onBlur={e => updateLine.mutate({ id: l.id, manualActual: Math.max(0, Number(e.target.value) || 0) })}
+                        style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', outline: 'none', boxSizing: 'border-box', background: editable ? '#fff' : '#F4F5F9' }}
+                      />
+                    )}
+                  </td>
+                  <td style={{ ...cell, fontWeight: 600, color: variance < 0 ? '#FF5353' : '#2BC155' }}>
+                    {money(variance)}
+                  </td>
+                  <td style={cell}>
+                    {editable && (
+                      <button onClick={() => removeLine.mutate(l.id)} title="Remove cost centre"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE', padding: 4 }}>
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+            <tr style={{ background: '#FAFBFF' }}>
+              <td style={{ ...cell, fontWeight: 700 }}>Total</td>
+              <td style={{ ...cell, fontWeight: 700 }}>{money(plannedTotal)}</td>
+              <td style={{ ...cell, fontWeight: 700 }}>{money(actualTotal)}</td>
+              <td style={{ ...cell, fontWeight: 700, color: plannedTotal - actualTotal < 0 ? '#FF5353' : '#2BC155' }}>{money(plannedTotal - actualTotal)}</td>
+              <td style={cell} />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {editable && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input
+            value={newLabel}
+            onChange={e => setNewLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && newLabel.trim()) addLine.mutate(newLabel.trim()) }}
+            placeholder="New cost centre name"
+            style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <button
+            onClick={() => newLabel.trim() && addLine.mutate(newLabel.trim())}
+            disabled={!newLabel.trim() || addLine.isPending}
+            style={{ padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: newLabel.trim() ? 1 : 0.5, display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <Plus size={13} /> Add
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── ProjectScopePanel — Scope of Supply ───────────────────────────────────────
+// Multiple lines per project (e.g. "Heat Pump 5TR Unit 1", "Solar Thermal
+// 2000LPD"). Manufacturing work orders and Installations each pick one line
+// from this list to declare what they're fulfilling.
+
+interface ScopeItem {
+  id: string; title: string; description?: string; productType?: string
+  quantity: number; unitPrice: number; totalPrice: number
+  hsnCode?: string; gstRate: number; status: string
+}
+const SCOPE_STATUSES = ['Planned', 'InProgress', 'Completed', 'Cancelled']
+const scopeStatusStyle: Record<string, { bg: string; color: string }> = {
+  Planned:    { bg: '#F4F5F9', color: '#6B7280' },
+  InProgress: { bg: '#E8EDFF', color: '#5D78FF' },
+  Completed:  { bg: '#E7FAF0', color: '#2BC155' },
+  Cancelled:  { bg: '#FEE2E2', color: '#991B1B' },
+}
+
+function ProjectScopePanel({ proj, symbol }: { proj: ProjectWithUI; symbol: string }) {
+  const can = useAuthStore(s => s.can)
+  const editable = can('project', 'edit')
+  const qc = useQueryClient()
+
+  const { data: items = [], isLoading } = useQuery<ScopeItem[]>({
+    queryKey: ['project-scope-items', proj.id],
+    queryFn: () => api.get(`/projects/${proj.id}/scope-items`).then(r => r.data),
+  })
+
+  const blankForm = { title: '', productType: '', quantity: '1', unitPrice: '0', hsnCode: '' }
+  const [form, setForm] = useState(blankForm)
+  const [showForm, setShowForm] = useState(false)
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['project-scope-items', proj.id] })
+
+  const addItem = useMutation({
+    mutationFn: (data: typeof blankForm) => api.post(`/projects/${proj.id}/scope-items`, {
+      title: data.title.trim(), productType: data.productType || undefined,
+      quantity: Number(data.quantity) || 1, unitPrice: Number(data.unitPrice) || 0,
+      hsnCode: data.hsnCode || undefined,
+    }).then(r => r.data),
+    onSuccess: () => { setForm(blankForm); setShowForm(false); invalidate() },
+    onError: (e: any) => toast.error(e?.response?.data?.error ?? 'Failed to add scope item'),
+  })
+  const updateItem = useMutation({
+    mutationFn: ({ id, ...data }: { id: string; status?: string }) =>
+      api.patch(`/projects/${proj.id}/scope-items/${id}`, data).then(r => r.data),
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(e?.response?.data?.error ?? 'Update failed'),
+  })
+  const removeItem = useMutation({
+    mutationFn: (id: string) => api.delete(`/projects/${proj.id}/scope-items/${id}`),
+    onSuccess: invalidate,
+    onError: (e: any) => toast.error(e?.response?.data?.error ?? 'Failed to remove — check it is not assigned to a work order or installation'),
+  })
+
+  const money = (n: number) => `${symbol}${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+  const totalValue = items.reduce((s, i) => s + i.totalPrice, 0)
+
+  if (isLoading) return <Spinner label="Loading scope of supply…" />
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+        <StatCard label="Scope Lines" value={String(items.length)} color="#5D78FF" bg="#E8EDFF" />
+        <StatCard label="Total Value" value={money(totalValue)} color="#2BC155" bg="#E7FAF0" />
+        <StatCard label="Completed" value={String(items.filter(i => i.status === 'Completed').length)} color="#374557" bg="#FAFBFF" />
+      </div>
+
+      {items.length === 0 ? (
+        <p style={{ fontSize: 12, color: '#B1B1BE', padding: '20px 0', textAlign: 'center' }}>No scope of supply defined yet.</p>
+      ) : (
+        <div style={{ border: '1px solid #F0F1F5', borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#FAFBFF', borderBottom: '1px solid #F0F1F5' }}>
+                {['Item', 'Type', 'Qty', `Unit Price (${symbol})`, `Total (${symbol})`, 'Status', ''].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '9px 12px', fontSize: 10, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.4 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(item => (
+                <tr key={item.id} style={{ borderBottom: '1px solid #F4F5F9' }}>
+                  <td style={{ padding: '9px 12px', fontSize: 12, fontWeight: 600, color: '#374557' }}>{item.title}</td>
+                  <td style={{ padding: '9px 12px', fontSize: 12, color: '#B1B1BE' }}>{item.productType || '—'}</td>
+                  <td style={{ padding: '9px 12px', fontSize: 12, color: '#374557' }}>{item.quantity}</td>
+                  <td style={{ padding: '9px 12px', fontSize: 12, color: '#374557' }}>{money(item.unitPrice)}</td>
+                  <td style={{ padding: '9px 12px', fontSize: 12, fontWeight: 600, color: '#374557' }}>{money(item.totalPrice)}</td>
+                  <td style={{ padding: '9px 12px' }}>
+                    <select
+                      value={item.status} disabled={!editable}
+                      onChange={e => updateItem.mutate({ id: item.id, status: e.target.value })}
+                      style={{ fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 20, border: 'none', background: scopeStatusStyle[item.status]?.bg, color: scopeStatusStyle[item.status]?.color, cursor: editable ? 'pointer' : 'default' }}
+                    >
+                      {SCOPE_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ padding: '9px 12px' }}>
+                    {editable && (
+                      <button onClick={() => removeItem.mutate(item.id)} title="Remove scope item"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE', padding: 4 }}>
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editable && (
+        showForm ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, border: '1px solid #F0F1F5', borderRadius: 10, padding: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8 }}>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Heat Pump 5TR Unit 1" style={scopeInp} />
+              <input value={form.productType} onChange={e => setForm(f => ({ ...f, productType: e.target.value }))} placeholder="Product type" style={scopeInp} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <input type="number" min="1" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} placeholder="Qty" style={scopeInp} />
+              <input type="number" min="0" value={form.unitPrice} onChange={e => setForm(f => ({ ...f, unitPrice: e.target.value }))} placeholder="Unit price" style={scopeInp} />
+              <input value={form.hsnCode} onChange={e => setForm(f => ({ ...f, hsnCode: e.target.value }))} placeholder="HSN code" style={scopeInp} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => { setShowForm(false); setForm(blankForm) }} style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', background: '#fff', color: '#374557', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => form.title.trim() && addItem.mutate(form)} disabled={!form.title.trim() || addItem.isPending}
+                style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: form.title.trim() ? 1 : 0.5 }}>
+                Add Scope Item
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setShowForm(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: '1px dashed #D5D5D5', background: 'none', color: '#5D78FF', cursor: 'pointer', alignSelf: 'flex-start' }}>
+            <Plus size={13} /> Add Scope Item
+          </button>
+        )
+      )}
+    </div>
+  )
+}
+const scopeInp: React.CSSProperties = { padding: '8px 10px', borderRadius: 7, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', outline: 'none', boxSizing: 'border-box' }
+
 // ─── ProjectDetailModal ───────────────────────────────────────────────────────
 
 function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onApplied, saving }: {
   proj: ProjectWithUI; symbol: string; onClose: () => void; onEdit: () => void
-  onSaveMeta: (v: { actualBudget: number; progress: number }) => Promise<void>
+  /** `progress` is omitted when milestones drive it locally — see saveMeta. */
+  onSaveMeta: (v: { actualBudget: number; progress?: number }) => Promise<void>
   onApplied: (p: Partial<ProjectAPI>) => void; saving: boolean
 }) {
-  const [tab, setTab] = useState<'overview' | 'milestones' | 'gantt' | 'erp' | 'installations' | 'billing'>('overview')
-  const [data, setData] = useState<ProjData>(() => loadProjData(proj.id))
+  const [tab, setTab] = useState<'overview' | 'scope' | 'budget' | 'milestones' | 'gantt' | 'erp' | 'installations' | 'billing' | 'reimbursements' | 'discussions'>('overview')
+  // Seed from the project on first load so a stale/absent localStorage entry
+  // never shows an out-of-date progress number; local milestone/Gantt edits still
+  // persist across sessions once seeded.
+  const [data, setData] = useState<ProjData>(() => loadProjData(proj.id, proj))
+  useEffect(() => {
+    if (proj.progress != null && proj.progress !== data.progress) {
+      setData(d => ({ ...d, progress: proj.progress! }))
+    }
+    // Only re-sync when the server's progress value changes, not on every local edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proj.id, proj.progress])
   const [actualBudget, setActualBudget] = useState<string>(proj.actualBudget != null ? String(proj.actualBudget) : '')
   const [savedOk, setSavedOk] = useState(false)
   const [saveErr, setSaveErr] = useState('')
@@ -448,7 +868,11 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
   function deleteGt(id: string) { update({ ...data, ganttTasks: data.ganttTasks.filter(t => t.id !== id) }) }
 
   const doneMs = data.milestones.filter(m => m.done).length
-  const autoProgress = data.milestones.length > 0 ? Math.round((doneMs / data.milestones.length) * 100) : data.progress
+  // Milestones only drive the number while auto-sync is on; with it off the
+  // stored value is authoritative and milestone edits stop overwriting it.
+  const autoSync = proj.autoProgress !== false
+  const milestoneProgress = data.milestones.length > 0 ? Math.round((doneMs / data.milestones.length) * 100) : data.progress
+  const autoProgress = autoSync ? milestoneProgress : data.progress
   const daysLeft = proj.endDate ? Math.ceil((new Date(proj.endDate).getTime() - Date.now()) / 864e5) : null
   const ageStart = proj.startDate ?? proj.createdAt
   const ageD = Math.floor((Date.now() - new Date(ageStart).getTime()) / 864e5)
@@ -460,7 +884,9 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
   const spentPct = Math.round(spentPctRaw)
   const spentPctDisplay = spentPctRaw > 0 && spentPctRaw < 1 ? spentPctRaw.toFixed(1) : String(spentPct)
   const overrunTier = spentPct >= 100 ? 100 : spentPct >= 75 ? 75 : spentPct >= 50 ? 50 : 0
-  const lagging = overrunTier > 0 && autoProgress < overrunTier
+  // Compare progress to actual spend percentage, not the coarse 50/75/100 tier —
+  // otherwise a project at 74% spent / 60% progress wouldn't flag as lagging.
+  const lagging = spentPct > 0 && autoProgress < spentPct
   const overBudget = spentPct >= 100
   const showAlert = overBudget || lagging
   const alertColor = overBudget || overrunTier >= 75 ? '#FF5353' : '#FF9B52'
@@ -468,7 +894,11 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
   async function saveMeta() {
     setSavedOk(false); setSaveErr('')
     try {
-      await onSaveMeta({ actualBudget: spent, progress: autoProgress })
+      // Milestone-derived progress is a local view, not an authoritative value —
+      // pushing it on every save would clobber progress set manually or by ERP.
+      // With auto-sync off the manual number is always what gets written.
+      const progress = autoSync && data.milestones.length > 0 ? undefined : data.progress
+      await onSaveMeta({ actualBudget: spent, progress })
       setSavedOk(true)
       setTimeout(() => setSavedOk(false), 2500)
     } catch (e: unknown) {
@@ -479,7 +909,7 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }} onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={{ background: '#fff', borderRadius: 16, width: 'min(840px, 96vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
+      <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 16, width: 'min(840px, 96vw)', maxHeight: '92vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.2)' }}>
 
         {/* Header */}
         <div style={{ padding: '18px 24px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -490,6 +920,9 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
             <div>
               <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>{proj.title}</p>
               <p style={{ fontSize: 11, color: '#B1B1BE' }}>{proj.clientName}</p>
+              {proj.leadNumber && (
+                <p style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: '#2BC155', marginTop: 2 }}>{proj.leadNumber}</p>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -504,11 +937,15 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
         <div style={{ display: 'flex', padding: '10px 24px 0', borderBottom: '1px solid #F0F1F5', flexShrink: 0, overflowX: 'auto' }}>
           {([
             ['overview', 'Overview'],
+            ['scope', 'Scope of Supply'],
+            ['budget', 'Budget Allocation'],
             ['milestones', `Milestones (${data.milestones.length})`],
             ['gantt', 'Gantt Chart'],
             ['installations', 'Installations'],
             ['erp', 'ERP / Manufacturing'],
             ['billing', 'Billing'],
+            ['reimbursements', 'Reimbursements'],
+            ['discussions', 'Discussions'],
           ] as [typeof tab, string][]).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t)} style={{ padding: '8px 18px', fontSize: 12, fontWeight: 600, border: 'none', background: 'none', cursor: 'pointer', color: tab === t ? '#5D78FF' : '#B1B1BE', borderBottom: `2px solid ${tab === t ? '#5D78FF' : 'transparent'}`, whiteSpace: 'nowrap' }}>
               {label}
@@ -594,12 +1031,38 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
                 <div style={{ height: 10, borderRadius: 10, background: '#F0F1F5', overflow: 'hidden' }}>
                   <div style={{ height: '100%', width: `${autoProgress}%`, background: 'linear-gradient(90deg,#5D78FF,#2BC155)', borderRadius: 10, transition: 'width 0.3s' }} />
                 </div>
-                {data.milestones.length === 0 && (
+                {/* Auto-sync governs whether milestones may overwrite progress. */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={autoSync}
+                    onChange={async e => {
+                      const next = e.target.checked
+                      try {
+                        const { data: updated } = await api.put(`/projects/${proj.id}`, { autoProgress: next })
+                        onApplied(updated)
+                      } catch {
+                        toast.error('Could not change progress mode')
+                      }
+                    }}
+                    style={{ accentColor: '#5D78FF' }}
+                  />
+                  <span style={{ fontSize: 11, color: '#8A8FA8' }}>
+                    Auto-sync progress from milestones
+                    {autoSync && data.milestones.length > 0 && ` (${doneMs}/${data.milestones.length} done)`}
+                  </span>
+                </label>
+
+                {(!autoSync || data.milestones.length === 0) && (
                   <div style={{ marginTop: 10 }}>
                     <input type="range" min={0} max={100} value={data.progress}
                       onChange={e => update({ ...data, progress: Number(e.target.value) })}
                       style={{ width: '100%', accentColor: '#5D78FF' }} />
-                    <p style={{ fontSize: 10, color: '#B1B1BE', textAlign: 'center', marginTop: 2 }}>Drag to set manually · Add milestones for auto-tracking</p>
+                    <p style={{ fontSize: 10, color: '#B1B1BE', textAlign: 'center', marginTop: 2 }}>
+                      {autoSync
+                        ? 'Drag to set manually · Add milestones for auto-tracking'
+                        : 'Manual mode · Milestones will not overwrite this value'}
+                    </p>
                   </div>
                 )}
               </div>
@@ -611,6 +1074,21 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
                 <div style={{ gridColumn: '1 / -1' }}><AssignPMSE proj={proj} /></div>
                 <div><p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Department</p><p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.department?.name ?? '—'}</p></div>
                 <div><p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Linked Deal</p><p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.deal?.title ?? '—'}</p></div>
+                {/* Spec inherited from the deal */}
+                <div>
+                  <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Capacity</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>
+                    {proj.capacityValue != null ? `${proj.capacityValue} ${proj.capacityUnit?.name ?? ''}`.trim() : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Temp Range (°C)</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>
+                    {proj.tempRangeMin != null || proj.tempRangeMax != null
+                      ? `${proj.tempRangeMin ?? '—'} to ${proj.tempRangeMax ?? '—'}`
+                      : '—'}
+                  </p>
+                </div>
                 {proj.warrantyPeriod && <>
                   <div><p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Warranty Period</p><p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.warrantyPeriod} months</p></div>
                   <div><p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Warranty</p><p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.warrantyStart?.slice(0, 10) ?? '?'} → {proj.warrantyEnd?.slice(0, 10) ?? '?'}</p></div>
@@ -621,6 +1099,13 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
                     <p style={{ fontSize: 12, color: '#374557', lineHeight: 1.6 }}>{proj.notes}</p>
                   </div>
                 )}
+              </div>
+
+              {/* A completed project moves into its ESCO revenue-share phase here. */}
+
+              {/* Scope of supply carried from the originating deal */}
+              <div style={{ background: '#fff', borderRadius: 12, padding: 16, border: '1px solid #F0F1F5' }}>
+                <ScopeItemsPanel entityType="Project" entityId={proj.id} showInventory />
               </div>
 
               {/* Cost breakdown (ERP fields) */}
@@ -672,6 +1157,16 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
                 </div>
               )}
             </div>
+          )}
+
+          {/* Scope of Supply — the lines Manufacturing and Installations fulfil against */}
+          {tab === 'scope' && (
+            <ProjectScopePanel proj={proj} symbol={symbol} />
+          )}
+
+          {/* Budget allocation across ESCO cost centres */}
+          {tab === 'budget' && (
+            <ProjectBudgetPanel proj={proj} symbol={symbol} onApplied={onApplied} />
           )}
 
           {/* Milestones */}
@@ -778,17 +1273,28 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
 
           {/* Installations */}
           {tab === 'installations' && (
-            <InstallationsTab projectId={proj.id} />
+            <InstallationsTab projectId={proj.id} companyId={proj.companyId} />
           )}
 
           {/* ERP / Manufacturing */}
           {tab === 'erp' && (
-            <ProjectERPTab projectId={proj.id} symbol={symbol} />
+            <ProjectERPTab projectId={proj.id} symbol={symbol} projectTitle={proj.title} progress={proj.progress ?? 0} remainingBudget={proj.remainingBudget ?? undefined} />
           )}
 
           {/* Billing */}
           {tab === 'billing' && (
             <ProjectBillingTab projectId={proj.id} symbol={symbol} />
+          )}
+
+          {/* Reimbursements booked against this project */}
+          {tab === 'reimbursements' && (
+            <EntityReimbursements entityType="Project" entityId={proj.id} />
+          )}
+
+          {/* Discussions — includes native Project discussions plus any Deal/Lead
+              discussion the Sales Manager chose to send here at or after handover */}
+          {tab === 'discussions' && (
+            <DiscussionPanel entityType="Project" entityId={proj.id} />
           )}
 
         </div>
@@ -799,66 +1305,25 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
 
 // ─── AssignPMSE ───────────────────────────────────────────────────────────────
 
+/**
+ * Read-only view of the project's PM and Service Engineer. Assignment is not
+ * editable inline — it goes through the approval flow on the Approvals screen,
+ * so a user who can merely view a project can't reassign it from here.
+ */
 function AssignPMSE({ proj }: { proj: ProjectWithUI }) {
-  const can = useAuthStore(s => s.can)
-  const { data: users = [] } = useUsers(can('hr_user', 'read_all'))
-  const assign = useAssignProject()
-  const qc = useQueryClient()
-  const [editing, setEditing] = useState(false)
-  const [pmId, setPmId] = useState(proj.assignedPMId ?? '')
-  const [seId, setSeId] = useState(proj.assignedSEId ?? '')
-
-  const engineers = users.filter((u: any) => ['Engineer', 'SeniorEngineer', 'ServiceEngineer'].includes(u.role))
-  const managers = users.filter((u: any) => ['Manager', 'ProjectHead', 'SuperAdmin', 'BusinessHead'].includes(u.role))
-
-  async function save() {
-    await assign.mutateAsync({ id: proj.id, assignedPMId: pmId || null, assignedSEId: seId || null })
-    qc.invalidateQueries({ queryKey: ['projects'] })
-    setEditing(false)
-  }
-
-  if (!editing) return (
+  return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
       <div>
         <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Project Manager</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.assignedPM?.name ?? '—'}</p>
-          <button onClick={() => setEditing(true)} style={{ fontSize: 10, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Edit</button>
-        </div>
+        <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.assignedPM?.name ?? '—'}</p>
       </div>
       <div>
         <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 2 }}>Service Engineer</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.assignedSE?.name ?? '—'}</p>
-          {!proj.assignedPM && <button onClick={() => setEditing(true)} style={{ fontSize: 10, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Edit</button>}
-        </div>
+        <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>{proj.assignedSE?.name ?? '—'}</p>
       </div>
-    </div>
-  )
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <p style={{ fontSize: 11, fontWeight: 700, color: '#374557' }}>Assign PM & Engineer</p>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-        <div>
-          <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 4 }}>Project Manager</p>
-          <select value={pmId} onChange={e => setPmId(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557' }}>
-            <option value="">— None —</option>
-            {managers.map((u: any) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-          </select>
-        </div>
-        <div>
-          <p style={{ fontSize: 10, color: '#B1B1BE', marginBottom: 4 }}>Service Engineer</p>
-          <select value={seId} onChange={e => setSeId(e.target.value)} style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557' }}>
-            <option value="">— None —</option>
-            {engineers.map((u: any) => <option key={u.id} value={u.id}>{u.name} ({u.role})</option>)}
-          </select>
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button onClick={() => setEditing(false)} style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-        <button onClick={save} disabled={assign.isPending} style={{ flex: 1, padding: '7px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>{assign.isPending ? 'Saving…' : 'Save'}</button>
-      </div>
+      <p style={{ gridColumn: '1 / -1', fontSize: 10, color: '#B1B1BE', margin: 0 }}>
+        Assignment changes are made through the approval flow.
+      </p>
     </div>
   )
 }
@@ -873,19 +1338,18 @@ const INST_STATUS_STYLE: Record<string, { bg: string; color: string }> = {
 }
 const INST_STATUS_LABEL: Record<string, string> = { Scheduled: 'Scheduled', InProgress: 'In Progress', Completed: 'Completed', OnHold: 'On Hold' }
 
-function InstallationsTab({ projectId }: { projectId: string }) {
+function InstallationsTab({ projectId, companyId }: { projectId: string; companyId: string }) {
   const { data: installs = [], isLoading } = useInstallations({ projectId })
   const updateStatus = useUpdateInstallationStatus()
   const deleteInstall = useDeleteInstallation()
   const createInstall = useCreateInstallation()
-  const { accounts } = useCrmData()
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ title: '', scheduledDate: '', notes: '' })
+  const [deleteInstallId, setDeleteInstallId] = useState<string | null>(null)
 
   async function handleCreate() {
     if (!form.title.trim()) return
-    const proj = accounts[0]
-    await createInstall.mutateAsync({ title: form.title, projectId, scheduledDate: form.scheduledDate || undefined, notes: form.notes || undefined, companyId: proj?.id ?? '' })
+    await createInstall.mutateAsync({ title: form.title, projectId, scheduledDate: form.scheduledDate || undefined, notes: form.notes || undefined, companyId })
     setForm({ title: '', scheduledDate: '', notes: '' }); setShowForm(false)
   }
 
@@ -944,11 +1408,22 @@ function InstallationsTab({ projectId }: { projectId: string }) {
                 >
                   {Object.entries(INST_STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
-                <button onClick={() => { if (confirm('Delete this installation?')) deleteInstall.mutate(inst.id) }} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><Trash2 size={13} /></button>
+                <button onClick={() => setDeleteInstallId(inst.id)} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><Trash2 size={13} /></button>
               </div>
             )
           })}
         </div>
+      )}
+
+      {deleteInstallId && (
+        <ConfirmDialog
+          title="Delete this installation?"
+          message="The installation record and its schedule will be removed. This cannot be undone."
+          confirmLabel="Delete"
+          isPending={deleteInstall.isPending}
+          onCancel={() => setDeleteInstallId(null)}
+          onConfirm={() => { deleteInstall.mutate(deleteInstallId); setDeleteInstallId(null) }}
+        />
       )}
     </div>
   )
@@ -979,6 +1454,8 @@ function ProjectBillingTab({ projectId, symbol }: { projectId: string; symbol: s
   const [statusFilter, setStatusFilter] = useState('')
   const [payFor, setPayFor] = useState<BillingInvoice | null>(null)
   const [payAmount, setPayAmount] = useState('')
+  const [sendFor, setSendFor] = useState<BillingInvoice | null>(null)
+  const [cancelFor, setCancelFor] = useState<BillingInvoice | null>(null)
 
   const canGenerate = can('invoice', 'create')
   const canEdit = can('invoice', 'edit')
@@ -1005,9 +1482,13 @@ function ProjectBillingTab({ projectId, symbol }: { projectId: string; symbol: s
 
   async function doRecordPayment() {
     if (!payFor || !payAmount || Number(payAmount) <= 0) { toast.error('Enter a valid amount'); return }
-    await recordPayment.mutateAsync({ invoiceId: payFor.id, amount: Number(payAmount) })
-    toast.success('Payment recorded')
-    setPayFor(null); setPayAmount('')
+    try {
+      await recordPayment.mutateAsync({ invoiceId: payFor.id, amount: Number(payAmount) })
+      toast.success('Payment recorded')
+      setPayFor(null); setPayAmount('')
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Failed to record payment')
+    }
   }
 
   const kpi = (label: string, value: string, color: string) => (
@@ -1093,13 +1574,13 @@ function ProjectBillingTab({ projectId, symbol }: { projectId: string; symbol: s
                       <td style={{ padding: '8px 12px' }}>
                         <div style={{ display: 'flex', gap: 4 }}>
                           {canEdit && inv.status === 'Draft' && (
-                            <button onClick={() => sendInvoice.mutate(inv.id)} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 6, border: 'none', background: '#EEF2FF', color: '#5D78FF', cursor: 'pointer' }}>Send</button>
+                            <button onClick={() => setSendFor(inv)} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 6, border: 'none', background: '#EEF2FF', color: '#5D78FF', cursor: 'pointer' }}>Send</button>
                           )}
                           {canEdit && !['Paid', 'Cancelled'].includes(inv.status) && (
                             <button onClick={() => { setPayFor(inv); setPayAmount(String(outstandingAmt)) }} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 6, border: 'none', background: '#E7FAF0', color: '#2BC155', cursor: 'pointer' }}>Pay</button>
                           )}
                           {canCancel && inv.status !== 'Cancelled' && (
-                            <button onClick={() => { if (confirm('Cancel this invoice?')) cancelInvoice.mutate(inv.id) }} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 6, border: 'none', background: '#FFF0F0', color: '#FF5353', cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={() => setCancelFor(inv)} style={{ fontSize: 10, padding: '4px 8px', borderRadius: 6, border: 'none', background: '#FFF0F0', color: '#FF5353', cursor: 'pointer' }}>Cancel</button>
                           )}
                         </div>
                       </td>
@@ -1124,41 +1605,151 @@ function ProjectBillingTab({ projectId, symbol }: { projectId: string; symbol: s
       {/* Record payment modal */}
       {payFor && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 22, width: 'min(340px, 100%)' }}>
+          <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 14, padding: 22, width: 'min(340px, 100%)' }}>
             <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 4 }}>Record Payment</p>
             <p style={{ fontSize: 12, color: '#8A8FA8', marginBottom: 14 }}>Invoice #{payFor.number} — outstanding {symbol}{(payFor.amount - payFor.paidAmount).toLocaleString()}</p>
-            <input type="number" min="0" value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="Amount" style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 13, marginBottom: 14, boxSizing: 'border-box' }} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => setPayFor(null)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={doRecordPayment} disabled={recordPayment.isPending} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>{recordPayment.isPending ? 'Saving…' : 'Record'}</button>
-            </div>
+            {(() => {
+              const outstanding = payFor.amount - payFor.paidAmount
+              const entered = Number(payAmount)
+              const over = Number.isFinite(entered) && entered > outstanding
+              const invalid = !payAmount.trim() || !Number.isFinite(entered) || entered <= 0 || over
+              return (
+                <>
+                  <input
+                    type="number" min="0" max={outstanding} step="0.01"
+                    value={payAmount}
+                    onChange={e => setPayAmount(e.target.value)}
+                    placeholder="Amount"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: `1px solid ${over ? '#FF5353' : '#F0F1F5'}`, fontSize: 13, marginBottom: over ? 6 : 14, boxSizing: 'border-box' }}
+                  />
+                  {over && (
+                    <p style={{ fontSize: 11, color: '#FF5353', fontWeight: 600, marginBottom: 10 }}>
+                      Cannot exceed the outstanding {symbol}{outstanding.toLocaleString()}
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setPayFor(null)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+                    <button
+                      onClick={doRecordPayment}
+                      disabled={recordPayment.isPending || invalid}
+                      style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: invalid ? '#C7D2FE' : '#5D78FF', color: '#fff', cursor: invalid ? 'not-allowed' : 'pointer' }}
+                    >
+                      {recordPayment.isPending ? 'Saving…' : 'Record'}
+                    </button>
+                  </div>
+                </>
+              )
+            })()}
           </div>
         </div>
+      )}
+
+      {sendFor && (
+        <ConfirmDialog
+          title="Send this invoice?"
+          message={`Invoice #${sendFor.number} will be sent to the customer and can no longer be edited as a draft.`}
+          confirmLabel="Send"
+          danger={false}
+          isPending={sendInvoice.isPending}
+          onCancel={() => setSendFor(null)}
+          onConfirm={() => { sendInvoice.mutate(sendFor.id); setSendFor(null) }}
+        />
+      )}
+
+      {cancelFor && (
+        <ConfirmDialog
+          title="Cancel this invoice?"
+          message={`Invoice #${cancelFor.number} will be voided. This cannot be undone.`}
+          confirmLabel="Cancel invoice"
+          cancelLabel="Keep invoice"
+          countdownSeconds={3}
+          isPending={cancelInvoice.isPending}
+          onCancel={() => setCancelFor(null)}
+          onConfirm={() => { cancelInvoice.mutate(cancelFor.id); setCancelFor(null) }}
+        />
       )}
     </div>
   )
 }
 
-function ProjectERPTab({ projectId, symbol }: { projectId: string; symbol: string }) {
+function ProjectERPTab({ projectId, symbol, projectTitle, progress = 0, remainingBudget }: {
+  projectId: string; symbol: string; projectTitle: string; progress?: number; remainingBudget?: number
+}) {
   const { data: erp, isLoading } = useProjectERP(projectId)
   const complete = useCompleteProject()
   const cancel = useCancelProject()
+  const revertToDeal = useRevertProjectToDeal()
   const qc = useQueryClient()
   const [cancelReason, setCancelReason] = useState('')
   const [showCancelModal, setShowCancelModal] = useState(false)
+  const [showRevertModal, setShowRevertModal] = useState(false)
   const [confirmComplete, setConfirmComplete] = useState(false)
+  // Work-in-progress goods are salvaged into inventory before the project is
+  // closed out — once cancelled, its scope lines are no longer reachable.
+  const [pushBeforeClose, setPushBeforeClose] = useState<null | 'cancel' | 'complete'>(null)
+  const [pendingWarranty, setPendingWarranty] = useState<WarrantyAllocation | null>(null)
 
   if (isLoading) return <div style={{ textAlign: 'center', color: '#B1B1BE', fontSize: 12, padding: 40 }}>Loading ERP data…</div>
 
-  async function doComplete() {
-    await complete.mutateAsync(projectId)
-    qc.invalidateQueries({ queryKey: ['projects'] })
-    setConfirmComplete(false)
+  /**
+   * Completion and cancellation are approval-gated for non-admins. The API can't
+   * replay their multi-step transactions from a stored payload, so an approval
+   * here issues a token and the user re-runs the action once granted.
+   */
+  async function withApproval(action: string, payload: Record<string, unknown>, reason: string, run: () => Promise<void>) {
+    try {
+      await run()
+    } catch (e: any) {
+      if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') {
+        await api.post('/approval-requests', { entityType: 'project', entityId: projectId, action, payload, reason })
+        toast.success('Sent to admin for approval — re-run this once approved')
+      } else if (e?.response?.status === 409 && e.response.data?.message) {
+        toast.error(e.response.data.message)
+      } else {
+        toast.error(e?.response?.data?.error ?? 'Action failed')
+      }
+    }
   }
-  async function doCancel() {
-    await cancel.mutateAsync({ id: projectId, reason: cancelReason })
-    qc.invalidateQueries({ queryKey: ['projects'] })
+
+  async function finishComplete(warranty: WarrantyAllocation) {
+    await withApproval('complete', { ...warranty }, `Complete project ${projectTitle}`, async () => {
+      await complete.mutateAsync({ id: projectId, ...warranty })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    })
+    setConfirmComplete(false)
+    setPendingWarranty(null)
+  }
+  // The warranty details are captured first, then held while the push modal runs.
+  function doComplete(warranty: WarrantyAllocation) {
+    setPendingWarranty(warranty)
+    setPushBeforeClose('complete')
+  }
+  async function finishCancel() {
+    await withApproval('cancel', { reason: cancelReason }, `Cancel project ${projectTitle}`, async () => {
+      await cancel.mutateAsync({ id: projectId, reason: cancelReason })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+    })
     setShowCancelModal(false)
+  }
+  function doCancel() { setPushBeforeClose('cancel') }
+
+  async function doRevertToDeal() {
+    await withApproval('revert_to_deal', {}, `Revert project ${projectTitle} back to Deal`, async () => {
+      await revertToDeal.mutateAsync(projectId)
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['deals'] })
+      toast.success('Project reverted — Deal is open again in Negotiation')
+    })
+    setShowRevertModal(false)
+  }
+
+  // Runs whether the user pushed items or skipped — the push is optional salvage,
+  // not a precondition for closing the project.
+  async function afterPush() {
+    const step = pushBeforeClose
+    setPushBeforeClose(null)
+    if (step === 'cancel') await finishCancel()
+    else if (step === 'complete' && pendingWarranty) await finishComplete(pendingWarranty)
   }
 
   return (
@@ -1172,31 +1763,16 @@ function ProjectERPTab({ projectId, symbol }: { projectId: string; symbol: strin
         <button onClick={() => setShowCancelModal(true)} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1.5px solid #FF5353', background: '#FFF0F0', color: '#FF5353', cursor: 'pointer' }}>
           <XCircle size={14} /> Cancel Project
         </button>
+        <button onClick={() => setShowRevertModal(true)} title="Undo the Deal → Project promotion" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '10px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1.5px solid #E4E6EF', background: '#fff', color: '#6B7280', cursor: 'pointer' }}>
+          <RotateCcw size={14} /> Revert to Deal
+        </button>
       </div>
 
-      {/* BOMs */}
-      {erp?.boms?.length > 0 && (
-        <div>
-          <p style={{ fontSize: 11, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.8, marginBottom: 8 }}>BILL OF MATERIALS</p>
-          {erp.boms.map((bom: any) => (
-            <div key={bom.id} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #F0F1F5', marginBottom: 6, background: '#FAFBFF' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{bom.refNumber}</p>
-                  <p style={{ fontSize: 11, color: '#B1B1BE' }}>{bom.items?.length ?? 0} items · {bom.status}</p>
-                </div>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: bom.status === 'Approved' ? '#E7FAF0' : '#F4F5F9', color: bom.status === 'Approved' ? '#2BC155' : '#8C8C8C' }}>{bom.status}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* Purchase Orders */}
-      {erp?.boms?.flatMap((b: any) => b.purchaseOrders ?? []).length > 0 && (
+      {erp?.purchaseOrders?.length > 0 && (
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.8, marginBottom: 8 }}>PURCHASE ORDERS</p>
-          {erp.boms.flatMap((b: any) => b.purchaseOrders ?? []).map((po: any) => (
+          {erp.purchaseOrders.map((po: PurchaseOrderAPI) => (
             <div key={po.id} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #F0F1F5', marginBottom: 6, background: '#FAFBFF' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1 }}>
@@ -1227,7 +1803,7 @@ function ProjectERPTab({ projectId, symbol }: { projectId: string; symbol: strin
       {erp?.workOrders?.length > 0 && (
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.8, marginBottom: 8 }}>WORK ORDERS</p>
-          {erp.workOrders.map((wo: any) => (
+          {erp.workOrders.map((wo: WorkOrderAPI) => (
             <div key={wo.id} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid #F0F1F5', marginBottom: 6, background: '#FAFBFF' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
@@ -1252,31 +1828,29 @@ function ProjectERPTab({ projectId, symbol }: { projectId: string; symbol: strin
         </div>
       )}
 
-      {!erp?.boms?.length && !erp?.workOrders?.length && !erp?.serviceRecord && (
+      {!erp?.purchaseOrders?.length && !erp?.workOrders?.length && !erp?.serviceRecord && (
         <div style={{ textAlign: 'center', color: '#B1B1BE', fontSize: 12, padding: 32 }}>
           <Cpu size={28} style={{ color: '#E0E0E0', marginBottom: 8 }} />
           <p>No ERP activity yet for this project.</p>
         </div>
       )}
 
-      {/* Confirm Complete modal */}
+      {/* Warranty terms are collected before the project can be closed */}
       {confirmComplete && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 360 }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Complete Project?</p>
-            <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>Project will be locked and moved to Completed archive and Service page.</p>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setConfirmComplete(false)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={doComplete} disabled={complete.isPending} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#2BC155', color: '#fff', cursor: 'pointer' }}>{complete.isPending ? 'Completing…' : 'Yes, Complete'}</button>
-            </div>
-          </div>
-        </div>
+        <WarrantyAllocationModal
+          projectTitle={projectTitle}
+          remainingBudget={remainingBudget}
+          symbol={symbol}
+          saving={complete.isPending}
+          onCancel={() => setConfirmComplete(false)}
+          onConfirm={doComplete}
+        />
       )}
 
       {/* Cancel modal */}
       {showCancelModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 400 }}>
+          <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 400 }}>
             <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Cancel Project?</p>
             <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 12 }}>Components will be reclassified (semi-finished / finished goods) based on manufacturing stage.</p>
             <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="Reason for cancellation (optional)" rows={3} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', resize: 'vertical', boxSizing: 'border-box', marginBottom: 16 }} />
@@ -1287,13 +1861,46 @@ function ProjectERPTab({ projectId, symbol }: { projectId: string; symbol: strin
           </div>
         </div>
       )}
+
+      {/* Revert-to-Deal modal */}
+      {showRevertModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+          <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 400 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+              <span style={{ fontSize: 22 }}>⚠️</span>
+              <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Revert to Deal?</p>
+            </div>
+            <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6, marginBottom: 16 }}>
+              This <strong>permanently deletes this Project</strong> and reopens the originating Deal in Negotiation stage.
+              Only allowed while the project has no purchase orders, invoices, inventory allocations, work orders or
+              material requests — if any exist, this will be refused.
+            </p>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button onClick={() => setShowRevertModal(false)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={doRevertToDeal} disabled={revertToDeal.isPending} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#FF5353', color: '#fff', cursor: 'pointer' }}>
+                {revertToDeal.isPending ? 'Reverting…' : 'Revert to Deal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Salvage step — offered on the way out of both cancel and complete */}
+      {pushBeforeClose && (
+        <PushToInventoryModal
+          projectId={projectId}
+          projectTitle={projectTitle}
+          progress={progress}
+          onClose={afterPush}
+        />
+      )}
     </div>
   )
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-export default function Projects() {
+function ActiveProjectsTab() {
   const isMobile = useIsMobile()
   const { symbol } = useCurrency()
   const { accounts } = useCrmData()
@@ -1309,6 +1916,8 @@ export default function Projects() {
   const updateStatus = useUpdateProjectStatus()
   const completeProjectQuick = useCompleteProject()
   const deleteProject = useDeleteProject()
+  const bulkDeleteProjects = useBulkDeleteProjects()
+  const revertToDeal = useRevertProjectToDeal()
   const qc = useQueryClient()
   const createMR = useMutation({
     mutationFn: (data: any) => api.post('/material-requests', data).then(r => r.data),
@@ -1319,6 +1928,7 @@ export default function Projects() {
     if (!mrProject) return
     const items = mrForm.items.filter(i => i.name.trim())
     if (!items.length) return
+    if (items.some(i => !(i.qty > 0))) { toast.error('Quantity must be greater than zero for every item'); return }
     createMR.mutate({
       projectId: mrProject.id,
       notes: mrForm.notes,
@@ -1342,6 +1952,8 @@ export default function Projects() {
 
   const [filter, setFilter] = useState<'All' | UIStatus>('All')
   const [search, setSearch] = useState('')
+  // Status and search stay in the Toolbar; the panel adds the other dimensions.
+  const [adv, setAdv] = useState<FilterValues>(emptyFilters)
   const [showModal, setShowModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState(blankForm)
@@ -1349,6 +1961,24 @@ export default function Projects() {
   const [menuOpen, setMenuOpen] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [revertConfirm, setRevertConfirm] = useState<{ id: string; title: string } | null>(null)
+
+  async function doRevertToDeal(id: string) {
+    try {
+      await revertToDeal.mutateAsync(id)
+      toast.success('Project reverted — Deal is open again in Negotiation')
+    } catch (e: any) {
+      if (e?.response?.status === 409 && e.response.data?.message) toast.error(e.response.data.message)
+      else if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') toast.success('Sent to admin for approval — re-run this once approved')
+      else toast.error(e?.response?.data?.error ?? 'Failed to revert project')
+    }
+    setRevertConfirm(null)
+  }
+  // Project id awaiting warranty terms before it can be marked Completed
+  // Full row, not just the id — avoids a stale/undefined lookup if `projects`
+  // hasn't refetched between opening the menu and confirming warranty terms.
+  const [completeTarget, setCompleteTarget] = useState<ProjectWithUI | null>(null)
+  const [cancelTarget, setCancelTarget] = useState<ProjectWithUI | null>(null)
   const [selectedProj, setSelectedProj] = useState<ProjectWithUI | null>(null)
   const [mrProject, setMrProject] = useState<ProjectWithUI | null>(null)
   const [mrForm, setMrForm] = useState({ notes: '', items: [{ name: '', qty: 1, unit: '', estimatedCost: 0 }] })
@@ -1360,9 +1990,83 @@ export default function Projects() {
   const searched = search.trim()
     ? projects.filter(p => p.title.toLowerCase().includes(search.toLowerCase()) || p.clientName.toLowerCase().includes(search.toLowerCase()))
     : projects
-  const filtered = filter === 'All' ? searched : searched.filter(p => p.uiStatus === filter)
+  const byStatus = filter === 'All' ? searched : searched.filter(p => p.uiStatus === filter)
+
+  // Options come from the loaded projects so a dimension only appears when it
+  // has something to slice by.
+  const projectFilters: FilterDef[] = useMemo(() => {
+    const uniq = (pairs: [string, string][]) => {
+      const m = new Map<string, string>()
+      for (const [v, l] of pairs) if (v && l) m.set(v, l)
+      return [...m.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+    }
+    const defs: FilterDef[] = [
+      { kind: 'select', key: 'company', label: 'Client', options: uniq(projects.map(p => [p.companyId, p.clientName])) },
+    ]
+    const pms = uniq(projects.map(p => [p.assignedPMId ?? '', p.assignedPM?.name ?? '']))
+    if (pms.length) defs.push({ kind: 'select', key: 'pm', label: 'PM', options: pms, emptyOption: { value: '', label: 'PM: Unassigned' } })
+    const ses = uniq(projects.map(p => [p.assignedSEId ?? '', p.assignedSE?.name ?? '']))
+    if (ses.length) defs.push({ kind: 'select', key: 'se', label: 'Engineer', options: ses })
+    const depts = uniq(projects.map(p => [p.departmentId ?? '', p.department?.name ?? '']))
+    if (depts.length) defs.push({ kind: 'select', key: 'department', label: 'Department', options: depts })
+    defs.push(
+      { kind: 'toggle', key: 'atRisk', label: 'At risk' },
+      { kind: 'toggle', key: 'overBudget', label: 'Over budget' },
+      { kind: 'toggle', key: 'overdue', label: 'Overdue' },
+      { kind: 'toggle', key: 'noBudget', label: 'No budget set' },
+      { kind: 'range', key: 'budget', label: 'Budget', type: 'number' },
+      { kind: 'range', key: 'progress', label: 'Progress %', type: 'number' },
+      { kind: 'range', key: 'startDate', label: 'Start Date', type: 'date' },
+      { kind: 'range', key: 'endDate', label: 'End Date', type: 'date' },
+    )
+    return defs
+  }, [projects])
+
+  const filtered = applyFilters(byStatus, adv, {
+    search: p => [p.title, p.clientName, p.leadNumber],
+    select: {
+      company: p => p.companyId,
+      pm: p => p.assignedPMId ?? '',
+      se: p => p.assignedSEId ?? '',
+      department: p => p.departmentId ?? '',
+    },
+    range: {
+      budget: p => p.budget ?? null,
+      progress: p => p.progress ?? 0,
+      startDate: p => p.startDate ?? null,
+      endDate: p => p.endDate ?? null,
+    },
+    toggle: {
+      atRisk: p => (p.alertTier ?? 0) > 0 && p.uiStatus !== 'Completed',
+      overBudget: p => (p.budget ?? 0) > 0 && (p.totalExpenses ?? 0) > (p.budget ?? 0),
+      // Past its end date but not yet delivered.
+      overdue: p => !!p.endDate && new Date(p.endDate) < new Date() && p.uiStatus !== 'Completed' && p.uiStatus !== 'Cancelled',
+      noBudget: p => !p.budget,
+    },
+  })
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const safePage = Math.min(page, totalPages)
+  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+
+  // Scoped to the visible page so "select all" never picks up hidden rows.
+  const bulk = useBulkSelect(paginated.map(p => p.id))
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
+
+  async function handleBulkDelete() {
+    try {
+      const res = await bulkDeleteProjects.mutateAsync(bulk.selectedIds)
+      if (res.blocked?.length) {
+        toast.error(`${res.deleted} archived · ${res.blocked.length} locked and skipped`)
+      } else {
+        toast.success(`Archived ${res.deleted} project${res.deleted === 1 ? '' : 's'}`)
+      }
+      bulk.clear()
+      setPage(1)
+    } catch {
+      toast.error('Bulk delete failed')
+    }
+    setShowBulkDelete(false)
+  }
   const totalBudget = projects.reduce((s, p) => s + (p.budget ?? 0), 0)
   const activeCount = projects.filter(p => p.uiStatus === 'Active').length
   const atRiskCount = projects.filter(p => (p.alertTier ?? 0) > 0 && p.uiStatus !== 'Completed').length
@@ -1396,16 +2100,51 @@ export default function Projects() {
     const co = accounts.find(a => a.name.toLowerCase() === form.client.toLowerCase())
     if (!co) { setFormErrors({ client: 'Company not found — create it in Accounts first' }); return }
     const payload = { companyId: co.id, title: form.name, status: uiToAPI[form.status], startDate: form.startDate || undefined, endDate: form.endDate || undefined, budget: form.budget ? Number(form.budget) : undefined, notes: form.description || undefined, departmentId: form.departmentId || undefined }
-    if (editId) await updateProject.mutateAsync({ id: editId, ...payload })
-    else await createProject.mutateAsync(payload)
+    try {
+      if (editId) await updateProject.mutateAsync({ id: editId, ...payload })
+      else await createProject.mutateAsync(payload)
+    } catch (e: any) {
+      toast.error(e?.response?.data?.error ?? 'Failed to save project')
+      return
+    }
     closeModal()
   }
 
   async function handleDelete(id: string) { await deleteProject.mutateAsync(id); setMenuOpen(null); setDeleteConfirm(null); setPage(1) }
-  async function quickStatus(id: string, s: UIStatus) {
-    if (s === 'Completed') await completeProjectQuick.mutateAsync(id)
-    else await updateStatus.mutateAsync({ id, status: uiToAPI[s] })
+  async function quickStatus(proj: ProjectWithUI, s: UIStatus) {
     setMenuOpen(null)
+    // Completing needs warranty terms, so it opens the allocation modal rather
+    // than firing straight through like the other status changes.
+    if (s === 'Completed') { setCompleteTarget(proj); return }
+    // Cancelling reverses inventory and cannot be undone by simply flipping the
+    // status back, so it needs an explicit confirmation rather than an undo.
+    if (s === 'Cancelled') { setCancelTarget(proj); return }
+
+    const previous = proj.status
+    const nextStatus = uiToAPI[s]
+    try {
+      await updateStatus.mutateAsync({ id: proj.id, status: nextStatus })
+    } catch (e: any) {
+      // The status route is approval-gated; file the request instead of
+      // surfacing a bare 403.
+      if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') {
+        await api.post('/approval-requests', {
+          entityType: 'project', entityId: proj.id, action: 'status',
+          payload: { status: nextStatus },
+          reason: `Mark "${proj.title}" as ${s}`,
+        })
+        toast.success('Sent to admin for approval — re-run this once approved')
+      } else {
+        toast.error(e?.response?.data?.error ?? 'Could not change status')
+      }
+      return
+    }
+    toast.success(`Project marked ${s}`, {
+      action: {
+        label: 'Undo',
+        onClick: () => { void updateStatus.mutateAsync({ id: proj.id, status: previous }) },
+      },
+    })
   }
   function changeFilter(f: typeof filter) { setFilter(f); setPage(1) }
 
@@ -1460,6 +2199,19 @@ export default function Projects() {
         />
       </Toolbar>
 
+      <div style={{ marginBottom: 16 }}>
+        <FilterPanel
+          filters={projectFilters}
+          values={adv}
+          onChange={v => { setAdv(v); setPage(1) }}
+          hideSearch
+        />
+        <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 8 }}>
+          Showing <strong style={{ color: '#374557' }}>{filtered.length}</strong> of {projects.length} projects
+          {filtered.length > 0 && <> · Budget <strong style={{ color: '#374557' }}>{symbol}{filtered.reduce((s, p) => s + (p.budget ?? 0), 0).toLocaleString()}</strong></>}
+        </p>
+      </div>
+
       {/* Main */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden', flex: 1, minHeight: 'calc(100vh - 340px)', display: 'flex', flexDirection: 'column' }}>
@@ -1475,6 +2227,9 @@ export default function Projects() {
                       <div>
                         <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{proj.title}</p>
                         <p style={{ fontSize: 10, color: '#B1B1BE' }}>{proj.clientName}</p>
+                        {proj.leadNumber && (
+                          <p style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#2BC155', marginTop: 1 }}>{proj.leadNumber}</p>
+                        )}
                       </div>
                     </div>
                     <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[proj.uiStatus].bg, color: statusStyle[proj.uiStatus].color }}>{proj.uiStatus}</span>
@@ -1496,6 +2251,11 @@ export default function Projects() {
             <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 560 }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid #F4F5F9' }}>
+                  <th style={{ padding: '10px 0 10px 16px', width: 32 }}>
+                    <input type="checkbox" checked={bulk.allSelected}
+                      ref={el => { if (el) el.indeterminate = bulk.someSelected }}
+                      onChange={bulk.toggleAll} style={{ cursor: 'pointer' }} />
+                  </th>
                   {['Project', 'Client', 'Timeline', 'Budget', 'Status', ''].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '10px 16px', fontSize: 11, fontWeight: 500, color: '#B1B1BE' }}>{h}</th>
                   ))}
@@ -1506,6 +2266,9 @@ export default function Projects() {
                   <tr key={proj.id} onClick={() => setSelectedProj(proj)} style={{ borderBottom: i < paginated.length - 1 ? '1px solid #F4F5F9' : 'none', cursor: 'pointer' }}
                     onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                    <td style={{ padding: '12px 0 12px 16px' }} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={bulk.isSelected(proj.id)} onChange={() => bulk.toggle(proj.id)} style={{ cursor: 'pointer' }} />
+                    </td>
                     <td style={{ padding: '12px 16px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <div style={{ width: 34, height: 34, borderRadius: 8, background: statusStyle[proj.uiStatus].bg, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1513,6 +2276,9 @@ export default function Projects() {
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <p style={{ fontSize: 12, fontWeight: 600, color: '#374557', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>{proj.title}</p>
+                          {proj.leadNumber && (
+                            <p style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: '#2BC155' }}>{proj.leadNumber}</p>
+                          )}
                           <p style={{ fontSize: 10, color: '#B1B1BE' }}>{proj.notes ? proj.notes.substring(0, 40) + '…' : proj.deal?.title ?? '—'}</p>
                         </div>
                       </div>
@@ -1529,29 +2295,23 @@ export default function Projects() {
                       <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: statusStyle[proj.uiStatus].bg, color: statusStyle[proj.uiStatus].color }}>{proj.uiStatus}</span>
                     </td>
                     <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
-                      <div style={{ position: 'relative' }}>
-                        <button onClick={e => { e.stopPropagation(); setMenuOpen(menuOpen === proj.id ? null : proj.id) }} style={{ color: '#D5D5D5', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px' }}>
-                          <MoreHorizontal size={15} />
-                        </button>
-                        {menuOpen === proj.id && (
-                          <div style={dropdownStyle}>
+                      <RowMenu open={menuOpen === proj.id} onOpenChange={o => setMenuOpen(o ? proj.id : null)}>
                             {canEdit && <button onClick={() => openEdit(proj)} style={menuItem}><Edit2 size={12} style={{ marginRight: 8 }} />Edit</button>}
                             {canEdit && <button onClick={() => { setMrProject(proj); setMrForm({ notes: '', items: [{ name: '', qty: 1, unit: '', estimatedCost: 0 }] }); setMenuOpen(null) }} style={menuItem}><ClipboardList size={12} style={{ marginRight: 8 }} />Request Materials</button>}
                             {canEdit && <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />}
-                            {canEdit && <button onClick={() => quickStatus(proj.id, 'Completed')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Completed</button>}
-                            {canEdit && <button onClick={() => quickStatus(proj.id, 'Active')} style={menuItem}><Play size={12} style={{ marginRight: 6 }} />Mark Active</button>}
-                            {canEdit && <button onClick={() => quickStatus(proj.id, 'On Hold')} style={menuItem}><Pause size={12} style={{ marginRight: 6 }} />Mark On Hold</button>}
+                            {canEdit && <button onClick={() => quickStatus(proj, 'Completed')} style={menuItem}><CheckCircle2 size={12} style={{ marginRight: 6 }} />Mark Completed</button>}
+                            {canEdit && <button onClick={() => quickStatus(proj, 'Active')} style={menuItem}><Play size={12} style={{ marginRight: 6 }} />Mark Active</button>}
+                            {canEdit && <button onClick={() => quickStatus(proj, 'On Hold')} style={menuItem}><Pause size={12} style={{ marginRight: 6 }} />Mark On Hold</button>}
+                            {canEdit && proj.dealId && <button onClick={() => { setRevertConfirm({ id: proj.id, title: proj.title }); setMenuOpen(null) }} style={menuItem}><RotateCcw size={12} style={{ marginRight: 6 }} />Revert to Deal</button>}
                             {canDelete && <div style={{ borderTop: '1px solid #F4F5F9', margin: '4px 0' }} />}
                             {canDelete && <button onClick={() => { setDeleteConfirm(proj.id); setMenuOpen(null) }} style={{ ...menuItem, color: '#FF5353' }}><Trash2 size={12} style={{ marginRight: 8 }} />Delete</button>}
                             {!canEdit && !canDelete && <p style={{ padding: '8px 12px', fontSize: 11, color: '#B1B1BE' }}>View only</p>}
-                          </div>
-                        )}
-                      </div>
+                      </RowMenu>
                     </td>
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: 0 }}>
+                  <tr><td colSpan={7} style={{ padding: 0 }}>
                     <EmptyState icon={FolderKanban}
                       title={projects.length === 0 ? 'No projects yet' : 'No projects match your filters'}
                       subtitle={projects.length === 0 ? 'Create your first project to get started.' : 'Try adjusting your search or status filter.'}
@@ -1563,7 +2323,18 @@ export default function Projects() {
             </table>
           )}
           {/* Pagination */}
-          <Pagination page={page} totalPages={totalPages} onChange={setPage} />
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} />
+          <BulkActionBar count={bulk.count} entityLabel="projects" onDelete={() => setShowBulkDelete(true)} onClear={bulk.clear} />
+          {showBulkDelete && (
+            <BulkDeleteDialog
+              count={bulk.count}
+              entityLabel="projects"
+              archive
+              isPending={bulkDeleteProjects.isPending}
+              onCancel={() => setShowBulkDelete(false)}
+              onConfirm={handleBulkDelete}
+            />
+          )}
         </div>
       </div>
 
@@ -1586,24 +2357,80 @@ export default function Projects() {
         />
       )}
 
+      {/* Warranty terms before a project can be closed from the row menu */}
+      {completeTarget && (
+        <WarrantyAllocationModal
+          projectTitle={completeTarget.title}
+          remainingBudget={completeTarget.remainingBudget ?? undefined}
+          symbol={symbol}
+          saving={completeProjectQuick.isPending}
+          onCancel={() => setCompleteTarget(null)}
+          onConfirm={async warranty => {
+            await completeProjectQuick.mutateAsync({ id: completeTarget.id, ...warranty })
+            setCompleteTarget(null)
+          }}
+        />
+      )}
+
+      {/* Cancel confirm — reverses inventory allocations, so no plain undo */}
+      {cancelTarget && (
+        <ConfirmDialog
+          title="Cancel this project?"
+          message={`"${cancelTarget.title}" will be marked Cancelled. Allocated inventory is released back to stock — this is not undone by changing the status again.`}
+          confirmLabel="Cancel project"
+          cancelLabel="Keep project"
+          isPending={updateStatus.isPending}
+          onCancel={() => setCancelTarget(null)}
+          onConfirm={async () => {
+            const target = cancelTarget
+            setCancelTarget(null)
+            try {
+              await updateStatus.mutateAsync({ id: target.id, status: uiToAPI['Cancelled'] })
+              toast.success('Project cancelled')
+            } catch (e: any) {
+              if (e?.response?.status === 403 && e.response.data?.error === 'approval_required') {
+                await api.post('/approval-requests', {
+                  entityType: 'project', entityId: target.id, action: 'status',
+                  payload: { status: uiToAPI['Cancelled'] },
+                  reason: `Cancel "${target.title}"`,
+                })
+                toast.success('Sent to admin for approval — re-run this once approved')
+              } else {
+                toast.error(e?.response?.data?.error ?? 'Could not cancel project')
+              }
+            }
+          }}
+        />
+      )}
+
       {/* Delete confirm */}
       {deleteConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Delete Project?</p>
-            <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>This action cannot be undone.</p>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
-              <button onClick={() => handleDelete(deleteConfirm)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#FF5353', color: '#fff', cursor: 'pointer' }}>Delete</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="Delete Project?"
+          message="The project and its linked records will be removed. This action cannot be undone."
+          confirmLabel="Delete"
+          isPending={deleteProject.isPending}
+          onCancel={() => setDeleteConfirm(null)}
+          onConfirm={() => handleDelete(deleteConfirm)}
+        />
+      )}
+
+      {/* Revert to Deal confirm */}
+      {revertConfirm && (
+        <ConfirmDialog
+          title="Revert to Deal?"
+          message={`This permanently deletes "${revertConfirm.title}" and reopens the originating Deal in Negotiation stage. Only allowed while the project has no purchase orders, invoices, inventory allocations, work orders or material requests — if any exist, this will be refused.`}
+          confirmLabel="Revert to Deal"
+          isPending={revertToDeal.isPending}
+          onCancel={() => setRevertConfirm(null)}
+          onConfirm={() => doRevertToDeal(revertConfirm.id)}
+        />
       )}
 
       {/* Edit/Create modal */}
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+          <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#374557' }}>{editId ? 'Edit Project' : 'New Project'}</p>
               <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><X size={16} /></button>
@@ -1657,7 +2484,7 @@ export default function Projects() {
       {/* Material Request Modal */}
       {mrProject && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
+          <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <div>
                 <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Request Materials</p>
@@ -1741,4 +2568,71 @@ function Field({ label, error, children }: { label: string; error?: string; chil
 
 function inp(hasError: boolean): React.CSSProperties {
   return { width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${hasError ? '#FF5353' : '#F0F1F5'}`, fontSize: 12, color: '#374557', outline: 'none', background: '#fff', boxSizing: 'border-box' }
+}
+
+type OpsTab = 'active' | 'completed' | 'budget' | 'service' | 'manufacturing' | 'installations'
+
+export default function Projects() {
+  const can = useAuthStore(s => s.can)
+
+  const tabs = [
+    // Assigned engineers only hold read_own — the list route already scopes rows for them.
+    (can('project', 'read_own') || can('project', 'read_all')) && { key: 'active' as OpsTab, label: 'Active Projects', icon: FolderOpen },
+    can('project', 'read_all') && { key: 'completed' as OpsTab, label: 'Completed Projects', icon: Archive },
+    // Budget tracking lives here rather than as its own sidebar page.
+    can('project', 'read_all') && { key: 'budget' as OpsTab, label: 'Budget', icon: Wallet },
+    // Post-completion ESCO contracts + service records/warranty tracking — the
+    // operational phase of a delivered project, all on one page.
+    can('service_record', 'read_all') && { key: 'service' as OpsTab, label: 'Service', icon: Wrench },
+    can('work_order', 'read_all') && { key: 'manufacturing' as OpsTab, label: 'Manufacturing', icon: Wrench },
+    can('installation', 'read_all') && { key: 'installations' as OpsTab, label: 'Installations', icon: Cpu },
+  ].filter(Boolean) as { key: OpsTab; label: string; icon: typeof FolderOpen }[]
+
+  const tabFromUrl = new URLSearchParams(window.location.search).get('tab') as OpsTab | null
+  const [tab, setTab] = useState<OpsTab | null>(tabFromUrl ?? tabs[0]?.key ?? null)
+  const activeTab = tab && tabs.some(t => t.key === tab) ? tab : tabs[0]?.key ?? null
+
+  if (!activeTab) {
+    return (
+      <div style={{ padding: 24 }}>
+        <p style={{ fontSize: 14, color: '#8A8B9F' }}>You don't have access to any project or operations module.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: '#23263B', margin: 0 }}>Projects</h1>
+        <p style={{ fontSize: 14, color: '#8A8B9F', margin: '4px 0 0' }}>Projects, manufacturing, installations, and service in one place</p>
+      </div>
+
+      {tabs.length > 1 && (
+        <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid #F0F1F5', flexWrap: 'wrap' }}>
+          {tabs.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', fontSize: 14, fontWeight: 500,
+                border: 'none', background: 'none', cursor: 'pointer',
+                borderBottom: activeTab === t.key ? '2px solid #2563EB' : '2px solid transparent',
+                color: activeTab === t.key ? '#2563EB' : '#8A8B9F',
+              }}
+            >
+              <t.icon style={{ width: 16, height: 16 }} />
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeTab === 'active' && <ActiveProjectsTab />}
+      {activeTab === 'completed' && <CompletedProjects />}
+      {activeTab === 'budget' && <Budget />}
+      {activeTab === 'service' && <Service />}
+      {activeTab === 'manufacturing' && <Manufacturing />}
+      {activeTab === 'installations' && <Installations />}
+    </div>
+  )
 }

@@ -15,8 +15,9 @@ export interface QuotationAPI {
   refNumber: string
   companyId: string
   company: { id: string; name: string }
+  dealId?: string | null
   title: string
-  status: 'Draft' | 'Sent' | 'Accepted' | 'Rejected' | 'Expired'
+  status: 'Draft' | 'PendingApproval' | 'Approved' | 'Sent' | 'Accepted' | 'Rejected' | 'Expired'
   contactName?: string
   validUntil?: string
   subtotal: number
@@ -26,56 +27,22 @@ export interface QuotationAPI {
   deliveryDate?: string
   scope?: string
   notes?: string
+  approvedById?: string | null
+  approvedAt?: string | null
+  rejectionReason?: string | null
   items: QuotationItem[]
   createdAt: string
 }
 
-export interface SalesOrderAPI {
-  id: string
-  refNumber: string
-  companyId: string
-  company: { id: string; name: string }
-  quotationId?: string
-  quotation?: { id: string; refNumber: string }
-  title: string
-  status: 'Draft' | 'Confirmed' | 'Won' | 'Lost'
-  budget?: number
-  warrantyPeriod?: number
-  deliveryDate?: string
-  scope?: string
-  productDetails?: string
-  notes?: string
-  wonAt?: string
-  project?: { id: string; title: string; status: string }
-  handoverDoc?: { id: string; status: string }
-  createdAt: string
-}
-
-export interface HandoverDocAPI {
-  id: string
-  refNumber: string
-  salesOrderId: string
-  salesOrder: SalesOrderAPI & { company: any }
-  projectName: string
-  customerDetails?: string
-  budget?: number
-  warrantyPeriod?: number
-  productDetails?: string
-  deliveryDate?: string
-  scope?: string
-  attachments?: string
-  notes?: string
-  status: 'pending' | 'accepted' | 'rejected'
-  acceptedAt?: string
-  createdAt: string
-}
-
 // Quotations
-export function useQuotations() {
-  return useQuery<QuotationAPI[]>({ queryKey: ['quotations'], queryFn: () => api.get('/quotations').then(r => r.data) })
+export function useQuotations(dealId?: string) {
+  return useQuery<QuotationAPI[]>({
+    queryKey: ['quotations', dealId],
+    queryFn: () => api.get('/quotations', { params: dealId ? { dealId } : {} }).then(r => r.data),
+  })
 }
 export function useQuotation(id: string) {
-  return useQuery<QuotationAPI>({ queryKey: ['quotations', id], queryFn: () => api.get(`/quotations/${id}`).then(r => r.data), enabled: !!id })
+  return useQuery<QuotationAPI>({ queryKey: ['quotations', 'detail', id], queryFn: () => api.get(`/quotations/${id}`).then(r => r.data), enabled: !!id })
 }
 export function useCreateQuotation() {
   const qc = useQueryClient()
@@ -89,53 +56,19 @@ export function useDeleteQuotation() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: (id: string) => api.delete(`/quotations/${id}`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }) })
 }
-
-// Sales Orders
-export function useSalesOrders() {
-  return useQuery<SalesOrderAPI[]>({ queryKey: ['sales-orders'], queryFn: () => api.get('/sales-orders').then(r => r.data) })
-}
-export function useSalesOrder(id: string) {
-  return useQuery<SalesOrderAPI>({ queryKey: ['sales-orders', id], queryFn: () => api.get(`/sales-orders/${id}`).then(r => r.data), enabled: !!id })
-}
-export function useCreateSalesOrder() {
+export function useSubmitQuotationForApproval() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: (data: any) => api.post('/sales-orders', data).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['sales-orders'] }) })
+  return useMutation({ mutationFn: (id: string) => api.post(`/quotations/${id}/submit-for-approval`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }) })
 }
-export function useUpdateSalesOrder() {
+export function useApproveQuotation() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...data }: any) => api.put(`/sales-orders/${id}`, data).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['sales-orders'] }) })
+  return useMutation({ mutationFn: (id: string) => api.post(`/quotations/${id}/approve`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }) })
 }
-export function useMarkSalesOrderWon() {
+export function useRejectQuotation() {
   const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => api.post(`/sales-orders/${id}/won`).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sales-orders'] }); qc.invalidateQueries({ queryKey: ['handover-docs'] }) },
-  })
+  return useMutation({ mutationFn: ({ id, reason }: { id: string; reason?: string }) => api.post(`/quotations/${id}/reject`, { reason }).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }) })
 }
-export function useDeleteSalesOrder() {
+export function useSendQuotation() {
   const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string) => api.delete(`/sales-orders/${id}`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['sales-orders'] }) })
-}
-
-// Handover Documents
-export function useHandoverDocs() {
-  return useQuery<HandoverDocAPI[]>({ queryKey: ['handover-docs'], queryFn: () => api.get('/handover-documents').then(r => r.data) })
-}
-export function useHandoverDoc(id: string) {
-  return useQuery<HandoverDocAPI>({ queryKey: ['handover-docs', id], queryFn: () => api.get(`/handover-documents/${id}`).then(r => r.data), enabled: !!id })
-}
-export function useAcceptHandover() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: ({ id, assignedSEId }: { id: string; assignedSEId?: string }) =>
-      api.post(`/handover-documents/${id}/accept`, { assignedSEId }).then(r => r.data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['handover-docs'] }); qc.invalidateQueries({ queryKey: ['projects'] }) },
-  })
-}
-export function useRejectHandover() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (id: string) => api.post(`/handover-documents/${id}/reject`).then(r => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['handover-docs'] }),
-  })
+  return useMutation({ mutationFn: (id: string) => api.post(`/quotations/${id}/send`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['quotations'] }) })
 }

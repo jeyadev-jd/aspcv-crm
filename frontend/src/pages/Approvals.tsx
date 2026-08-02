@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/lib/authStore'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import {
   ClipboardCheck, CheckCircle, XCircle, Clock, UserPlus,
   AlertCircle, User, Calendar,
@@ -12,6 +13,8 @@ interface ApprovalReq {
   id: string
   entityType: string
   entityId: string
+  /** Human label for the entity, resolved server-side. */
+  entityTitle?: string | null
   action: string
   status: string
   reason: string | null
@@ -45,6 +48,8 @@ export default function Approvals() {
   const [filter, setFilter] = useState<'pending' | 'all'>('pending')
   const [rejectId, setRejectId] = useState<string | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  // Approving grants the requester a real permission token, so it confirms.
+  const [approveFor, setApproveFor] = useState<any>(null)
 
   const { data: requests = [], isLoading, isError, refetch } = useQuery<ApprovalReq[]>({
     queryKey: ['approval-requests', filter],
@@ -142,6 +147,9 @@ export default function Approvals() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 13, fontWeight: 700, color: '#374557' }}>
                           {typeLabel(req.entityType, req.action)}
+                          {req.entityTitle && (
+                            <span style={{ color: '#5D78FF' }}> — {req.entityTitle}</span>
+                          )}
                         </span>
                         <span style={{
                           display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -193,7 +201,7 @@ export default function Approvals() {
                     {req.status === 'pending' && canReview && (
                       <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
                         <button
-                          onClick={() => { if (confirm(`Approve this request? ${typeLabel(req.entityType, req.action)}`)) approve.mutate(req.id) }}
+                          onClick={() => setApproveFor(req)}
                           disabled={approve.isPending}
                           style={{
                             display: 'inline-flex', alignItems: 'center', gap: 5,
@@ -247,6 +255,18 @@ export default function Approvals() {
             )
           })}
         </div>
+      )}
+
+      {approveFor && (
+        <ConfirmDialog
+          title="Approve this request?"
+          message={`${typeLabel(approveFor.entityType, approveFor.action)}${approveFor.entityTitle ? ` — ${approveFor.entityTitle}` : ''}. Requested by ${approveFor.requestedBy?.name ?? 'a user'}${approveFor.reason ? ` (${approveFor.reason})` : ''}. Approving grants them permission to carry out this action.`}
+          confirmLabel="Approve"
+          danger={false}
+          isPending={approve.isPending}
+          onCancel={() => setApproveFor(null)}
+          onConfirm={() => { approve.mutate(approveFor.id); setApproveFor(null) }}
+        />
       )}
     </div>
   )

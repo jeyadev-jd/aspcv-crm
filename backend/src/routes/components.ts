@@ -14,21 +14,28 @@ async function nextRefNumber(): Promise<string> {
 }
 
 router.get('/', async (req, res) => {
-  const { status, category, oldestFirst } = req.query as Record<string, string>
+  const { status, category, oldestFirst, all } = req.query as Record<string, string>
   const pagination = parsePagination(req.query as Record<string, unknown>, 'receivedAt')
   const where = {
     ...(status && { status }),
-    ...(category && { category }),
+    ...(category && {
+      // 'Raw' also matches uncategorized components — most were created before
+      // categorization existed and would otherwise be invisible to every filter.
+      OR: category === 'Raw' ? [{ category: 'Raw' }, { category: null }] : [{ category }],
+    }),
     ...(pagination.search && { name: { contains: pagination.search, mode: 'insensitive' as const } }),
   }
   const sortField = req.query.sort ? pagination.sort as string : 'receivedAt'
   const sortOrder = req.query.sort ? pagination.order : (oldestFirst === 'false' ? 'desc' : 'asc')
+  // Inventory pickers (e.g. the scope-line assign modal) need the *entire*
+  // matching set to search/select from, not one capped page — the shared
+  // MAX_PAGE_SIZE exists to protect big paginated lists, not this use case,
+  // and total inventory here stays small enough that fetching it all is cheap.
   const [components, total] = await Promise.all([
     prisma.rawComponent.findMany({
       where,
       orderBy: { [sortField]: sortOrder },
-      skip: pagination.skip,
-      take: pagination.take,
+      ...(all === 'true' ? {} : { skip: pagination.skip, take: pagination.take }),
     }),
     prisma.rawComponent.count({ where }),
   ])
@@ -141,6 +148,79 @@ router.get('/:id/movements', async (req, res) => {
     orderBy: { createdAt: 'desc' },
   })
   res.json(movements)
+})
+
+/**
+ * A component may only be removed while it is still unattached stock. Once it
+ * has been allocated to a project, consumed, pushed to inventory or named on a
+ * scope item, the row is referenced by records that must keep their history, so
+ * deleting it would either fail on the foreign key or silently orphan them.
+ *
+ * Returns null when deletable, otherwise the reason to report to the caller.
+ */
+async function blockedReason(id: string): Promise<string | null> {
+  const component = await prisma.rawComponent.findUnique({
+    where: { id },
+    select: {
+      status: true,
+      assignedToId: true,
+      _count: {
+        select: {
+          inventoryAllocations: true, materialConsumptions: true,
+          scopeItems: true, inventoryPushes: true,
+        },
+      },
+    },
+  })
+  if (!component) return 'Not found'
+  if (component.assignedToId || component.status !== 'in_stock') return 'Assigned — return it to stock first'
+  if (component._count.inventoryAllocations > 0) return 'Allocated to a project'
+  if (component._count.materialConsumptions > 0) return 'Consumed by a work order'
+  if (component._count.scopeItems > 0) return 'Referenced by a scope item'
+  if (component._count.inventoryPushes > 0) return 'Pushed to a project'
+  return null
+}
+
+router.delete('/:id', requirePermission('component', 'delete'), async (req: AuthRequest, res) => {
+  const id = req.params.id as string
+  const reason = await blockedReason(id)
+  if (reason === 'Not found') { res.status(404).json({ error: 'Not found' }); return }
+  if (reason) { res.status(409).json({ error: reason }); return }
+
+  // Movements are this component's own audit trail — they go with it.
+  await prisma.$transaction([
+    prisma.componentMovement.deleteMany({ where: { componentId: id } }),
+    prisma.rawComponent.delete({ where: { id } }),
+  ])
+  res.status(204).end()
+})
+
+/** Bulk delete. Same guards as the single-row route, per component. */
+router.post('/bulk-delete', requirePermission('component', 'delete'), async (req: AuthRequest, res) => {
+  const { ids } = req.body as { ids?: string[] }
+  if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array required' }); return }
+
+  const rows = await prisma.rawComponent.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, refNumber: true },
+  })
+
+  const deletable: string[] = []
+  const blocked: { id: string; title: string; reason: string }[] = []
+  for (const row of rows) {
+    const reason = await blockedReason(row.id)
+    if (reason) blocked.push({ id: row.id, title: row.refNumber ?? row.name, reason })
+    else deletable.push(row.id)
+  }
+
+  if (deletable.length) {
+    await prisma.$transaction([
+      prisma.componentMovement.deleteMany({ where: { componentId: { in: deletable } } }),
+      prisma.rawComponent.deleteMany({ where: { id: { in: deletable } } }),
+    ])
+  }
+
+  res.json({ deleted: deletable.length, skipped: ids.length - rows.length, blocked })
 })
 
 export default router

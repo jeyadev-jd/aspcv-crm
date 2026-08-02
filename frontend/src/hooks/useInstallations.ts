@@ -8,6 +8,8 @@ export interface InstallationAPI {
   company: { id: string; name: string }
   projectId?: string | null
   project?: { id: string; title: string } | null
+  scopeItemId?: string | null
+  scopeItem?: { id: string; title: string; productType?: string } | null
   status: 'Scheduled' | 'InProgress' | 'Completed' | 'OnHold'
   scheduledDate?: string | null
   completedDate?: string | null

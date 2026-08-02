@@ -55,6 +55,17 @@ router.patch('/read-all/mark', async (req: AuthRequest, res) => {
   res.json({ success: true })
 })
 
+// DELETE /api/notifications/clear-all — wipes this user's notifications.
+// Declared before '/:id' so "clear-all" is never captured as an id.
+// `?onlyRead=true` keeps anything still unread.
+router.delete('/clear-all', async (req: AuthRequest, res) => {
+  const onlyRead = String(req.query.onlyRead) === 'true'
+  const result = await prisma.notification.deleteMany({
+    where: { userId: req.user!.id, ...(onlyRead && { read: true }) },
+  })
+  res.json({ success: true, deleted: result.count })
+})
+
 // DELETE /api/notifications/:id
 router.delete('/:id', async (req: AuthRequest, res) => {
   await prisma.notification.deleteMany({ where: { id: req.params.id as string, userId: req.user!.id } })

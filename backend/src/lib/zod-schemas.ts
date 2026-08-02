@@ -12,9 +12,41 @@ export function stripUnsentDefaults<T extends Record<string, unknown>>(parsed: T
   return parsed
 }
 
+/**
+ * One password policy for every path that sets a password. User creation already
+ * enforced these rules while password *changes* only checked length, so an
+ * account could be created strong and then downgraded to "aaaaaaaa".
+ *
+ * The common-password list covers the handful that dictionary attacks try first,
+ * including ones built from this project's own name.
+ */
+const WEAK_PASSWORDS = new Set([
+  'password', 'password1', 'password123', '12345678', '123456789', '1234567890',
+  'qwertyui', 'qwerty123', 'admin123', 'welcome1', 'letmein1', 'iloveyou',
+  'aspcv123', 'aspcv1234', 'changeme', 'passw0rd', 'abcd1234',
+])
+
+export const strongPassword = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .regex(/[A-Z]/, 'Need uppercase')
+  .regex(/[0-9]/, 'Need number')
+  .regex(/[^A-Za-z0-9]/, 'Need special char')
+  .refine(p => !WEAK_PASSWORDS.has(p.toLowerCase()), 'That password is too common — choose another')
+  .refine(p => !/^(.)\1+$/.test(p), 'Password cannot be a single repeated character')
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+})
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+})
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: strongPassword,
 })
 
 export const companySchema = z.object({
@@ -110,7 +142,7 @@ export const discussionSchema = z.object({
 export const userSchema = z.object({
   name: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(8).regex(/[A-Z]/, 'Need uppercase').regex(/[0-9]/, 'Need number').regex(/[^A-Za-z0-9]/, 'Need special char'),
+  password: strongPassword,
   role: z.enum(['SuperAdmin', 'BusinessHead', 'ProjectHead', 'SalesHead', 'Manager', 'SeniorEngineer', 'Engineer', 'Technician', 'Accountant', 'HR', 'Viewer']),
   designationId: z.string().optional(),
   dateOfBirth: z.string().optional(),
@@ -142,25 +174,50 @@ export const dealSchema = z.object({
   departmentId: z.string().optional(),
   regionId: z.string().optional(),
   commercialModelId: z.string().optional(),
+  // Technical spec carried from the Lead
+  capacityValue: z.number().nullish(),
+  capacityUnitId: z.string().nullish(),
+  tempRangeMin: z.number().nullish(),
+  tempRangeMax: z.number().nullish(),
 })
 
 export const projectSchema = z.object({
   companyId: z.string(),
   dealId: z.string().optional(),
   title: z.string().min(1),
-  status: z.enum(['Planning', 'Active', 'OnHold', 'Completed']).default('Planning'),
+  status: z.enum(['Planning', 'Engineering', 'Procurement', 'Manufacturing', 'Installation', 'Testing', 'Completed', 'Cancelled', 'Active', 'OnHold']).default('Planning'),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   budget: z.number().optional(),
   actualBudget: z.number().optional(),
   progress: z.number().min(0).max(100).optional(),
+  autoProgress: z.boolean().optional(),
   notes: z.string().optional(),
   departmentId: z.string().optional(),
+  // Technical spec carried from the Deal
+  capacityValue: z.number().nullish(),
+  capacityUnitId: z.string().nullish(),
+  tempRangeMin: z.number().nullish(),
+  tempRangeMax: z.number().nullish(),
   // Cost breakdown (approval-gated for non-admins)
   purchaseCost: z.number().optional(),
   manufacturingCost: z.number().optional(),
   labourCost: z.number().optional(),
   serviceCost: z.number().optional(),
+  // ESCO execution budget, planned per cost centre
+  budgetEquipment: z.number().nonnegative().optional(),
+  budgetProcurement: z.number().nonnegative().optional(),
+  budgetInstallation: z.number().nonnegative().optional(),
+  budgetCivilWorks: z.number().nonnegative().optional(),
+  budgetElectrical: z.number().nonnegative().optional(),
+  budgetLogistics: z.number().nonnegative().optional(),
+  budgetCommissioning: z.number().nonnegative().optional(),
+  budgetOMReserve: z.number().nonnegative().optional(),
+  budgetContingency: z.number().nonnegative().optional(),
+  actualCivilWorks: z.number().nonnegative().optional(),
+  actualElectrical: z.number().nonnegative().optional(),
+  actualLogistics: z.number().nonnegative().optional(),
+  actualCommissioning: z.number().nonnegative().optional(),
   // Warranty
   warrantyPeriod: z.number().optional(),
   warrantyStart: z.string().optional(),
@@ -168,6 +225,9 @@ export const projectSchema = z.object({
   installationCost: z.number().optional(),
   // Assignment
   assignedPMId: z.string().optional(),
+  // Handover — set at deal close-won, editable later by anyone with project edit rights
+  handoverNotes: z.string().nullish(),
+  handoverOneDriveUrl: z.string().url().nullish(),
 })
 
 export const installationSchema = z.object({
@@ -178,6 +238,7 @@ export const installationSchema = z.object({
   scheduledDate: z.string().optional(),
   completedDate: z.string().optional(),
   notes: z.string().optional(),
+  scopeItemId: z.string().nullable().optional(),
 })
 
 export const calendarEventSchema = z.object({
@@ -190,14 +251,26 @@ export const calendarEventSchema = z.object({
   entityType: z.string().optional(),
   entityId: z.string().optional(),
   category: z.enum(['FollowUp', 'Meeting', 'Installation', 'Commissioning', 'EngineerVisit', 'WarrantyExpiry', 'AMCRenewal', 'ServiceVisit', 'CustomerReview', 'ProjectMilestone', 'Other']).optional(),
+  audience: z.enum(['Private', 'Department', 'Everyone']).default('Private'),
+  // Only meaningful for audience 'Department'. Omitted means "my department".
+  departmentId: z.string().optional().nullable(),
 })
+
+export const TICKET_CATEGORIES = [
+  'Installation', 'Warranty', 'AMC', 'Performance', 'Billing', 'Other',
+] as const
 
 export const ticketSchema = z.object({
   companyId: z.string(),
-  contactId: z.string().optional(),
+  contactId: z.string().optional().nullable(),
+  projectId: z.string().optional().nullable(),
+  installationId: z.string().optional().nullable(),
+  assignedToId: z.string().optional().nullable(),
   title: z.string().min(1),
   description: z.string().optional(),
+  category: z.enum(TICKET_CATEGORIES).optional().nullable(),
   priority: z.enum(['Low', 'Medium', 'High', 'Critical']).default('Medium'),
   status: z.enum(['Open', 'InProgress', 'Resolved', 'Closed']).default('Open'),
+  dueDate: z.coerce.date().optional().nullable(),
   notes: z.string().optional(),
 })

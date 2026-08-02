@@ -1,3 +1,5 @@
+import nodemailer, { Transporter } from 'nodemailer'
+
 export interface EmailMessage {
   to: string[]
   subject: string
@@ -14,8 +16,35 @@ export interface IEmailProvider {
 // See: https://learn.microsoft.com/en-us/graph/api/user-sendmail
 
 export class SmtpEmailProvider implements IEmailProvider {
-  async send(_message: EmailMessage): Promise<void> {
-    throw new Error('SmtpEmailProvider not configured. Set EMAIL_PROVIDER env var.')
+  private transporter: Transporter | null = null
+
+  private getTransporter(): Transporter {
+    if (this.transporter) return this.transporter
+    const host = process.env.SMTP_HOST
+    const port = Number(process.env.SMTP_PORT ?? 587)
+    const user = process.env.SMTP_USER
+    const pass = process.env.SMTP_PASS
+    if (!host || !user || !pass) {
+      throw new Error('SmtpEmailProvider not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS.')
+    }
+    this.transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: port === 465,
+      auth: { user, pass },
+    })
+    return this.transporter
+  }
+
+  async send(message: EmailMessage): Promise<void> {
+    const transporter = this.getTransporter()
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM ?? process.env.SMTP_USER,
+      to: message.to.join(', '),
+      subject: message.subject,
+      html: message.body,
+      attachments: message.attachmentPaths?.map((path) => ({ path })),
+    })
   }
   async listThreads(_entityType: string, _entityId: string): Promise<unknown[]> {
     return []

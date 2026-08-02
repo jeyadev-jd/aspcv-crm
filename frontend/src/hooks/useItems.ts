@@ -17,13 +17,37 @@ export interface ItemAPI {
   category?: string | null
   inStock: boolean
   notes?: string | null
+  // Alternative vendors for this same part.
+  dealerPrices?: ItemDealerPrice[]
   createdAt: string
+}
+
+export interface ItemDealerPrice {
+  id: string
+  itemId: string
+  dealerId: string
+  dealer: { id: string; name: string }
+  price: number
+  currency: string
+  referenceNumber?: string | null
+  leadTimeDays?: number | null
+  minOrderQty?: number | null
+  isPreferred: boolean
+  notes?: string | null
 }
 
 export function useItems(params?: { q?: string; dealerId?: string }) {
   return useQuery<ItemAPI[]>({
     queryKey: ['items', params],
     queryFn: () => api.get('/items', { params: { ...params, pageSize: 1000 } }).then(r => r.data.data),
+  })
+}
+
+export function useBulkDeleteItems() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) => api.post('/items/bulk-delete', { ids }).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
   })
 }
 
@@ -48,6 +72,27 @@ export function useDeleteItem() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete(`/items/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
+  })
+}
+
+// ─── Multi-dealer pricing ────────────────────────────────────────────────────
+
+/** Upserts a dealer's price for an item — re-adding the same dealer updates it. */
+export function useSetItemDealerPrice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ itemId, ...data }: Record<string, unknown> & { itemId: string }) =>
+      api.post(`/items/${itemId}/dealer-prices`, data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
+  })
+}
+
+export function useDeleteItemDealerPrice() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ itemId, priceId }: { itemId: string; priceId: string }) =>
+      api.delete(`/items/${itemId}/dealer-prices/${priceId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['items'] }),
   })
 }

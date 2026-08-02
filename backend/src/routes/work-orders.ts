@@ -4,6 +4,7 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 import { appendEvent } from '../services/timeline'
 import { parsePagination, paginate } from '../lib/pagination'
+import { nextWONumber } from '../lib/sequences'
 import { z } from 'zod'
 
 const router = createSafeRouter()
@@ -13,6 +14,7 @@ const workOrderSchema = z.object({
   projectId: z.string().min(1),
   title: z.string().min(1),
   notes: z.string().optional(),
+  scopeItemId: z.string().optional(),
 })
 
 const workOrderUpdateSchema = z.object({
@@ -20,6 +22,7 @@ const workOrderUpdateSchema = z.object({
   status: z.string().optional(),
   labourCost: z.number().optional(),
   notes: z.string().optional(),
+  scopeItemId: z.string().nullable().optional(),
 })
 
 router.get('/', requirePermission('work_order', 'read_all'), async (req, res) => {
@@ -32,6 +35,7 @@ router.get('/', requirePermission('work_order', 'read_all'), async (req, res) =>
         where,
         include: {
           project: { select: { id: true, title: true } },
+          scopeItem: { select: { id: true, title: true, productType: true } },
           logs: { orderBy: { createdAt: 'desc' }, take: 5 },
           materialConsumptions: { include: { rawComponent: { select: { id: true, name: true, unit: true } } } },
         },
@@ -51,6 +55,7 @@ router.get('/:id', requirePermission('work_order', 'read_all'), async (req, res)
       where: { id: (req.params.id as string) },
       include: {
         project: true,
+        scopeItem: true,
         logs: { orderBy: { createdAt: 'asc' } },
         materialConsumptions: { include: { rawComponent: true } },
       },
@@ -63,12 +68,11 @@ router.get('/:id', requirePermission('work_order', 'read_all'), async (req, res)
 router.post('/', requirePermission('work_order', 'create'), async (req: AuthRequest, res) => {
   try {
     const data = workOrderSchema.parse(req.body)
-    const count = await prisma.workOrder.count()
-    const refNumber = `WO-${String(count + 1).padStart(4, '0')}`
+    const refNumber = await nextWONumber()
     const [wo] = await prisma.$transaction([
       prisma.workOrder.create({
-        data: { refNumber, projectId: data.projectId, title: data.title, notes: data.notes, createdById: req.user?.id },
-        include: { logs: true },
+        data: { refNumber, projectId: data.projectId, title: data.title, notes: data.notes, scopeItemId: data.scopeItemId, createdById: req.user?.id },
+        include: { logs: true, scopeItem: true },
       }),
       prisma.project.update({ where: { id: data.projectId }, data: { status: 'Manufacturing' } }),
     ])
@@ -83,9 +87,38 @@ router.put('/:id', requirePermission('work_order', 'edit'), async (req: AuthRequ
     const wo = await prisma.$transaction(async tx => {
       const existing = await tx.workOrder.findUniqueOrThrow({ where: { id: (req.params.id as string) } })
       const updateData: any = { title: data.title, notes: data.notes }
+      if (data.scopeItemId !== undefined) updateData.scopeItemId = data.scopeItemId
       if (data.status) updateData.status = data.status
       if (data.status === 'InProduction' && !existing.startedAt) updateData.startedAt = new Date()
-      if (data.status === 'Finished') updateData.finishedAt = new Date()
+      if (data.status === 'Finished') {
+        updateData.finishedAt = new Date()
+        // Mark all consumed raw components as fully consumed
+        const consumptions = await tx.materialConsumption.findMany({
+          where: { workOrderId: req.params.id as string },
+          select: { rawComponentId: true },
+        })
+        const rcIds = [...new Set(consumptions.map(c => c.rawComponentId))]
+        if (rcIds.length > 0) {
+          await tx.rawComponent.updateMany({
+            where: { id: { in: rcIds }, status: 'assigned' },
+            data: { status: 'consumed' },
+          })
+        }
+        // Advance project to Installation if ALL work orders for it are now Finished
+        const openWOs = await tx.workOrder.count({
+          where: {
+            projectId: existing.projectId,
+            id: { not: req.params.id as string },
+            status: { notIn: ['Finished', 'Cancelled'] },
+          },
+        })
+        if (openWOs === 0) {
+          await tx.project.update({
+            where: { id: existing.projectId },
+            data: { status: 'Installation' },
+          })
+        }
+      }
 
       if (data.labourCost !== undefined) {
         updateData.labourCost = data.labourCost
@@ -207,6 +240,15 @@ router.delete('/:id', requirePermission('work_order', 'delete'), async (req, res
     await prisma.workOrder.delete({ where: { id: (req.params.id as string) } })
     res.json({ ok: true })
   } catch (e) { res.status(500).json({ error: 'Failed to delete work order' }) }
+})
+
+router.post('/bulk-delete', requirePermission('work_order', 'delete'), async (req, res) => {
+  try {
+    const { ids } = req.body as { ids?: string[] }
+    if (!Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: 'ids array required' })
+    const result = await prisma.workOrder.deleteMany({ where: { id: { in: ids } } })
+    res.json({ deleted: result.count })
+  } catch (e) { res.status(500).json({ error: 'Failed to delete work orders' }) }
 })
 
 export default router

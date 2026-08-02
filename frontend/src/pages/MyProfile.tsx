@@ -1,11 +1,13 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../lib/authStore'
 import { useMySalary } from '../hooks/useSalary'
 import { useMyAttendance } from '../hooks/useAttendance'
 import { useUsers } from '../hooks/useUsers'
 import { PDFDownloadLink } from '@react-pdf/renderer'
 import SalarySlipPDF from '../components/pdf/SalarySlipPDF'
-import { Download, Cake, Calendar, Building, CreditCard, Phone, Wallet } from 'lucide-react'
+import { Download, Cake, Calendar, Building, CreditCard, Phone, Wallet, LogOut } from 'lucide-react'
+import { useConfirm } from '../components/shared/useConfirm'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -28,6 +30,9 @@ function DetailRow({ icon, label, value }: { icon: React.ReactNode; label: strin
 
 export default function MyProfile() {
   const user = useAuthStore(s => s.user)
+  const logout = useAuthStore(s => s.logout)
+  const navigate = useNavigate()
+  const { confirm, confirmDialog } = useConfirm()
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
@@ -60,7 +65,20 @@ export default function MyProfile() {
             {user.designation && <span style={{ background: '#F3F4F6', color: '#374151', fontSize: 12, padding: '3px 10px', borderRadius: 20 }}>{user.designation}</span>}
           </div>
         </div>
+        <button
+          onClick={() => confirm({
+            title: 'Log out?',
+            message: 'You will need to sign in again to access the CRM.',
+            confirmLabel: 'Log out',
+            danger: true,
+            onConfirm: () => { logout(); navigate('/login', { replace: true }) },
+          })}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600, border: '1.5px solid #FEE2E2', background: '#FEF2F2', color: '#EF4444', cursor: 'pointer', flexShrink: 0 }}
+        >
+          <LogOut size={14} /> Log Out
+        </button>
       </div>
+      {confirmDialog}
 
       {/* Personal details */}
       {myDetails && (

@@ -8,9 +8,11 @@ export interface AttachmentAPI {
   id: string
   entityType?: string | null
   entityId?: string | null
+  discussionId?: string | null
   fileName: string
-  mimeType: string
+  mimeType?: string | null
   sizeBytes?: number | null
+  externalUrl?: string | null
   url: string
   documentType?: DocumentType | null
   relatedModule?: RelatedModule | null
@@ -27,6 +29,23 @@ export function useAttachments(entityType: string, entityId: string) {
     queryKey: [KEY, entityType, entityId],
     queryFn: () => api.get('/attachments', { params: { entityType, entityId } }).then(r => r.data),
     enabled: !!entityType && !!entityId,
+  })
+}
+
+export function useDiscussionAttachments(discussionId: string) {
+  return useQuery<AttachmentAPI[]>({
+    queryKey: [KEY, 'discussion', discussionId],
+    queryFn: () => api.get('/attachments', { params: { discussionId } }).then(r => r.data),
+    enabled: !!discussionId,
+  })
+}
+
+export function useCreateLinkAttachment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { entityType?: string; entityId?: string; discussionId?: string; url: string; fileName?: string; documentType?: DocumentType; relatedModule?: RelatedModule }) =>
+      api.post('/attachments/link', data).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }
 

@@ -9,11 +9,13 @@ router.use(authenticate)
 
 router.get('/', requirePermission('inventory_allocation', 'read_all'), async (req, res) => {
   try {
-    const { projectId, rawComponentId } = req.query
+    const { projectId, rawComponentId, includeReversed } = req.query
     const pagination = parsePagination(req.query as Record<string, unknown>, 'allocatedAt')
     const where = {
       ...(projectId ? { projectId: String(projectId) } : {}),
       ...(rawComponentId ? { rawComponentId: String(rawComponentId) } : {}),
+      // Returned allocations stay on record but are not live stock on the project.
+      ...(includeReversed === 'true' ? {} : { reversedAt: null }),
     }
     const [allocs, total] = await Promise.all([
       prisma.inventoryAllocation.findMany({
@@ -50,6 +52,16 @@ router.post('/', requirePermission('inventory_allocation', 'create'), async (req
       const created = await tx.inventoryAllocation.create({
         data: { rawComponentId, projectId, quantity, allocatedById: userId, notes },
       })
+
+      // Stock value moves out of the central warehouse and onto the project's books.
+      const rc = await tx.rawComponent.findUnique({ where: { id: rawComponentId }, select: { price: true } })
+      const movedValue = (rc?.price || 0) * quantity
+      if (movedValue > 0) {
+        await tx.project.update({
+          where: { id: projectId },
+          data: { inventoryCost: { increment: movedValue } },
+        })
+      }
       await tx.componentMovement.create({
         data: {
           componentId: rawComponentId,
@@ -70,16 +82,100 @@ router.post('/', requirePermission('inventory_allocation', 'create'), async (req
   }
 })
 
+// FIFO auto-allocation: picks oldest in_stock component matching itemName
+router.post('/fifo-allocate', requirePermission('inventory_allocation', 'create'), async (req: AuthRequest, res) => {
+  const { itemName, projectId, quantity, notes } = req.body as { itemName: string; projectId: string; quantity: number; notes?: string }
+  if (!itemName || !projectId || !quantity || quantity <= 0) {
+    res.status(400).json({ error: 'itemName, projectId, and positive quantity required' })
+    return
+  }
+
+  // Find oldest in_stock components matching name (FIFO: lowest receivedAt first)
+  const candidates = await prisma.rawComponent.findMany({
+    where: {
+      status: 'in_stock',
+      name: { contains: itemName, mode: 'insensitive' },
+    },
+    orderBy: { receivedAt: 'asc' },
+  })
+
+  const totalAvailable = candidates.reduce((s, c) => s + (c.quantity || 1), 0)
+  if (totalAvailable < quantity) {
+    res.status(400).json({ error: `Insufficient FIFO stock: need ${quantity}, available ${totalAvailable}` })
+    return
+  }
+
+  const allocations: string[] = []
+  let remaining = quantity
+  let movedValue = 0
+
+  await prisma.$transaction(async tx => {
+    for (const rc of candidates) {
+      if (remaining <= 0) break
+      const take = Math.min(remaining, rc.quantity || 1)
+      const newQty = (rc.quantity || 1) - take
+
+      await tx.rawComponent.update({
+        where: { id: rc.id },
+        data: {
+          quantity: newQty,
+          status: newQty === 0 ? 'assigned' : 'in_stock',
+          assignedToType: newQty === 0 ? 'project' : rc.assignedToType,
+          assignedToId: newQty === 0 ? projectId : rc.assignedToId,
+          assignedAt: newQty === 0 ? new Date() : rc.assignedAt,
+        },
+      })
+
+      const alloc = await tx.inventoryAllocation.create({
+        data: { rawComponentId: rc.id, projectId, quantity: take, allocatedById: req.user?.id, notes },
+      })
+      allocations.push(alloc.id)
+
+      await tx.componentMovement.create({
+        data: {
+          componentId: rc.id,
+          type: 'assigned',
+          toEntityType: 'project',
+          toEntityId: projectId,
+          performedById: req.user?.id,
+          notes: `FIFO allocation (received ${rc.receivedAt.toISOString().slice(0, 10)})`,
+        },
+      })
+      remaining -= take
+      movedValue += (rc.price || 0) * take
+    }
+
+    if (movedValue > 0) {
+      await tx.project.update({ where: { id: projectId }, data: { inventoryCost: { increment: movedValue } } })
+    }
+  })
+
+  res.status(201).json({ allocated: quantity, allocationIds: allocations, inventoryCostAdded: movedValue })
+})
+
 // Return allocation back to raw materials
 router.delete('/:id', requirePermission('inventory_allocation', 'delete'), async (req: AuthRequest, res) => {
   try {
     await prisma.$transaction(async tx => {
       const alloc = await tx.inventoryAllocation.findUniqueOrThrow({ where: { id: (req.params.id as string) } })
-      await tx.inventoryAllocation.delete({ where: { id: (req.params.id as string) } })
-      await tx.rawComponent.update({
+      if (alloc.reversedAt) throw new Error('ALREADY_REVERSED')
+      // Marked reversed, not deleted — the row is the audit trail for this movement.
+      await tx.inventoryAllocation.update({
+        where: { id: alloc.id },
+        data: { reversedAt: new Date(), reversedById: req.user?.id },
+      })
+      const rc = await tx.rawComponent.update({
         where: { id: alloc.rawComponentId },
         data: { quantity: { increment: alloc.quantity } },
       })
+      // Value goes back to the warehouse, so take it off the project's inventory cost.
+      const returnedValue = (rc.price || 0) * alloc.quantity
+      if (returnedValue > 0) {
+        await tx.project.update({
+          where: { id: alloc.projectId },
+          data: { inventoryCost: { decrement: returnedValue } },
+        })
+      }
       await tx.componentMovement.create({
         data: {
           componentId: alloc.rawComponentId,
@@ -93,7 +189,10 @@ router.delete('/:id', requirePermission('inventory_allocation', 'delete'), async
       })
     })
     res.json({ ok: true })
-  } catch (e) { res.status(500).json({ error: 'Failed to return allocation' }) }
+  } catch (e: any) {
+    if (e?.message === 'ALREADY_REVERSED') return res.status(400).json({ error: 'Allocation already returned' })
+    res.status(500).json({ error: 'Failed to return allocation' })
+  }
 })
 
 export default router

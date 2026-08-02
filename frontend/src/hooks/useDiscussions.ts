@@ -23,6 +23,7 @@ export interface Discussion {
   followUpAt?: string
   participants: DiscussionParticipant[]
   attachments: any[]
+  projectLinks?: { projectId: string }[]
   createdAt: string
 }
 
@@ -67,5 +68,32 @@ export function useDeleteDiscussion() {
   return useMutation({
     mutationFn: ({ id }: { id: string; entityType: string; entityId: string }) => api.delete(`/discussions/${id}`),
     onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ['discussions', vars.entityType, vars.entityId] }),
+  })
+}
+
+// Optional, non-destructive: surfaces a Deal/Lead discussion on a Project too — the
+// discussion keeps its original entityType/entityId. Sales Manager can do this at
+// handover time or any time later.
+export function useLinkDiscussionToProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ discussionId, projectId }: { discussionId: string; projectId: string; entityType: string; entityId: string }) =>
+      api.post(`/discussions/${discussionId}/link-project`, { projectId }).then(r => r.data),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['discussions', vars.entityType, vars.entityId] })
+      qc.invalidateQueries({ queryKey: ['discussions', 'Project', vars.projectId] })
+    },
+  })
+}
+
+export function useUnlinkDiscussionFromProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ discussionId, projectId }: { discussionId: string; projectId: string; entityType: string; entityId: string }) =>
+      api.delete(`/discussions/${discussionId}/link-project/${projectId}`),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ['discussions', vars.entityType, vars.entityId] })
+      qc.invalidateQueries({ queryKey: ['discussions', 'Project', vars.projectId] })
+    },
   })
 }

@@ -1,10 +1,11 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, UserCheck, Briefcase,
-  Package, FolderOpen, CheckSquare, KanbanSquare, Calendar,
+  Package, FolderOpen, CheckSquare, Calendar,
   FileText, LifeBuoy, BarChart2, Settings, Bell, HelpCircle, Wrench,
-  ClipboardList, Boxes, UserCircle, Clock, Wallet, PiggyBank,
+  ClipboardList, Boxes, UserCircle, Clock, Wallet,
   ShieldCheck, ClipboardCheck, Store, Archive, PieChart, ShieldAlert, Zap,
+  Target, Award, BarChart3, UserPlus,
 } from 'lucide-react'
 import { useAuthStore } from '@/lib/authStore'
 
@@ -21,39 +22,37 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       { icon: LayoutDashboard, to: '/',         label: 'Dashboard' },
       { icon: UserCheck,       to: '/leads',    label: 'Leads',    permission: ['lead', 'read_own'] },
+      { icon: Briefcase,       to: '/deals',    label: 'Deals',    permission: ['deal', 'read_own'] },
       { icon: Building2,       to: '/accounts', label: 'Accounts', permission: ['company', 'read_all'] },
       { icon: Users,           to: '/contacts', label: 'Contacts', permission: ['contact', 'read_own'] },
-      { icon: Briefcase,       to: '/deals',    label: 'Deals',    permission: ['deal', 'read_own'] },
-      { icon: FileText,        to: '/sales',    label: 'Quotations & Orders', permission: ['quotation', 'read_all'] },
     ],
   },
   {
     label: 'OPERATIONS',
     items: [
-      { icon: FolderOpen,   to: '/projects',          label: 'Projects',        permission: ['project', 'read_all'] },
-      { icon: Archive,      to: '/completed-projects', label: 'Completed Projects', permission: ['project', 'read_all'] },
-      { icon: Store,        to: '/procurement',       label: 'Procurement',     permission: ['bom', 'read_all'] },
-      { icon: Wrench,       to: '/manufacturing',     label: 'Manufacturing',   permission: ['work_order', 'read_all'] },
-      { icon: LifeBuoy,     to: '/service',           label: 'Service',         permission: ['service_record', 'read_all'] },
-      { icon: Wrench,       to: '/installations',     label: 'Installations',   permission: ['installation', 'read_all'] },
+      // ESCO contracts live as a tab inside /projects.
+      { icon: FolderOpen,   to: '/projects',          label: 'Projects' },
       { icon: CheckSquare,  to: '/tasks',             label: 'Tasks' },
-      { icon: KanbanSquare, to: '/kanban',            label: 'Kanban' },
       { icon: Calendar,     to: '/calendar',          label: 'Calendar' },
     ],
   },
   {
     label: 'HR',
     items: [
-      { icon: UserCircle, to: '/hr',         label: 'Employees', permission: ['hr_user', 'read_all'] },
-      { icon: Clock,      to: '/attendance', label: 'Attendance', permission: ['attendance', 'read_own'] },
-      { icon: Wallet,     to: '/payroll',    label: 'Payroll',   permission: ['salary', 'read_own'] },
+      // Directory, Payroll, Salary Structure, Recruitment,
+      // Onboarding and HR Settings all live as tabs inside /hr.
+      { icon: UserCircle, to: '/hr',         label: 'Employees' },
+      { icon: Clock,      to: '/attendance', label: 'Attendance' },
+      { icon: Calendar,   to: '/leave',      label: 'Leave' },
+      { icon: Wallet,     to: '/reimbursements', label: 'Reimbursements' },
+      { icon: BarChart3, to: '/hr-reports',  label: 'HR Reports', permission: ['hr_user', 'read_all'] },
       { icon: UserCircle, to: '/profile',    label: 'My Profile' },
     ],
   },
   {
     label: 'WAREHOUSE',
     items: [
-      { icon: ClipboardList, to: '/material-requests', label: 'Material Req.', permission: ['material_request', 'create'] },
+      { icon: ClipboardList, to: '/warehouse',          label: 'Warehouse' },
       { icon: Boxes,         to: '/raw-components',     label: 'Inventory',    permission: ['component', 'read_all'] },
       { icon: Store,         to: '/dealers',            label: 'Dealers' },
       { icon: Package,       to: '/items',              label: 'Items' },
@@ -63,8 +62,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'FINANCE',
     items: [
       { icon: FileText,  to: '/invoices',   label: 'Invoices',       permission: ['invoice', 'read_all'] },
-      { icon: PiggyBank, to: '/financials', label: 'Assets & Liab.', permission: ['financial', 'read_all'] },
-      { icon: PieChart,  to: '/budget',     label: 'Budget',         permission: ['project', 'read_all'] },
+      // Budget moved into the Projects module as a tab.
     ],
   },
   {
@@ -77,7 +75,6 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     label: 'ADMIN',
     items: [
       { icon: BarChart2,      to: '/reports',    label: 'Reports' },
-      { icon: BarChart2,      to: '/ml-analytics',label: 'ML Analytics' },
       { icon: Settings,       to: '/settings',   label: 'Settings' },
       { icon: ShieldCheck,    to: '/roles',      label: 'Roles & Perms', permission: ['role_admin', 'manage'] },
       { icon: Users,          to: '/users',      label: 'Users',          permission: ['role_admin', 'manage'] },
@@ -128,9 +125,9 @@ export default function Sidebar({ collapsed, mobileOpen }: SidebarProps) {
           />
         ) : (
           <img
-            src="/favicon.svg"
+            src="/aspcv-logo1.png"
             alt="ASPCV"
-            style={{ width: 34, height: 34, objectFit: 'contain', display: 'block', margin: '0 auto' }}
+            style={{ width: 34, height: 34, objectFit: 'cover', display: 'block', margin: '0 auto', borderRadius: '50%' }}
           />
         )}
       </div>
@@ -185,20 +182,45 @@ export default function Sidebar({ collapsed, mobileOpen }: SidebarProps) {
 
       {/* Bottom */}
       <div style={{ borderTop: '1px solid #F0F1F5', padding: '8px 8px', flexShrink: 0 }}>
-        {[{ icon: Bell, label: 'Notifications' }, { icon: HelpCircle, label: 'Help' }]
-          .map(({ icon: Icon, label }) => (
-            <button key={label} style={{
-              display: 'flex', alignItems: 'center', gap: 10,
-              padding: showLabels ? '9px 12px' : '9px 11px',
-              borderRadius: 10, border: 'none', background: 'transparent',
-              cursor: 'pointer', width: '100%', marginBottom: 2,
-              color: '#B1B1BE', fontSize: 12, fontWeight: 500,
-              whiteSpace: 'nowrap', overflow: 'hidden',
-            }}>
-              <Icon size={16} style={{ flexShrink: 0 }} />
-              {showLabels && <span>{label}</span>}
-            </button>
-          ))}
+        {/* Notifications routes to the full history page; Help has no target yet. */}
+        <NavLink
+          to="/notifications"
+          style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: showLabels ? '9px 12px' : '9px 11px',
+            borderRadius: 10, textDecoration: 'none', marginBottom: 2,
+            background: isActive ? '#5D78FF' : 'transparent',
+            color: isActive ? '#fff' : '#B1B1BE',
+            fontSize: 12, fontWeight: 500,
+            whiteSpace: 'nowrap', overflow: 'hidden',
+          })}
+        >
+          {({ isActive }) => (
+            <>
+              <Bell size={16} style={{ flexShrink: 0, color: isActive ? '#fff' : '#B1B1BE' }} />
+              {showLabels && <span>Notifications</span>}
+            </>
+          )}
+        </NavLink>
+        <NavLink
+          to="/help"
+          style={({ isActive }) => ({
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: showLabels ? '9px 12px' : '9px 11px',
+            borderRadius: 10, textDecoration: 'none', marginBottom: 2,
+            background: isActive ? '#5D78FF' : 'transparent',
+            color: isActive ? '#fff' : '#B1B1BE',
+            fontSize: 12, fontWeight: 500,
+            whiteSpace: 'nowrap', overflow: 'hidden',
+          })}
+        >
+          {({ isActive }) => (
+            <>
+              <HelpCircle size={16} style={{ flexShrink: 0, color: isActive ? '#fff' : '#B1B1BE' }} />
+              {showLabels && <span>Help</span>}
+            </>
+          )}
+        </NavLink>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 10,
           padding: showLabels ? '8px 12px' : '8px 11px', marginTop: 4,

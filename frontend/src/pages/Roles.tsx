@@ -5,10 +5,13 @@ import { useIsMobile } from '@/lib/useIsMobile'
 import {
   ShieldCheck, Plus, ChevronDown, ChevronRight, Trash2,
   UserCheck, Handshake, Contact, Building2, FolderOpen, CheckSquare,
-  KanbanSquare, Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
+  Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
   FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
   MessageSquare, ClipboardCheck, Shield, Store,
+  ShieldPlus, Truck, PackageCheck, Cog, ScrollText, PenTool,
+  Landmark, Settings, Scale, HardHat, ClipboardSignature,
 } from 'lucide-react'
+import { useConfirm } from '@/components/shared/useConfirm'
 
 interface RoleDef {
   id: string
@@ -31,28 +34,26 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
     { key: 'deal:assign_pm', label: 'Assign Project Manager' }, { key: 'deal:assign_se', label: 'Assign Service Engineer' },
   ]},
   { label: 'Contacts', Icon: Contact, perms: [
-    { key: 'contact:create', label: 'Add contacts' }, { key: 'contact:read_own', label: 'View own contacts' },
-    { key: 'contact:read_all', label: 'View all contacts' }, { key: 'contact:edit', label: 'Edit contacts' }, { key: 'contact:delete', label: 'Delete contacts' },
+    { key: 'contact:create', label: 'Add contacts' }, { key: 'contact:read_own', label: 'View contacts' },
+    { key: 'contact:edit', label: 'Log contact events (calls, meetings)' },
+    { key: 'contact:delete', label: 'Restore deleted contacts' },
   ]},
   { label: 'Accounts', Icon: Building2, perms: [
     { key: 'company:create', label: 'Add companies' }, { key: 'company:read_all', label: 'View companies' },
     { key: 'company:edit', label: 'Edit companies' }, { key: 'company:delete', label: 'Delete companies' },
   ]},
   { label: 'Projects', Icon: FolderOpen, perms: [
-    { key: 'project:create', label: 'Create projects' }, { key: 'project:read_all', label: 'View projects' },
+    { key: 'project:create', label: 'Create projects' }, { key: 'project:read_own', label: 'View own projects' },
+    { key: 'project:read_all', label: 'View all projects' },
     { key: 'project:edit', label: 'Edit projects' }, { key: 'project:delete', label: 'Delete projects' },
   ]},
   { label: 'Tasks', Icon: CheckSquare, perms: [
-    { key: 'task:create', label: 'Create tasks' }, { key: 'task:read_own', label: 'View own tasks' },
-    { key: 'task:read_all', label: 'View all tasks' }, { key: 'task:edit', label: 'Edit tasks' }, { key: 'task:delete', label: 'Delete tasks' },
-  ]},
-  { label: 'Kanban', Icon: KanbanSquare, perms: [
-    { key: 'kanban:read_all', label: 'View board' }, { key: 'kanban:create', label: 'Add cards' },
-    { key: 'kanban:edit', label: 'Move & edit cards' }, { key: 'kanban:delete', label: 'Delete cards' },
+    { key: 'task:create', label: 'Create tasks' }, { key: 'task:edit', label: 'Edit tasks' }, { key: 'task:delete', label: 'Delete tasks' },
   ]},
   { label: 'Calendar', Icon: Calendar, perms: [
-    { key: 'calendar:read_all', label: 'View calendar' }, { key: 'calendar:create', label: 'Add events' },
+    { key: 'calendar:create', label: 'Add events' },
     { key: 'calendar:edit', label: 'Edit events' }, { key: 'calendar:delete', label: 'Delete events' },
+    { key: 'calendar:manage', label: 'Schedule for any department' },
   ]},
   { label: 'Employees (HR)', Icon: UserCircle, perms: [
     { key: 'hr_user:create', label: 'Add new employees' }, { key: 'hr_user:read_all', label: 'View all employees' },
@@ -60,7 +61,8 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
   ]},
   { label: 'Attendance', Icon: AlarmClock, perms: [
     { key: 'attendance:checkin', label: 'Check in & out' }, { key: 'attendance:read_own', label: 'View own attendance' },
-    { key: 'attendance:read_all', label: 'View all attendance' },
+    { key: 'attendance:read_all', label: 'View all attendance' }, { key: 'attendance:edit', label: 'Edit attendance logs' },
+    { key: 'attendance:manage', label: 'Manage location overrides' },
   ]},
   { label: 'Payroll', Icon: Wallet, perms: [
     { key: 'salary:generate', label: 'Generate salary slips' }, { key: 'salary:approve', label: 'Approve salary' },
@@ -70,44 +72,86 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
     { key: 'financial:create', label: 'Add financial entries' }, { key: 'financial:read_all', label: 'View financials' },
     { key: 'financial:edit', label: 'Edit entries' }, { key: 'financial:delete', label: 'Delete entries' },
   ]},
+  { label: 'Accounting (Ledger & Budgets)', Icon: Landmark, perms: [
+    { key: 'finance:read', label: 'View department budgets & ledger' }, { key: 'finance:edit', label: 'Edit budgets, ledger & journal entries' },
+  ]},
   { label: 'Invoices', Icon: FileText, perms: [
     { key: 'invoice:read_all', label: 'View invoices' }, { key: 'invoice:create', label: 'Create invoices' },
-    { key: 'invoice:edit', label: 'Edit invoices' }, { key: 'invoice:delete', label: 'Delete invoices' },
+    { key: 'invoice:edit', label: 'Edit invoices' }, { key: 'invoice:approve', label: 'Approve invoices' }, { key: 'invoice:delete', label: 'Delete invoices' },
+    { key: 'signatory:read_all', label: 'View signatories' }, { key: 'signatory:create', label: 'Add signatories' },
+    { key: 'signatory:edit', label: 'Edit signatories' }, { key: 'signatory:delete', label: 'Delete signatories' },
+    { key: 'bank_account:read_all', label: 'View bank accounts' }, { key: 'bank_account:create', label: 'Add bank accounts' },
+    { key: 'bank_account:edit', label: 'Edit bank accounts' }, { key: 'bank_account:delete', label: 'Delete bank accounts' },
+  ]},
+  { label: 'Quotations', Icon: ClipboardSignature, perms: [
+    { key: 'quotation:read_all', label: 'View quotations' }, { key: 'quotation:create', label: 'Create quotations' },
+    { key: 'quotation:edit', label: 'Edit quotations' }, { key: 'quotation:approve', label: 'Approve quotations' }, { key: 'quotation:delete', label: 'Delete quotations' },
+  ]},
+  { label: 'Purchase Orders', Icon: Truck, perms: [
+    { key: 'purchase_order:read_all', label: 'View purchase orders' }, { key: 'purchase_order:create', label: 'Create purchase orders' },
+    { key: 'purchase_order:edit', label: 'Edit purchase orders' }, { key: 'purchase_order:approve', label: 'Approve purchase orders' },
+    { key: 'purchase_order:delete', label: 'Delete purchase orders' },
+    { key: 'goods_receipt:read_all', label: 'View goods receipts' }, { key: 'goods_receipt:create', label: 'Record goods receipts' },
+  ]},
+  { label: 'Manufacturing (Work Orders)', Icon: Cog, perms: [
+    { key: 'work_order:read_all', label: 'View work orders' }, { key: 'work_order:create', label: 'Create work orders' },
+    { key: 'work_order:edit', label: 'Edit work orders' }, { key: 'work_order:delete', label: 'Delete work orders' },
   ]},
   { label: 'Products', Icon: Package, perms: [
-    { key: 'product:read_all', label: 'View products' }, { key: 'product:create', label: 'Add products' },
+    { key: 'product:create', label: 'Add products' },
     { key: 'product:edit', label: 'Edit products' }, { key: 'product:delete', label: 'Delete products' },
   ]},
   { label: 'Material Requests', Icon: ClipboardList, perms: [
-    { key: 'material_request:create', label: 'Raise material requests' }, { key: 'material_request:read_own', label: 'View own requests' },
-    { key: 'material_request:read_all', label: 'View all requests' },
+    { key: 'material_request:create', label: 'Raise material requests' }, { key: 'material_request:read_own', label: 'View material requests' },
+    { key: 'material_request:reject', label: 'Reject material requests' },
   ]},
   { label: 'Inventory', Icon: Boxes, perms: [
-    { key: 'component:create', label: 'Add components' }, { key: 'component:read_all', label: 'View inventory' },
+    { key: 'component:create', label: 'Add components' },
     { key: 'component:edit', label: 'Edit components' }, { key: 'component:assign', label: 'Assign to projects' },
+    { key: 'component:delete', label: 'Delete components' },
+    { key: 'inventory_allocation:read_all', label: 'View allocations' }, { key: 'inventory_allocation:create', label: 'Allocate inventory' },
+    { key: 'inventory_allocation:delete', label: 'Delete allocations' },
   ]},
   { label: 'Installation', Icon: Wrench, perms: [
-    { key: 'installation:read_all', label: 'View installations' }, { key: 'installation:create', label: 'Add installations' },
+    { key: 'installation:read_own', label: 'View installations' }, { key: 'installation:create', label: 'Add installations' },
     { key: 'installation:edit', label: 'Edit installations' }, { key: 'installation:delete', label: 'Delete installations' },
+  ]},
+  { label: 'Service & Warranty', Icon: HardHat, perms: [
+    { key: 'service_record:read_all', label: 'View service records' }, { key: 'service_record:create', label: 'Create service requests' },
+    { key: 'service_record:edit', label: 'Edit service records' },
+    { key: 'service_record:delete', label: 'Delete service requests' },
+  ]},
+  { label: 'AMC Contracts', Icon: ShieldPlus, perms: [
+    { key: 'amc:read_all', label: 'View AMC contracts' }, { key: 'amc:create', label: 'Create/renew AMC contracts' },
+    { key: 'amc:edit', label: 'Edit AMC contracts, visits & invoices' },
   ]},
   { label: 'Support Tickets', Icon: Headphones, perms: [
     { key: 'support:read_all', label: 'View all tickets' }, { key: 'support:create', label: 'Raise tickets' },
     { key: 'support:edit', label: 'Edit tickets' }, { key: 'support:delete', label: 'Delete tickets' },
   ]},
   { label: 'Discussions', Icon: MessageSquare, perms: [
-    { key: 'discussion:create', label: 'Start discussions' }, { key: 'discussion:read_all', label: 'Read all discussions' },
-    { key: 'discussion:edit_own', label: 'Edit own comments' }, { key: 'discussion:delete_own', label: 'Delete own comments' },
-    { key: 'attachment:create', label: 'Upload attachments' }, { key: 'attachment:read_all', label: 'View/download attachments' },
+    { key: 'discussion:create', label: 'Start discussions' },
+    { key: 'discussion:edit_own', label: 'Edit own comments / link projects' },
+    { key: 'attachment:create', label: 'Upload attachments' }, { key: 'attachment:read_own', label: 'View/download attachments' },
     { key: 'attachment:delete', label: 'Delete attachments' },
   ]},
   { label: 'Approvals', Icon: ClipboardCheck, perms: [
-    { key: 'approval_request:create', label: 'Submit approval requests' }, { key: 'approval_request:review', label: 'Approve or reject requests' },
+    { key: 'approval_request:review', label: 'Approve or reject requests' },
   ]},
   { label: 'Dealers & Items', Icon: Store, perms: [
     { key: 'dealer:create', label: 'Add dealers' }, { key: 'dealer:read_all', label: 'View dealers' },
     { key: 'dealer:edit', label: 'Edit dealers' }, { key: 'dealer:delete', label: 'Delete dealers' },
     { key: 'dealer_item:create', label: 'Add dealer items' }, { key: 'dealer_item:read_all', label: 'View dealer items' },
     { key: 'dealer_item:edit', label: 'Edit dealer items' }, { key: 'dealer_item:delete', label: 'Delete dealer items' },
+  ]},
+  { label: 'Business Rules', Icon: ScrollText, perms: [
+    { key: 'business_rule:read_all', label: 'View business rules' }, { key: 'business_rule:edit', label: 'Edit & run business rules' },
+  ]},
+  { label: 'Audit Log', Icon: PenTool, perms: [
+    { key: 'audit_log:read_all', label: 'View audit log' },
+  ]},
+  { label: 'Company Settings', Icon: Settings, perms: [
+    { key: 'settings:read', label: 'View company/branch settings' }, { key: 'settings:edit', label: 'Edit company/branch settings' },
   ]},
   { label: 'Admin', Icon: Shield, perms: [
     { key: 'role_admin:manage', label: 'Manage roles & permissions' },
@@ -117,6 +161,7 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
 const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap(g => g.perms.map(p => p.key))
 
 export default function Roles() {
+  const { confirm, confirmDialog } = useConfirm()
   const isMobile = useIsMobile()
   const qc = useQueryClient()
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -147,6 +192,7 @@ export default function Roles() {
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' }}>
+      {confirmDialog}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
         <ShieldCheck size={22} color="#5D78FF" />
         <h1 style={{ fontSize: 20, fontWeight: 700, color: '#374557', margin: 0 }}>Roles & Permissions</h1>
@@ -193,7 +239,7 @@ export default function Roles() {
                 <span style={{ fontSize: 11, color: '#aaa', marginLeft: 'auto' }}>{role.permissions.length} permissions</span>
                 {!role.isSystem && (
                   <button
-                    onClick={e => { e.stopPropagation(); if (confirm(`Delete role "${role.displayName}"?`)) deleteRole.mutate(role.id) }}
+                    onClick={e => { e.stopPropagation(); confirm({ title: `Delete role "${role.displayName}"?`, onConfirm: () => deleteRole.mutate(role.id) }) }}
                     style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#f87171', padding: 4 }}
                   >
                     <Trash2 size={13} />

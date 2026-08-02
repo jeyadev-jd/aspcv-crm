@@ -3,9 +3,10 @@ import bcrypt from 'bcrypt'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
-import { userSchema } from '../lib/zod-schemas'
+import { userSchema, strongPassword } from '../lib/zod-schemas'
 import { parsePagination, paginate } from '../lib/pagination'
 import { rejectIfInactive } from '../lib/softDelete'
+import { encryptIfPresent, decryptIfPresent } from '../lib/encrypt'
 
 const router = createSafeRouter()
 
@@ -21,14 +22,20 @@ router.get('/', requirePermission('hr_user', 'read_all'), async (req: AuthReques
   const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
-      select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: { select: { id: true, name: true } }, departmentId: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: { select: { id: true, name: true } }, departmentId: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, uan: true, esiNumber: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true },
       orderBy: { [pagination.sort as string]: pagination.order },
       skip: pagination.skip,
       take: pagination.take,
     }),
     prisma.user.count({ where }),
   ])
-  res.json(paginate(users, total, pagination))
+  const decrypted = users.map(u => ({
+    ...u,
+    pan: decryptIfPresent(u.pan),
+    bankAccount: decryptIfPresent(u.bankAccount),
+    ifsc: decryptIfPresent(u.ifsc),
+  }))
+  res.json(paginate(decrypted, total, pagination))
 })
 
 router.post('/', requirePermission('hr_user', 'create'), async (req: AuthRequest, res) => {
@@ -44,10 +51,11 @@ router.post('/', requirePermission('hr_user', 'create'), async (req: AuthRequest
       roleName: rest.role ?? 'Viewer',
       passwordHash,
       isActive: false, // Start inactive — will activate after approval
+      mustChangePassword: true, // force password change + OTP verification on first login
       ...(dateOfBirth && { dateOfBirth: new Date(dateOfBirth) }),
       ...(joiningDate && { joiningDate: new Date(joiningDate) }),
     },
-    select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, department: { select: { id: true, name: true } }, baseSalary: true, isActive: true }
+    select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, department: { select: { id: true, name: true } }, baseSalary: true, isActive: true, uan: true, esiNumber: true }
   })
 
   // Create approval request for SuperAdmin to review
@@ -67,7 +75,7 @@ router.post('/', requirePermission('hr_user', 'create'), async (req: AuthRequest
 
 const EDITABLE_USER_FIELDS = [
   'name', 'email', 'designation', 'departmentId', 'baseSalary', 'hra', 'allowances',
-  'pfApplicable', 'esiApplicable', 'pan', 'bankAccount', 'ifsc', 'bankName', 'emergencyContact',
+  'pfApplicable', 'esiApplicable', 'uan', 'esiNumber', 'pan', 'bankAccount', 'ifsc', 'bankName', 'emergencyContact',
 ] as const
 
 router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthRequest, res) => {
@@ -76,9 +84,18 @@ router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthReque
   const body = req.body as Record<string, unknown>
   const update: Record<string, unknown> = {}
   for (const field of EDITABLE_USER_FIELDS) {
-    if (body[field] !== undefined) update[field] = body[field]
+    if (body[field] !== undefined) {
+      if (field === 'pan' || field === 'bankAccount' || field === 'ifsc') {
+        update[field] = encryptIfPresent(body[field] as string)
+      } else {
+        update[field] = body[field]
+      }
+    }
   }
-  if (body.password) update.passwordHash = await bcrypt.hash(body.password as string, 10)
+  if (body.password) {
+    update.passwordHash = await bcrypt.hash(body.password as string, 10)
+    update.tokenVersion = { increment: 1 }
+  }
   if (body.dateOfBirth !== undefined) update.dateOfBirth = body.dateOfBirth ? new Date(body.dateOfBirth as string) : null
   if (body.joiningDate !== undefined) update.joiningDate = body.joiningDate ? new Date(body.joiningDate as string) : null
   const user = await prisma.user.update({
@@ -87,6 +104,47 @@ router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthReque
     select: { id: true, name: true, email: true, role: true, designation: true, department: { select: { id: true, name: true } }, departmentId: true }
   })
   res.json(user)
+})
+
+// Self-service password change — any authenticated user, invalidates all other sessions
+router.post('/:id/change-password', async (req: AuthRequest, res) => {
+  const targetId = req.params.id as string
+  const isSelf = req.user!.id === targetId
+  const isAdmin = ['SuperAdmin'].includes(req.user!.roleName)
+  if (!isSelf && !isAdmin) { res.status(403).json({ error: 'You can only change your own password' }); return }
+
+  const { currentPassword, newPassword } = req.body as { currentPassword?: string; newPassword: string }
+  // Same policy as account creation - a change path must not be able to weaken
+  // a password below what the create path would have accepted.
+  const pw = strongPassword.safeParse(newPassword)
+  if (!pw.success) { res.status(400).json({ error: pw.error.issues[0]?.message ?? 'Password does not meet requirements' }); return }
+
+  const user = await prisma.user.findUnique({ where: { id: targetId } })
+  if (!user) { res.status(404).json({ error: 'User not found' }); return }
+
+  // Require current password verification for self-change (not for admin override)
+  if (isSelf) {
+    if (!currentPassword) { res.status(400).json({ error: 'Current password required' }); return }
+    const valid = await bcrypt.compare(currentPassword, user.passwordHash)
+    if (!valid) { res.status(400).json({ error: 'Current password is incorrect' }); return }
+  }
+
+  const passwordHash = await bcrypt.hash(newPassword, 10)
+  const updated = await prisma.user.update({
+    where: { id: targetId },
+    data: { passwordHash, tokenVersion: { increment: 1 } },
+    select: { id: true, tokenVersion: true },
+  })
+
+  // Issue fresh token for self so they're not immediately logged out
+  if (isSelf) {
+    const token = (await import('../lib/jwt')).signToken({
+      id: user.id, role: user.role, roleName: user.roleName, tokenVersion: updated.tokenVersion
+    })
+    res.json({ message: 'Password changed — all other sessions invalidated.', token })
+    return
+  }
+  res.json({ message: 'Password updated. User must log in again.' })
 })
 
 router.delete('/:id', requirePermission('hr_user', 'deactivate'), async (req: AuthRequest, res) => {

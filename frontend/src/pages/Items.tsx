@@ -4,9 +4,12 @@ import { useState } from 'react'
 import type React from 'react'
 import { Plus, X, Edit2, Trash2, Package, Search, Loader2, AlertTriangle } from 'lucide-react'
 import { useIsMobile } from '@/lib/useIsMobile'
-import { useItems, useCreateItem, useUpdateItem, useDeleteItem } from '@/hooks/useItems'
+import { useItems, useCreateItem, useUpdateItem, useDeleteItem, useSetItemDealerPrice, useDeleteItemDealerPrice, useBulkDeleteItems } from '@/hooks/useItems'
 import type { ItemAPI } from '@/hooks/useItems'
 import { useDealers } from '@/hooks/useDealers'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
+import BulkActionBar from '@/components/shared/BulkActionBar'
+import BulkDeleteDialog from '@/components/shared/BulkDeleteDialog'
 
 const blankForm = {
   dealerId: '', name: '', description: '', specification: '', unit: '', quantity: '', price: '',
@@ -21,6 +24,9 @@ export default function Items() {
   const create = useCreateItem()
   const update = useUpdateItem()
   const remove = useDeleteItem()
+  const bulkDelete = useBulkDeleteItems()
+  const bulk = useBulkSelect(items.map(i => i.id))
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
 
   const [showModal, setShowModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
@@ -29,6 +35,41 @@ export default function Items() {
   const [dealerDropdownOpen, setDealerDropdownOpen] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  // Multi-dealer pricing: which item we're adding an alternative vendor to
+  const [vendorFor, setVendorFor] = useState<ItemAPI | null>(null)
+  const [vendorForm, setVendorForm] = useState({ dealerId: '', price: '', referenceNumber: '', leadTimeDays: '', minOrderQty: '', isPreferred: false })
+  const [vendorErr, setVendorErr] = useState('')
+  const setVendorPrice = useSetItemDealerPrice()
+  const deleteVendorPrice = useDeleteItemDealerPrice()
+
+  function openVendorModal(it: ItemAPI) {
+    setVendorFor(it)
+    setVendorForm({ dealerId: '', price: '', referenceNumber: '', leadTimeDays: '', minOrderQty: '', isPreferred: false })
+    setVendorErr('')
+  }
+
+  async function saveVendorPrice() {
+    if (!vendorFor) return
+    if (!vendorForm.dealerId) { setVendorErr('Pick a dealer'); return }
+    const price = parseFloat(vendorForm.price)
+    if (!Number.isFinite(price) || price < 0) { setVendorErr('Enter a valid price'); return }
+    setVendorErr('')
+    try {
+      await setVendorPrice.mutateAsync({
+        itemId: vendorFor.id,
+        dealerId: vendorForm.dealerId,
+        price,
+        referenceNumber: vendorForm.referenceNumber || null,
+        leadTimeDays: vendorForm.leadTimeDays ? Number(vendorForm.leadTimeDays) : null,
+        minOrderQty: vendorForm.minOrderQty ? Number(vendorForm.minOrderQty) : null,
+        isPreferred: vendorForm.isPreferred,
+      })
+      setVendorFor(null)
+    } catch (e: any) {
+      setVendorErr(e?.response?.data?.error ?? 'Failed to save vendor price')
+    }
+  }
 
   const filteredDealers = dealers.filter(d => d.name.toLowerCase().includes(dealerSearch.toLowerCase()))
 
@@ -83,20 +124,30 @@ export default function Items() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search items, dealers, brands…"
             style={{ paddingLeft: 34, paddingRight: 14, height: 38, borderRadius: 10, border: '1px solid #F0F1F5', fontSize: 12, color: '#374557', outline: 'none', width: isMobile ? '100%' : 300, boxSizing: 'border-box' }} />
         </div>
-        <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
-          <Plus size={14} /> New Item
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {items.length > 0 && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#6B7280', cursor: 'pointer' }}>
+              <input type="checkbox" checked={bulk.allSelected} ref={el => { if (el) el.indeterminate = bulk.someSelected }} onChange={bulk.toggleAll} />
+              Select all
+            </label>
+          )}
+          <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
+            <Plus size={14} /> New Item
+          </button>
+        </div>
       </div>
 
       {/* Grid */}
       {items.length === 0 ? (
-        <EmptyState icon={Package} title="No items yet" subtitle="Add products supplied by your dealers." />
+        <EmptyState icon={Package} title={search ? 'No items match your search' : 'No items yet'}
+          subtitle={search ? 'Try a different search term.' : 'Add products supplied by your dealers to get started.'} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
           {items.map(it => (
-            <div key={it.id} style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 16 }}>
+            <div key={it.id} style={{ background: '#fff', borderRadius: 12, border: `1px solid ${bulk.isSelected(it.id) ? '#5D78FF' : '#F0F1F5'}`, padding: 16 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <input type="checkbox" checked={bulk.isSelected(it.id)} onChange={() => bulk.toggle(it.id)} style={{ flexShrink: 0, cursor: 'pointer' }} />
                   <div style={{ width: 36, height: 36, borderRadius: 10, background: '#EEF2FF', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <Package size={16} style={{ color: '#5D78FF' }} />
                   </div>
@@ -125,8 +176,125 @@ export default function Items() {
                 {it.quantity != null && <span style={{ fontSize: 11, color: '#B1B1BE' }}>Qty: {it.quantity}</span>}
                 {it.partNumber && <span style={{ fontSize: 11, color: '#B1B1BE' }}>Part: {it.partNumber}</span>}
               </div>
+
+              {/* Other dealers supplying this same part, cheapest / preferred first */}
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #F4F5F9' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.6 }}>
+                    OTHER DEALERS ({it.dealerPrices?.length ?? 0})
+                  </p>
+                  <button onClick={() => openVendorModal(it)}
+                    style={{ fontSize: 11, fontWeight: 600, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                    + Add
+                  </button>
+                </div>
+                {(it.dealerPrices ?? []).length === 0 ? (
+                  <p style={{ fontSize: 11, color: '#C4C4CF' }}>Only sourced from {it.dealer?.name}.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {it.dealerPrices!.map(dp => (
+                      <div key={dp.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+                        <span style={{ color: '#374557', fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {dp.dealer?.name}
+                          {dp.isPreferred && <span style={{ color: '#2BC155', marginLeft: 5 }}>★</span>}
+                        </span>
+                        {dp.minOrderQty != null && <span style={{ color: '#B1B1BE' }}>MOQ {dp.minOrderQty}</span>}
+                        {dp.leadTimeDays != null && <span style={{ color: '#B1B1BE' }}>{dp.leadTimeDays}d</span>}
+                        <span style={{ color: '#374557', fontWeight: 700 }}>₹{Number(dp.price).toLocaleString()}</span>
+                        <button onClick={() => deleteVendorPrice.mutate({ itemId: it.id, priceId: dp.id })}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#FF5353', padding: 0, display: 'flex' }}>
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
+        </div>
+      )}
+
+      <BulkActionBar count={bulk.count} entityLabel="items" onDelete={() => setShowBulkDelete(true)} onClear={bulk.clear} />
+
+      {showBulkDelete && (
+        <BulkDeleteDialog
+          count={bulk.count}
+          entityLabel="items"
+          isPending={bulkDelete.isPending}
+          onCancel={() => setShowBulkDelete(false)}
+          onConfirm={async () => {
+            await bulkDelete.mutateAsync(bulk.selectedIds)
+            setShowBulkDelete(false)
+            bulk.clear()
+          }}
+        />
+      )}
+
+      {/* Add an alternative dealer + their price for this item */}
+      {vendorFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 70 }}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 'min(440px, 96vw)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <p style={{ fontSize: 15, fontWeight: 700, color: '#374557' }}>Add Dealer Price</p>
+                <p style={{ fontSize: 11, color: '#B1B1BE', marginTop: 2 }}>{vendorFor.name}</p>
+              </div>
+              <button onClick={() => setVendorFor(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B1B1BE' }}><X size={18} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 5 }}>Dealer *</p>
+                <select value={vendorForm.dealerId} onChange={e => setVendorForm(f => ({ ...f, dealerId: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 12, boxSizing: 'border-box' }}>
+                  <option value="">Select dealer…</option>
+                  {dealers.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 5 }}>Price *</p>
+                  <input type="number" min="0" value={vendorForm.price} onChange={e => setVendorForm(f => ({ ...f, price: e.target.value }))}
+                    placeholder="0" style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 12, boxSizing: 'border-box' }} />
+                </div>
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 5 }}>Lead time (days)</p>
+                  <input type="number" min="0" value={vendorForm.leadTimeDays} onChange={e => setVendorForm(f => ({ ...f, leadTimeDays: e.target.value }))}
+                    placeholder="—" style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 12, boxSizing: 'border-box' }} />
+                </div>
+              </div>
+
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 5 }}>Min order quantity</p>
+                <input type="number" min="1" value={vendorForm.minOrderQty} onChange={e => setVendorForm(f => ({ ...f, minOrderQty: e.target.value }))}
+                  placeholder="e.g. 10" style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 12, boxSizing: 'border-box' }} />
+              </div>
+
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 600, color: '#374557', marginBottom: 5 }}>Dealer part / quote reference</p>
+                <input value={vendorForm.referenceNumber} onChange={e => setVendorForm(f => ({ ...f, referenceNumber: e.target.value }))}
+                  placeholder="e.g. QT-2026-114" style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 12, boxSizing: 'border-box' }} />
+              </div>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#374557' }}>
+                <input type="checkbox" checked={vendorForm.isPreferred} onChange={e => setVendorForm(f => ({ ...f, isPreferred: e.target.checked }))} />
+                Preferred vendor for this item
+              </label>
+
+              {vendorErr && <p style={{ fontSize: 11, color: '#FF5353' }}>{vendorErr}</p>}
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setVendorFor(null)}
+                  style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={saveVendorPrice} disabled={setVendorPrice.isPending}
+                  style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer' }}>
+                  {setVendorPrice.isPending ? 'Saving…' : 'Save Price'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -5,12 +5,19 @@ import type React from 'react'
 import { Plus, X, Edit2, Boxes, Loader2, Search, Package, Clock, ArrowRight, RotateCcw, Trash2, AlertTriangle } from 'lucide-react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCurrency } from '@/lib/currencyContext'
-import { useComponents, useCreateComponent, useUpdateComponent, useAssignComponent, useReturnComponent } from '@/hooks/useComponents'
+import { useComponents, useCreateComponent, useUpdateComponent, useAssignComponent, useReturnComponent, useBulkDeleteComponents } from '@/hooks/useComponents'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
+import BulkActionBar from '@/components/shared/BulkActionBar'
+import BulkDeleteDialog from '@/components/shared/BulkDeleteDialog'
 import type { RawComponent } from '@/hooks/useComponents'
 import { useDealers } from '@/hooks/useDealers'
 import { useCreateAllocation, useDeleteAllocation, useInventoryAllocations } from '@/hooks/useERP'
 import { useProjects } from '@/hooks/useProjects'
+import { useScopeItems, useAllocateComponent } from '@/hooks/useScopeItems'
 import { useAuthStore } from '@/lib/authStore'
+import { toast } from '@/lib/toast'
+import { useConfirm } from '@/components/shared/useConfirm'
+import SearchableSelect from '@/components/shared/SearchableSelect'
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   in_stock: { bg: '#E7FAF0', color: '#2BC155', label: 'In Stock' },
@@ -37,11 +44,14 @@ function warrantyStatus(receivedAt: string, warrantyMonths?: number | null): { l
 }
 
 export default function RawComponents() {
+  const { confirm, confirmDialog } = useConfirm()
   const isMobile = useIsMobile()
   const { symbol } = useCurrency()
   const user = useAuthStore(s => s.user)
   const canManage = user && ['Manager', 'ProjectHead', 'SuperAdmin', 'BusinessHead'].includes(user.role ?? '')
   const { data: components = [], isLoading, isError, refetch } = useComponents()
+  const bulkDeleteComponents = useBulkDeleteComponents()
+  const [showBulkDelete, setShowBulkDelete] = useState(false)
   const { data: dealers = [] } = useDealers()
   const create = useCreateComponent()
   const update = useUpdateComponent()
@@ -70,6 +80,13 @@ export default function RawComponents() {
   const [assignProjectId, setAssignProjectId] = useState('')
   const [assignQty, setAssignQty] = useState('1')
   const [assignNotes, setAssignNotes] = useState('')
+  const [assignScopeItemId, setAssignScopeItemId] = useState('')
+
+  // Scope lines of the project chosen in the assign modal, so the operator can
+  // say which line this component fulfils rather than just naming the project.
+  const { data: projectScope = [] } = useScopeItems('Project', assignProjectId || undefined)
+  const allocateToScope = useAllocateComponent()
+  const unallocatedScopeLines = projectScope.filter(s => !s.inventoryComponentId)
 
   const filtered = components.filter(c => {
     if (statusFilter !== 'All' && c.status !== statusFilter) return false
@@ -79,6 +96,24 @@ export default function RawComponents() {
     if (search && !`${c.name} ${c.refNumber} ${c.dealerName ?? ''} ${c.category ?? ''}`.toLowerCase().includes(search.toLowerCase())) return false
     return true
   })
+
+  // This table is not paginated, so selection spans the whole filtered set.
+  const bulk = useBulkSelect(filtered.map(c => c.id))
+
+  async function handleBulkDelete() {
+    try {
+      const res = await bulkDeleteComponents.mutateAsync(bulk.selectedIds)
+      if (res.blocked?.length) {
+        toast.error(`${res.deleted} deleted · ${res.blocked.length} still in use`)
+      } else {
+        toast.success(`Deleted ${res.deleted} component${res.deleted === 1 ? '' : 's'}`)
+      }
+      bulk.clear()
+    } catch {
+      toast.error('Bulk delete failed')
+    }
+    setShowBulkDelete(false)
+  }
 
   const rawCount = components.filter(c => !c.category || c.category === 'Raw').length
   const semiCount = components.filter(c => c.category === 'SemiFinished').length
@@ -128,6 +163,7 @@ export default function RawComponents() {
 
   return (
     <div style={{ minHeight: 'calc(100vh - 120px)' }}>
+{confirmDialog}
 
       {/* View tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid #F0F1F5', paddingBottom: 0 }}>
@@ -214,7 +250,7 @@ export default function RawComponents() {
                                     <ArrowRight size={11} /> Change
                                   </button>
                                   {alloc && (
-                                    <button onClick={() => { if (confirm('Return this allocation to raw materials stock?')) deleteAllocation.mutate(alloc.id) }} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#FF5353', background: '#FFF0F0', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+                                    <button onClick={() => { confirm({ title: 'Return this allocation to raw materials stock?', onConfirm: () => deleteAllocation.mutate(alloc.id) }) }} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 600, color: '#FF5353', background: '#FFF0F0', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
                                       <X size={11} /> Unassign
                                     </button>
                                   )}
@@ -280,11 +316,27 @@ export default function RawComponents() {
         </button>
       </div>
 
+      <BulkActionBar count={bulk.count} entityLabel="components" onDelete={() => setShowBulkDelete(true)} onClear={bulk.clear} />
+      {showBulkDelete && (
+        <BulkDeleteDialog
+          count={bulk.count}
+          entityLabel="components"
+          isPending={bulkDeleteComponents.isPending}
+          onCancel={() => setShowBulkDelete(false)}
+          onConfirm={handleBulkDelete}
+        />
+      )}
+
       {/* Table */}
       <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 920 }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #F4F5F9' }}>
+              <th style={{ padding: '10px 0 10px 14px', width: 32 }}>
+                <input type="checkbox" checked={bulk.allSelected}
+                  ref={el => { if (el) el.indeterminate = bulk.someSelected }}
+                  onChange={bulk.toggleAll} style={{ cursor: 'pointer' }} />
+              </th>
               {['Ref #', 'Name', 'Dealer', 'Price', 'GST', 'Qty', 'Warranty', 'Age', 'Status', ''].map(h => (
                 <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 500, color: '#B1B1BE', whiteSpace: 'nowrap' }}>{h}</th>
               ))}
@@ -298,6 +350,9 @@ export default function RawComponents() {
                 <tr key={c.id} style={{ borderBottom: i < filtered.length - 1 ? '1px solid #F4F5F9' : 'none' }}
                   onMouseEnter={e => (e.currentTarget.style.background = '#FAFBFF')}
                   onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <td style={{ padding: '11px 0 11px 14px' }}>
+                    <input type="checkbox" checked={bulk.isSelected(c.id)} onChange={() => bulk.toggle(c.id)} style={{ cursor: 'pointer' }} />
+                  </td>
                   <td style={{ padding: '11px 14px', fontSize: 11, fontFamily: 'monospace', color: '#5D78FF', whiteSpace: 'nowrap' }}>{c.refNumber}</td>
                   <td style={{ padding: '11px 14px' }}>
                     <p style={{ fontSize: 12, fontWeight: 600, color: '#374557' }}>{c.name}</p>
@@ -313,6 +368,10 @@ export default function RawComponents() {
                       )}
                       {c.hsnCode && <span style={{ fontSize: 10, color: '#B1B1BE' }}>HSN {c.hsnCode}</span>}
                     </div>
+                    {/* Salvaged stock records its origin project in the notes. */}
+                    {c.notes?.startsWith('Pushed from project') && (
+                      <p style={{ fontSize: 10, color: '#B26A00', marginTop: 2 }}>{c.notes}</p>
+                    )}
                   </td>
                   <td style={{ padding: '11px 14px', fontSize: 12, color: '#374557' }}>{c.dealerName || '—'}</td>
                   <td style={{ padding: '11px 14px', fontSize: 12, color: '#374557', whiteSpace: 'nowrap' }}>{c.price != null ? `${symbol}${c.price.toLocaleString()}` : '—'}{c.unit ? <span style={{ fontSize: 10, color: '#B1B1BE' }}>/{c.unit}</span> : ''}</td>
@@ -324,7 +383,7 @@ export default function RawComponents() {
                   <td style={{ padding: '11px 14px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => openEdit(c)} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer' }}><Edit2 size={14} /></button>
-                      <button onClick={() => { setAssignModalComp(c); setAssignProjectId(''); setAssignQty('1'); setAssignNotes('') }} title="Assign to project" style={{ color: '#5D78FF', background: '#E8EDFF', border: 'none', cursor: 'pointer', borderRadius: 6, padding: '3px 7px', display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600 }}><Package size={12} /> Assign</button>
+                      <button onClick={() => { setAssignModalComp(c); setAssignProjectId(''); setAssignScopeItemId(''); setAssignQty('1'); setAssignNotes('') }} title="Assign to project" style={{ color: '#5D78FF', background: '#E8EDFF', border: 'none', cursor: 'pointer', borderRadius: 6, padding: '3px 7px', display: 'flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600 }}><Package size={12} /> Assign</button>
                     </div>
                   </td>
                 </tr>
@@ -355,14 +414,36 @@ export default function RawComponents() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <F label="Project *">
-                <select value={assignProjectId} onChange={e => setAssignProjectId(e.target.value)} style={inp(false)}>
-                  <option value="">— Select project —</option>
-                  {projects.map((p: any) => <option key={p.id} value={p.id}>{p.title}</option>)}
-                </select>
+                <SearchableSelect
+                  value={assignProjectId}
+                  onChange={v => { setAssignProjectId(v); setAssignScopeItemId('') }}
+                  placeholder="— Select project —"
+                  options={projects.map((p: any) => ({ value: p.id, label: p.title }))}
+                />
               </F>
-              <F label={`Quantity (available: ${assignModalComp.quantity ?? 1})`}>
-                <input type="number" min="1" max={assignModalComp.quantity ?? 1} value={assignQty} onChange={e => setAssignQty(e.target.value)} style={inp(false)} />
-              </F>
+              {/* Optional: tie this component to the specific scope line it fulfils. */}
+              {assignProjectId && (
+                <F label="Scope of Supply line">
+                  <select value={assignScopeItemId} onChange={e => setAssignScopeItemId(e.target.value)} style={inp(false)}>
+                    <option value="">— Not linked to a scope line —</option>
+                    {unallocatedScopeLines.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ×{s.quantity}</option>
+                    ))}
+                  </select>
+                  {unallocatedScopeLines.length === 0 && (
+                    <p style={{ fontSize: 10, color: '#B1B1BE', marginTop: 4 }}>
+                      No unallocated scope lines on this project.
+                    </p>
+                  )}
+                </F>
+              )}
+              {/* A scope line consumes its own quantity, so this input only applies
+                  to a plain project-level allocation. */}
+              {!assignScopeItemId && (
+                <F label={`Quantity (available: ${assignModalComp.quantity ?? 1})`}>
+                  <input type="number" min="1" max={assignModalComp.quantity ?? 1} value={assignQty} onChange={e => setAssignQty(e.target.value)} style={inp(false)} />
+                </F>
+              )}
               <F label="Notes">
                 <input value={assignNotes} onChange={e => setAssignNotes(e.target.value)} placeholder="Optional notes" style={inp(false)} />
               </F>
@@ -370,14 +451,24 @@ export default function RawComponents() {
             <div style={{ display: 'flex', gap: 12, marginTop: 18 }}>
               <button onClick={() => setAssignModalComp(null)} style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button
-                disabled={!assignProjectId || createAllocation.isPending}
+                disabled={!assignProjectId || createAllocation.isPending || allocateToScope.isPending}
                 onClick={async () => {
                   if (!assignProjectId) return
-                  await createAllocation.mutateAsync({ rawComponentId: assignModalComp.id, projectId: assignProjectId, quantity: Number(assignQty) || 1, notes: assignNotes || undefined })
-                  setAssignModalComp(null)
+                  try {
+                    // The scope-line endpoint books its own InventoryAllocation, so
+                    // only one of these two paths may run.
+                    if (assignScopeItemId) {
+                      await allocateToScope.mutateAsync({ scopeItemId: assignScopeItemId, componentId: assignModalComp.id, notes: assignNotes || undefined })
+                    } else {
+                      await createAllocation.mutateAsync({ rawComponentId: assignModalComp.id, projectId: assignProjectId, quantity: Number(assignQty) || 1, notes: assignNotes || undefined })
+                    }
+                    setAssignModalComp(null)
+                  } catch (e: any) {
+                    toast.error(e?.response?.data?.error || 'Failed to assign component')
+                  }
                 }}
                 style={{ flex: 1, padding: 10, borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: !assignProjectId ? 0.5 : 1 }}
-              >{createAllocation.isPending ? 'Assigning…' : 'Assign to Project'}</button>
+              >{createAllocation.isPending || allocateToScope.isPending ? 'Assigning…' : 'Assign to Project'}</button>
             </div>
           </div>
         </div>

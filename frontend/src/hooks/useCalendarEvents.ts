@@ -3,6 +3,21 @@ import { api } from '@/lib/api'
 
 export type CalendarEventCategory = 'FollowUp' | 'Meeting' | 'Installation' | 'Commissioning' | 'EngineerVisit' | 'WarrantyExpiry' | 'AMCRenewal' | 'ServiceVisit' | 'CustomerReview' | 'ProjectMilestone' | 'Other'
 
+/** Who sees the event, and who gets notified when it is created. */
+export type CalendarAudience = 'Private' | 'Department' | 'Everyone'
+
+export const AUDIENCE_LABEL: Record<CalendarAudience, string> = {
+  Private: 'Only me',
+  Department: 'My department',
+  Everyone: 'Everyone',
+}
+
+export const AUDIENCE_HINT: Record<CalendarAudience, string> = {
+  Private: 'Visible only to you. Nobody is notified.',
+  Department: 'Visible to your department. Everyone in it is notified.',
+  Everyone: 'Visible to all users. Everyone is notified.',
+}
+
 export interface CalendarEventAPI {
   id: string
   title: string
@@ -15,6 +30,9 @@ export interface CalendarEventAPI {
   entityId?: string | null
   category?: CalendarEventCategory | null
   source: 'Manual' | 'Auto'
+  audience: CalendarAudience
+  departmentId?: string | null
+  department?: { id: string; name: string } | null
   createdById?: string | null
   createdAt: string
 }

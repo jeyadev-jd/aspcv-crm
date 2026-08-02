@@ -18,6 +18,17 @@ export async function getScopeFilter(
     case 'company':
       // companies where user owns at least one active lead
       return { leads: { some: { owners: { some: { userId } }, isActive: true } } }
+    case 'project':
+      // Engineers/Technicians see only projects they're assigned to — as PM, SE,
+      // or via the ProjectEngineer junction (multi-engineer assignment).
+      return {
+        OR: [
+          { assignedPMId: userId },
+          { assignedSEId: userId },
+          { engineers: { some: { userId } } },
+          { createdById: userId },
+        ],
+      }
     default:
       return { createdById: userId }
   }

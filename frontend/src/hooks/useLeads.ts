@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import type { BulkDeleteResult } from '@/hooks/useSupport'
 
 export interface LeadOwner {
   id: string
@@ -88,6 +89,8 @@ export interface Lead {
   tempRangeMax?: number
   isActive: boolean
   createdAt: string
+  /** Echoed back on update so the server can reject a stale write. */
+  updatedAt?: string
   owners: LeadOwner[]
   contacts: LeadContact[]
   sources: LeadSourceEntry[]
@@ -148,6 +151,19 @@ export function useDeleteLead() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.delete(`/leads/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  })
+}
+
+/**
+ * Bulk archive. Deletion is approval-gated per lead, so ids still needing
+ * approval are returned in `blocked` instead of failing the whole call.
+ */
+export function useBulkDeleteLeads() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      api.post('/leads/bulk-delete', { ids }).then(r => r.data as BulkDeleteResult),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

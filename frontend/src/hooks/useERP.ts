@@ -1,71 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { toast } from '@/lib/toast'
-
-// ─── BOM ─────────────────────────────────────────────────────────────────────
-
-export interface BOMItem {
-  id?: string
-  itemName: string
-  description?: string
-  quantity: number
-  unit?: string
-  estimatedCost?: number
-  supplier?: string
-  remarks?: string
-}
-
-export interface BOMAPI {
-  id: string
-  refNumber: string
-  projectId: string
-  project: { id: string; title: string }
-  status: 'Draft' | 'Submitted' | 'Approved' | 'Rejected' | 'SentToProcurement'
-  createdById?: string
-  verifiedById?: string
-  verifiedAt?: string
-  notes?: string
-  items: BOMItem[]
-  createdAt: string
-}
-
-export function useBOMs(projectId?: string) {
-  return useQuery<BOMAPI[]>({
-    queryKey: ['boms', projectId],
-    queryFn: () => api.get('/bom', { params: { pageSize: 1000, ...(projectId ? { projectId } : {}) } }).then(r => r.data.data),
-  })
-}
-export function useBOM(id: string) {
-  return useQuery<BOMAPI>({ queryKey: ['boms', id], queryFn: () => api.get(`/bom/${id}`).then(r => r.data), enabled: !!id })
-}
-export function useCreateBOM() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: (data: any) => api.post('/bom', data).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['boms'] }) })
-}
-export function useUpdateBOM() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: ({ id, ...data }: any) => api.put(`/bom/${id}`, data).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['boms'] }) })
-}
-export function useSubmitBOM() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string) => api.post(`/bom/${id}/submit`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['boms'] }) })
-}
-export function useApproveBOM() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string) => api.post(`/bom/${id}/approve`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['boms'] }) })
-}
-export function useRejectBOM() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string) => api.post(`/bom/${id}/reject`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['boms'] }) })
-}
-export function useSendBOMToProcurement() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string) => api.post(`/bom/${id}/send-to-procurement`).then(r => r.data), onSuccess: () => { qc.invalidateQueries({ queryKey: ['boms'] }); qc.invalidateQueries({ queryKey: ['projects'] }) } })
-}
-export function useDeleteBOM() {
-  const qc = useQueryClient()
-  return useMutation({ mutationFn: (id: string) => api.delete(`/bom/${id}`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['boms'] }) })
-}
+import type { BulkDeleteResult } from './useSupport'
 
 // ─── Purchase Orders ──────────────────────────────────────────────────────────
 
@@ -83,8 +19,8 @@ export interface POItem {
 export interface PurchaseOrderAPI {
   id: string
   refNumber: string
-  bomId?: string
-  bom?: { id: string; project: { id: string; title: string } }
+  projectId?: string
+  project?: { id: string; title: string }
   supplierName: string
   supplierEmail?: string
   supplierPhone?: string
@@ -103,10 +39,10 @@ export interface PurchaseOrderAPI {
   createdAt: string
 }
 
-export function usePurchaseOrders(bomId?: string) {
+export function usePurchaseOrders(projectId?: string) {
   return useQuery<PurchaseOrderAPI[]>({
-    queryKey: ['purchase-orders', bomId],
-    queryFn: () => api.get('/purchase-orders', { params: { pageSize: 1000, ...(bomId ? { bomId } : {}) } }).then(r => r.data.data),
+    queryKey: ['purchase-orders', projectId],
+    queryFn: () => api.get('/purchase-orders', { params: { pageSize: 1000, ...(projectId ? { projectId } : {}) } }).then(r => r.data.data),
   })
 }
 export function usePurchaseOrder(id: string) {
@@ -203,6 +139,8 @@ export interface WorkOrderAPI {
   refNumber: string
   projectId: string
   project: { id: string; title: string }
+  scopeItemId?: string
+  scopeItem?: { id: string; title: string; productType?: string }
   title: string
   status: 'Waiting' | 'InProduction' | 'Assembly' | 'Testing' | 'Finished' | 'Cancelled'
   labourCost: number
@@ -252,6 +190,11 @@ export function useDeleteWorkOrder() {
   return useMutation({ mutationFn: (id: string) => api.delete(`/work-orders/${id}`).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['work-orders'] }) })
 }
 
+export function useBulkDeleteWorkOrders() {
+  const qc = useQueryClient()
+  return useMutation({ mutationFn: (ids: string[]) => api.post('/work-orders/bulk-delete', { ids }).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['work-orders'] }) })
+}
+
 // ─── Service Records ──────────────────────────────────────────────────────────
 
 export interface ServiceRequestAPI {
@@ -265,6 +208,8 @@ export interface ServiceRequestAPI {
   priority: string
   engineerId?: string
   engineerName?: string
+  // Additional crew beyond the primary engineerId, via ServiceRequestEngineer join.
+  engineers?: { id: string; userId: string; user: { id: string; name: string; role: string } }[]
   spareParts?: string
   cost: number
   resolvedAt?: string
@@ -274,7 +219,7 @@ export interface ServiceRequestAPI {
 export interface ServiceRecordAPI {
   id: string
   projectId: string
-  project: { id: string; title: string; company: { name: string } }
+  project: { id: string; title: string; companyId?: string; company: { id?: string; name: string } }
   companyId?: string
   productDescription?: string
   installationDate?: string
@@ -288,8 +233,8 @@ export interface ServiceRecordAPI {
   createdAt: string
 }
 
-export function useServiceRecords() {
-  return useQuery<ServiceRecordAPI[]>({ queryKey: ['service-records'], queryFn: () => api.get('/service-records', { params: { pageSize: 1000 } }).then(r => r.data.data) })
+export function useServiceRecords(enabled = true) {
+  return useQuery<ServiceRecordAPI[]>({ queryKey: ['service-records'], queryFn: () => api.get('/service-records', { params: { pageSize: 1000 } }).then(r => r.data.data), enabled })
 }
 export function useServiceRecord(id: string) {
   return useQuery<ServiceRecordAPI>({ queryKey: ['service-records', id], queryFn: () => api.get(`/service-records/${id}`).then(r => r.data), enabled: !!id })
@@ -306,17 +251,56 @@ export function useUpdateServiceRequest() {
   const qc = useQueryClient()
   return useMutation({ mutationFn: ({ requestId, ...data }: any) => api.put(`/service-records/requests/${requestId}`, data).then(r => r.data), onSuccess: () => qc.invalidateQueries({ queryKey: ['service-records'] }) })
 }
-export function useWarrantyExpiring(days = 30) {
+/**
+ * Bulk delete service requests. ServiceRecords themselves are not deletable —
+ * they are derived from a completed project and hold the warranty window.
+ * Resolved requests whose cost is already booked to the project come back in
+ * `blocked` rather than being removed.
+ */
+export function useBulkDeleteServiceRequests() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) =>
+      api.post('/service-records/requests/bulk-delete', { ids }).then(r => r.data as BulkDeleteResult),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['service-records'] }),
+  })
+}
+export function useWarrantyExpiring(days = 30, enabled = true) {
   return useQuery<ServiceRecordAPI[]>({
     queryKey: ['warranty-expiring', days],
     queryFn: () => api.get('/service-records/warranty-expiring', { params: { days } }).then(r => r.data),
+    enabled,
+  })
+}
+
+/** Warranties already past their end date — excluded from the expiring list. */
+export function useWarrantyExpired(enabled = true) {
+  return useQuery<ServiceRecordAPI[]>({
+    queryKey: ['warranty-expired'],
+    queryFn: () => api.get('/service-records/warranty-expired').then(r => r.data),
+    enabled,
   })
 }
 
 // ─── Project ERP ──────────────────────────────────────────────────────────────
 
+// GET /projects/:id/erp returns the project itself with its ERP relations
+// included — purchaseOrders/workOrders match PurchaseOrderAPI/WorkOrderAPI
+// (same include shape as their own list endpoints); other fields used by the
+// ERP tab are typed loosely since the tab only reads a handful of them.
+export interface ProjectERP {
+  purchaseOrders: PurchaseOrderAPI[]
+  workOrders: WorkOrderAPI[]
+  serviceRecord?: {
+    warrantyStart?: string | null
+    warrantyEnd?: string | null
+    serviceCost?: number | null
+    serviceRequests?: unknown[]
+  } | null
+}
+
 export function useProjectERP(id: string) {
-  return useQuery({
+  return useQuery<ProjectERP>({
     queryKey: ['project-erp', id],
     queryFn: () => api.get(`/projects/${id}/erp`).then(r => r.data),
     enabled: !!id,
@@ -325,7 +309,13 @@ export function useProjectERP(id: string) {
 export function useCompleteProject() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.post(`/projects/${id}/complete`).then(r => r.data),
+    // Warranty terms are mandatory server-side — collected by WarrantyAllocationModal.
+    mutationFn: ({ id, ...payload }: {
+      id: string
+      warrantyStartDate: string
+      warrantyEndDate: string
+      warrantyBudgetAllocated: number
+    }) => api.post(`/projects/${id}/complete`, payload).then(r => r.data),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['projects'] }); qc.invalidateQueries({ queryKey: ['service-records'] }); toast.success('Project marked complete') },
   })
 }

@@ -11,6 +11,7 @@ import { parsePagination, paginate } from '../lib/pagination'
 import { activeFilter, enforceActiveOr404, rejectIfInactive } from '../lib/softDelete'
 import { nextLeadNumber } from '../lib/sequences'
 import { z } from 'zod'
+import { checkVersion, sendConflict } from '../lib/concurrency'
 
 const router = createSafeRouter()
 router.use(authenticate)
@@ -56,7 +57,12 @@ function allowedNextPipelineStages(current: string): string[] {
 
 // Required lead fields before a stage may be entered — the "mandatory business data" gate.
 const REQUIRED_FIELDS_PER_STAGE: Record<string, (lead: any) => string | null> = {
-  Costing: lead => (!lead.capacityValue || !lead.capacityUnitId) ? 'Capacity value and unit are required before Costing' : null,
+  // Capacity now lives on the scope lines as custom fields, so the gate is
+  // satisfied either by the legacy lead-level columns or by a scope item that
+  // carries a Capacity field.
+  Costing: lead => (!lead.capacityValue && !lead.hasScopeCapacity)
+    ? 'Add at least one scope item with a Capacity field before Costing'
+    : null,
   ProposalPreparation: lead => !lead.estimatedValue ? 'Estimated value is required before Proposal Preparation' : null,
   Negotiation: lead => !lead.primaryOwnerId ? 'A Primary Owner must be assigned before Negotiation' : null,
 }
@@ -69,6 +75,7 @@ async function promoteLeadToDeal(tx: any, lead: any, actorId?: string) {
   return tx.deal.create({
     data: {
       companyId: lead.companyId, leadId: lead.id, title: lead.title, stage: 'LeadIn',
+      leadNumber: lead.leadNumber,
       notes: `Auto-promoted from Lead (Order Won)`,
       // Deal inherits region/commercial model/ownership from the Lead automatically.
       regionId: lead.regionId ?? undefined,
@@ -253,6 +260,12 @@ router.post('/', requirePermission('lead', 'create'), async (req: AuthRequest, r
 router.patch('/:id', async (req: AuthRequest, res) => {
   const existingLead = await prisma.lead.findUnique({ where: { id: req.params.id as string } })
   if (!rejectIfInactive(existingLead, res)) return
+
+  // Stale write check runs before the approval gate so a losing edit never
+  // burns a single-use approval token.
+  const stale = checkVersion(existingLead!, req.body.expectedUpdatedAt)
+  if (stale) { sendConflict(res, stale.current, 'lead'); return }
+
   const { allowed, approvalId } = await checkApprovalToken(req.user!.id, req.user!.roleName, 'lead', req.params.id as string, 'edit')
   if (!allowed) {
     res.status(403).json({ error: 'approval_required', entityType: 'lead', entityId: req.params.id, action: 'edit' })
@@ -305,6 +318,36 @@ router.delete('/:id', async (req: AuthRequest, res) => {
   await prisma.lead.update({ where: { id: req.params.id as string }, data: { isActive: false } })
   if (approvalId) await consumeApprovalToken(approvalId)
   res.status(204).end()
+})
+
+/**
+ * Bulk archive. Like the single-row route, deletion is approval-gated, so each
+ * id is checked on its own — the bulk path must not bypass approvals. Ids that
+ * still need approval are returned in `blocked`.
+ */
+router.post('/bulk-delete', requirePermission('lead', 'delete'), async (req: AuthRequest, res) => {
+  const { ids } = req.body as { ids?: string[] }
+  if (!Array.isArray(ids) || ids.length === 0) { res.status(400).json({ error: 'ids array required' }); return }
+
+  const targets = await prisma.lead.findMany({
+    where: { id: { in: ids }, isActive: true },
+    select: { id: true, title: true },
+  })
+
+  const deleted: string[] = []
+  const blocked: { id: string; title: string; reason: string }[] = []
+  for (const target of targets) {
+    const { allowed, approvalId } = await checkApprovalToken(req.user!.id, req.user!.roleName, 'lead', target.id, 'delete')
+    if (!allowed) {
+      blocked.push({ id: target.id, title: target.title, reason: 'Needs approval' })
+      continue
+    }
+    await prisma.lead.update({ where: { id: target.id }, data: { isActive: false } })
+    if (approvalId) await consumeApprovalToken(approvalId)
+    deleted.push(target.id)
+  }
+
+  res.json({ deleted: deleted.length, skipped: ids.length - targets.length, blocked })
 })
 
 router.post('/:id/restore', requirePermission('lead', 'delete'), async (req: AuthRequest, res) => {
@@ -406,7 +449,22 @@ router.patch('/:id/pipeline-stage', requirePermission('lead', 'edit'), async (re
     res.status(400).json({ error: `Cannot move lead from ${existing.pipelineStage} to ${stage}` })
     return
   }
-  const gateError = REQUIRED_FIELDS_PER_STAGE[stage]?.(existing)
+  // Capacity may be recorded as a custom field on a scope line rather than on
+  // the lead itself, so resolve that before running the stage gate.
+  const scopeItems = await prisma.scopeItem.findMany({
+    where: { entityType: 'Lead', entityId: existing.id },
+    select: { customFields: true },
+  })
+  const hasScopeCapacity = scopeItems.some(item => {
+    const fields = Array.isArray(item.customFields) ? item.customFields : []
+    return fields.some((f: any) =>
+      typeof f?.label === 'string' &&
+      f.label.trim().toLowerCase().startsWith('capacity') &&
+      String(f?.value ?? '').trim() !== ''
+    )
+  })
+
+  const gateError = REQUIRED_FIELDS_PER_STAGE[stage]?.({ ...existing, hasScopeCapacity })
   if (gateError) { res.status(400).json({ error: gateError }); return }
 
   const now = new Date()

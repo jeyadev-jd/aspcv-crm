@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import type { BulkDeleteResult } from '@/hooks/useSupport'
 
 export interface ProjectAPI {
   id: string
@@ -8,6 +9,7 @@ export interface ProjectAPI {
   company: { id: string; name: string }
   dealId?: string | null
   deal?: { id: string; title: string } | null
+  leadNumber?: string | null
   status: 'Planning' | 'Active' | 'OnHold' | 'Completed' | 'Cancelled' | 'Engineering' | 'Procurement' | 'Manufacturing' | 'Installation' | 'Testing'
   startDate?: string | null
   endDate?: string | null
@@ -21,6 +23,12 @@ export interface ProjectAPI {
   serviceCost?: number | null
   totalExpenses?: number | null
   profit?: number | null
+  // Technical spec carried from the Deal
+  capacityValue?: number | null
+  capacityUnitId?: string | null
+  capacityUnit?: { id: string; name: string } | null
+  tempRangeMin?: number | null
+  tempRangeMax?: number | null
   warrantyPeriod?: number | null
   warrantyStart?: string | null
   warrantyEnd?: string | null
@@ -30,8 +38,15 @@ export interface ProjectAPI {
   assignedSEId?: string | null
   assignedPM?: { id: string; name: string } | null
   assignedSE?: { id: string; name: string } | null
-  salesOrderId?: string | null
+  quotationId?: string | null
+  quotation?: { id: string; refNumber: string; title: string } | null
+  handoverNotes?: string | null
+  handoverOneDriveUrl?: string | null
   progress?: number | null
+  /** When false, milestone completion no longer overwrites `progress`. */
+  autoProgress?: boolean
+  /** Echoed back on update so the server can reject a stale write. */
+  updatedAt?: string
   alertTier?: number | null
   notes?: string | null
   departmentId?: string | null
@@ -45,6 +60,12 @@ export const STATUS_LABEL: Record<ProjectAPI['status'], string> = {
   Active: 'Active',
   OnHold: 'On Hold',
   Completed: 'Completed',
+  Cancelled: 'Cancelled',
+  Engineering: 'Engineering',
+  Procurement: 'Procurement',
+  Manufacturing: 'Manufacturing',
+  Installation: 'Installation',
+  Testing: 'Testing',
 }
 
 export const PROJECT_STATUSES = Object.keys(STATUS_LABEL) as ProjectAPI['status'][]
@@ -92,16 +113,19 @@ export function useDeleteProject() {
   })
 }
 
-export function useCompleteProject() {
+/** Bulk archive. Locked projects come back in `blocked` and are not touched. */
+export function useBulkDeleteProjects() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => api.post(`/projects/${id}/complete`).then(r => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['projects'] })
-      qc.invalidateQueries({ queryKey: ['service-records'] })
-    },
+    mutationFn: (ids: string[]) =>
+      api.post('/projects/bulk-delete', { ids }).then(r => r.data as BulkDeleteResult),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
 }
+
+// useCompleteProject lives in hooks/useERP.ts — it needs the warranty payload
+// (start/end date, budget allocated). A same-named export here would silently
+// drop that payload if anything ever imported from this file instead.
 
 export function useCancelProject() {
   const qc = useQueryClient()
@@ -111,6 +135,19 @@ export function useCancelProject() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
       qc.invalidateQueries({ queryKey: ['components'] })
+    },
+  })
+}
+
+/** Undo a Deal -> Project promotion. Backend refuses (409) once any PO,
+ *  invoice, allocation, work order or material request exists on the project. */
+export function useRevertProjectToDeal() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.post(`/projects/${id}/revert-to-deal`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['deals'] })
     },
   })
 }

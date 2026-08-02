@@ -1,4 +1,4 @@
-import { PrismaClient, Role, CustomerType, LeadStatus, LifecycleStage, DealStage, ProjectStatus, InstallationStatus, TicketPriority, TicketStatus, TaskStatus, QuotationStatus, SalesOrderStatus, BOMStatus, POStatus, WorkOrderStatus, ServiceRequestStatus } from '@prisma/client'
+import { PrismaClient, Role, CustomerType, LeadStatus, LifecycleStage, DealStage, ProjectStatus, InstallationStatus, TicketPriority, TicketStatus, TaskStatus, QuotationStatus, POStatus, WorkOrderStatus, ServiceRequestStatus } from '@prisma/client'
 import bcrypt from 'bcrypt'
 
 const prisma = new PrismaClient()
@@ -15,7 +15,8 @@ const ROLE_DEFS = [
   { name: 'Accountant',          displayName: 'Accountant',           isSystem: true,  sortOrder: 9  },
   { name: 'HR',                  displayName: 'HR',                   isSystem: true,  sortOrder: 10 },
   { name: 'SalesRepresentative', displayName: 'Sales Representative', isSystem: false, sortOrder: 11 },
-  { name: 'Viewer',              displayName: 'Viewer',               isSystem: true,  sortOrder: 12 },
+  { name: 'Marketing',           displayName: 'Marketing',            isSystem: false, sortOrder: 12 },
+  { name: 'Viewer',              displayName: 'Viewer',               isSystem: true,  sortOrder: 13 },
 ]
 
 const PERMISSIONS: Record<string, string[]> = {
@@ -30,7 +31,7 @@ const PERMISSIONS: Record<string, string[]> = {
     'material_request:create','material_request:read_own','material_request:read_all',
     'material_request:approve_manager','material_request:approve_bizhead','material_request:approve_accountant','material_request:reject',
     'component:create','component:read_all','component:edit','component:assign',
-    'attendance:checkin','attendance:read_own','attendance:read_all',
+    'attendance:checkin','attendance:read_own','attendance:read_all','attendance:edit',
     'salary:generate','salary:approve','salary:mark_paid','salary:read_own','salary:read_all',
     'hr_user:create','hr_user:read_all','hr_user:edit','hr_user:deactivate',
     'financial:create','financial:read_all','financial:edit','financial:delete',
@@ -38,38 +39,33 @@ const PERMISSIONS: Record<string, string[]> = {
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'approval_request:create','approval_request:review',
     'role_admin:manage','audit_log:read_all','business_rule:read_all','business_rule:edit',
-    'kanban:read_all','kanban:create','kanban:edit','kanban:delete',
     'calendar:read_all','calendar:edit',
     'product:read_all','product:create','product:edit','product:delete',
     'invoice:read_all','invoice:create','invoice:edit','invoice:delete',
     'installation:read_all','installation:create','installation:edit',
     'support:read_all','support:create','support:edit',
-    'bom:create','bom:read_all','bom:edit','bom:submit','bom:approve','bom:delete',
     'purchase_order:create','purchase_order:read_all','purchase_order:edit','purchase_order:approve','purchase_order:delete',
-    'quotation:create','quotation:read_all','quotation:edit','quotation:delete',
-    'sales_order:create','sales_order:read_all','sales_order:edit','sales_order:approve','sales_order:delete',
+    'quotation:create','quotation:read_all','quotation:edit','quotation:delete','quotation:approve',
     'goods_receipt:create','goods_receipt:read_all',
     'work_order:create','work_order:read_all','work_order:edit','work_order:delete',
     'service_record:create','service_record:read_all','service_record:edit',
     'signatory:create','signatory:read_all','signatory:edit','signatory:delete',
     'bank_account:create','bank_account:read_all','bank_account:edit','bank_account:delete',
     'inventory_allocation:create','inventory_allocation:read_all','inventory_allocation:delete',
-    'handover_document:read_all','handover_document:edit','handover_document:approve',
   ],
   BusinessHead: [
-    'lead:read_all','deal:read_all','deal:assign_pm','deal:assign_se','contact:read_all','company:read_all',
+    'lead:read_all','deal:read_all','deal:assign_pm','deal:assign_se','contact:read_all','contact:edit','company:read_all','company:edit',
     'dealer:read_all','dealer_item:read_all',
     'project:read_all','material_request:read_all','material_request:approve_bizhead',
     'component:read_all','attendance:read_all','salary:read_all',
     'hr_user:read_all','financial:read_all','task:read_all',
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'approval_request:create','approval_request:review',
-    'kanban:read_all','calendar:read_all',
+    'calendar:read_all',
     'invoice:read_all','installation:read_all','support:read_all',
-    'bom:read_all','purchase_order:read_all','quotation:read_all','sales_order:read_all',
+    'purchase_order:read_all','quotation:read_all','quotation:approve',
     'goods_receipt:read_all','work_order:read_all','service_record:read_all',
     'signatory:read_all','bank_account:read_all','inventory_allocation:read_all',
-    'handover_document:read_all',
   ],
   ProjectHead: [
     'project:create','project:read_all','project:edit',
@@ -79,34 +75,31 @@ const PERMISSIONS: Record<string, string[]> = {
     'component:read_all','component:assign',
     'attendance:checkin','attendance:read_own','attendance:read_all',
     'salary:read_own',
-    'contact:read_all','company:read_all',
+    'contact:read_all','contact:edit','company:read_all','company:edit',
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'task:create','task:read_all','task:edit',
     'approval_request:create','approval_request:review',
     'installation:read_all','installation:create','installation:edit',
     'support:read_all',
-    'kanban:read_all','kanban:create','kanban:edit',
-    'bom:create','bom:read_all','bom:edit','bom:submit','bom:approve',
     'purchase_order:create','purchase_order:read_all','purchase_order:edit','purchase_order:approve',
     'goods_receipt:create','goods_receipt:read_all',
     'work_order:create','work_order:read_all','work_order:edit',
     'service_record:create','service_record:read_all','service_record:edit',
     'inventory_allocation:create','inventory_allocation:read_all','inventory_allocation:delete',
-    'handover_document:read_all','handover_document:edit','handover_document:approve',
   ],
   SalesHead: [
-    'lead:read_all','deal:read_all','deal:create','deal:edit','deal:assign_pm',
+    'lead:read_all','lead:create','lead:edit','deal:read_all','deal:create','deal:edit','deal:assign_pm',
+    // Sales owns the renewal conversation when a contract nears expiry.
+    
     'dealer:read_all','dealer_item:read_all',
-    'contact:read_all','company:read_all',
+    'contact:read_all','contact:edit','company:read_all','company:edit',
     'attendance:checkin','attendance:read_own',
     'salary:read_own',
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'task:create','task:read_all','task:edit',
     'approval_request:create',
-    'kanban:read_all','calendar:read_all',
+    'calendar:read_all',
     'quotation:create','quotation:read_all','quotation:edit',
-    'sales_order:create','sales_order:read_all','sales_order:edit','sales_order:approve',
-    'handover_document:read_all',
   ],
   Manager: [
     'lead:create','lead:read_all','lead:edit',
@@ -123,18 +116,15 @@ const PERMISSIONS: Record<string, string[]> = {
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'task:create','task:read_all','task:edit','task:delete',
     'approval_request:create','approval_request:review',
-    'kanban:read_all','kanban:create','kanban:edit','kanban:delete','calendar:read_all','calendar:edit',
-    'bom:create','bom:read_all','bom:edit','bom:submit','bom:approve','bom:delete',
+    'calendar:read_all','calendar:edit',
     'purchase_order:create','purchase_order:read_all','purchase_order:edit','purchase_order:approve','purchase_order:delete',
     'quotation:create','quotation:read_all','quotation:edit','quotation:delete',
-    'sales_order:create','sales_order:read_all','sales_order:edit','sales_order:approve','sales_order:delete',
     'goods_receipt:create','goods_receipt:read_all',
     'work_order:create','work_order:read_all','work_order:edit','work_order:delete',
     'service_record:create','service_record:read_all','service_record:edit',
     'signatory:create','signatory:read_all','signatory:edit','signatory:delete',
     'bank_account:create','bank_account:read_all','bank_account:edit','bank_account:delete',
     'inventory_allocation:create','inventory_allocation:read_all','inventory_allocation:delete',
-    'handover_document:read_all','handover_document:edit','handover_document:approve',
   ],
   SeniorEngineer: [
     'material_request:create','material_request:read_own',
@@ -146,8 +136,7 @@ const PERMISSIONS: Record<string, string[]> = {
     'task:create','task:read_own','task:edit',
     'approval_request:create',
     'installation:read_all',
-    'bom:create','bom:read_all','bom:edit','bom:submit',
-    'work_order:read_all','work_order:edit',
+        'work_order:read_all','work_order:edit',
   ],
   Engineer: [
     'material_request:create','material_request:read_own',
@@ -170,7 +159,7 @@ const PERMISSIONS: Record<string, string[]> = {
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'task:read_own',
     'approval_request:create',
-    'work_order:read_all',
+    'work_order:read_all','service_record:read_all',
   ],
   Accountant: [
     'material_request:read_all','material_request:approve_accountant',
@@ -180,14 +169,16 @@ const PERMISSIONS: Record<string, string[]> = {
     'invoice:read_all','invoice:create',
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'approval_request:create',
-    'purchase_order:read_all','quotation:read_all','sales_order:read_all',
+    'purchase_order:read_all','quotation:read_all',
     'goods_receipt:read_all',
     'signatory:read_all','bank_account:read_all',
   ],
   HR: [
     'hr_user:create','hr_user:read_all','hr_user:edit','hr_user:deactivate',
     'salary:generate','salary:approve','salary:mark_paid','salary:read_all',
-    'attendance:read_all',
+    // attendance:edit lets HR mark a day Present; a future date still needs
+    // Business Head approval before it is written.
+    'attendance:read_all','attendance:edit',
     'discussion:create','discussion:read_all','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all','attachment:delete',
     'approval_request:create',
   ],
@@ -203,15 +194,27 @@ const PERMISSIONS: Record<string, string[]> = {
     'approval_request:create',
     'calendar:read_all',
   ],
+  Marketing: [
+    'lead:create','lead:read_own',
+    'deal:create','deal:read_own',
+    'contact:create','contact:read_own',
+    'company:read_all',
+    'task:create','task:read_own','task:edit',
+    'attendance:checkin','attendance:read_own',
+    'salary:read_own',
+    'discussion:create','discussion:edit_own','discussion:delete_own','attachment:create','attachment:read_all',
+    'approval_request:create',
+    'calendar:read_all',
+  ],
   Viewer: [
     'lead:read_all','deal:read_all','contact:read_all','company:read_all',
     'dealer:read_all','dealer_item:read_all',
     'project:read_all','discussion:read_all',
-    'kanban:read_all','calendar:read_all',
+    'calendar:read_all',
     'invoice:read_all','product:read_all',
-    'bom:read_all','purchase_order:read_all','quotation:read_all','sales_order:read_all',
+    'purchase_order:read_all','quotation:read_all',
     'goods_receipt:read_all','work_order:read_all','service_record:read_all',
-    'inventory_allocation:read_all','handover_document:read_all',
+    'inventory_allocation:read_all',
   ],
 }
 
@@ -223,16 +226,17 @@ const STANDARD_INDUSTRIES = [
 
 const STANDARD_DESIGNATIONS = [
   'CEO', 'MD', 'Director', 'VP', 'AVP', 'GM', 'DGM', 'AGM',
-  'Manager', 'Senior Manager', 'Assistant Manager',
-  'Engineer', 'Senior Engineer', 'Chief Engineer',
+  'Manager', 'Senior Manager', 'Assistant Manager', 'Manager - Service',
+  'Engineer', 'Senior Engineer', 'Chief Engineer', 'Technician',
   'Procurement Manager', 'Purchase Manager', 'Procurement Officer',
   'Project Manager', 'Project Engineer', 'Site Engineer',
   'Operations Manager', 'Operations Head',
   'Maintenance Manager', 'Facility Manager',
   'Sustainability Head', 'Energy Manager',
-  'Business Development Manager', 'Sales Manager',
-  'Finance Manager', 'CFO', 'Accounts Manager',
-  'HR Manager', 'Admin Manager',
+  'Business Development Manager', 'Sales Manager', 'Channel Sales', 'Business Development',
+  'Finance Manager', 'CFO', 'Accounts Manager', 'Accounts Executive',
+  'HR Manager', 'Admin Manager', 'HR Officer',
+  'Digital Marketing Executive', 'Mechanical Engineer',
   'Consultant', 'Advisor',
 ]
 
@@ -246,6 +250,7 @@ const DEPARTMENTS = [
   'Procurement',
   'Manufacturing',
   'Service',
+  'Marketing',
 ]
 
 // ── ERP Phase 1 master data ──
@@ -329,8 +334,6 @@ const STATE_CODES: Record<string, string> = {
   'Tamil Nadu': 'TN', 'Karnataka': 'KA', 'Maharashtra': 'MH', 'Delhi': 'DL',
   'Telangana': 'TS', 'Gujarat': 'GJ', 'West Bengal': 'WB', 'Haryana': 'HR'
 }
-
-const REGIONS = ['North', 'South', 'East', 'West']
 
 function getRandomElement<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
@@ -527,11 +530,6 @@ async function main() {
       config: { graceHours: 48, recipientRoles: ['BusinessHead'], cooldownHours: 24 },
     },
     {
-      key: 'po_cost_exceeds_estimate', name: 'Purchase Cost Exceeds Estimate', module: 'Procurement',
-      description: 'Fires when a PO total exceeds its linked BOM estimate by a configurable %.',
-      config: { overagePercent: 10, recipientRoles: ['BusinessHead', 'ProjectHead'], cooldownHours: 48 },
-    },
-    {
       key: 'vendor_delivery_overdue', name: 'Vendor Delivery Overdue', module: 'Procurement',
       description: 'Fires when a PO is past its expected delivery date and not yet delivered.',
       config: { graceHours: 24, recipientRoles: ['BusinessHead'], cooldownHours: 24 },
@@ -581,65 +579,102 @@ async function main() {
     await prisma.businessRule.create({ data: br })
   }
 
-  // Pre-hash password once to optimize user generation
-  const hash = await bcrypt.hash('password123', 10)
+  // Leave Types — per Professional_Leave_Policy.docx (confirmed over the live
+  // 2026-27 tracker's older 7/15/7 figures, which predate the written policy).
+  console.log('Seeding LeaveTypes...')
+  const leaveTypeSeeds = [
+    { code: 'EL', name: 'Annual / Earned Leave', annualQuota: 18, monthlyAccrual: 1.5, maxCarryForward: 30, carryForwardExpiry: 12, isEncashable: true, maxEncashment: 30, isPaidLeave: true, requiresDocument: false, sandwichApplicable: true, halfDayAllowed: true, minDaysNotice: 3, maxConsecutiveDays: 0, probationAllowed: false, sortOrder: 1 },
+    { code: 'CL', name: 'Casual Leave', annualQuota: 12, monthlyAccrual: 1, maxCarryForward: 0, carryForwardExpiry: 0, isEncashable: false, maxEncashment: 0, isPaidLeave: true, requiresDocument: false, sandwichApplicable: false, halfDayAllowed: true, minDaysNotice: 0, maxConsecutiveDays: 2, probationAllowed: true, sortOrder: 2 },
+    { code: 'SL', name: 'Sick Leave', annualQuota: 12, monthlyAccrual: 1, maxCarryForward: 0, carryForwardExpiry: 0, isEncashable: false, maxEncashment: 0, isPaidLeave: true, requiresDocument: true, sandwichApplicable: false, halfDayAllowed: true, minDaysNotice: 0, maxConsecutiveDays: 0, probationAllowed: true, sortOrder: 3 },
+    { code: 'RH', name: 'Restricted / Optional Holiday', annualQuota: 2, monthlyAccrual: 0, maxCarryForward: 0, carryForwardExpiry: 0, isEncashable: false, maxEncashment: 0, isPaidLeave: true, requiresDocument: false, sandwichApplicable: false, halfDayAllowed: false, minDaysNotice: 1, maxConsecutiveDays: 0, probationAllowed: false, sortOrder: 4 },
+    { code: 'PAT', name: 'Paternity Leave', annualQuota: 5, monthlyAccrual: 0, maxCarryForward: 0, carryForwardExpiry: 0, isEncashable: false, maxEncashment: 0, isPaidLeave: true, requiresDocument: true, sandwichApplicable: false, halfDayAllowed: false, minDaysNotice: 0, maxConsecutiveDays: 0, gender: 'male', probationAllowed: false, sortOrder: 5 },
+    { code: 'MAT', name: 'Maternity Leave', annualQuota: 182, monthlyAccrual: 0, maxCarryForward: 0, carryForwardExpiry: 0, isEncashable: false, maxEncashment: 0, isPaidLeave: true, requiresDocument: true, sandwichApplicable: false, halfDayAllowed: false, minDaysNotice: 0, maxConsecutiveDays: 0, gender: 'female', probationAllowed: false, sortOrder: 6 },
+    { code: 'CO', name: 'Compensatory Off', annualQuota: 0, monthlyAccrual: 0, maxCarryForward: 0, carryForwardExpiry: 0, isEncashable: false, maxEncashment: 0, isPaidLeave: true, requiresDocument: false, sandwichApplicable: false, halfDayAllowed: true, minDaysNotice: 0, maxConsecutiveDays: 0, probationAllowed: true, sortOrder: 7 },
+  ]
+  for (const lt of leaveTypeSeeds) {
+    await prisma.leaveType.create({ data: lt })
+  }
+
+  // Pre-hash password once to optimize user generation.
+  // aspcv@2026 is the shared default per business rule — every non-admin
+  // account starts with mustChangePassword: true so /auth/verify-otp-change-password
+  // forces a real password on first login.
+  const hash = await bcrypt.hash('aspcv@2026', 10)
   const adminHash = await bcrypt.hash('admin123', 10)
 
-  // 1. Employees / Users (100 total)
-  console.log('👤 Seeding 100 Employees/Users...')
+  // 1. Employees / Users — real ASPCV staff roster (test/placeholder employees removed)
+  console.log('👤 Seeding real ASPCV staff roster...')
   const users: any[] = []
-  
-  // Default Admin
+
+  // Default Admin (system account, not a real staff member)
   const adminUser = await prisma.user.create({
     data: { name: 'Admin', email: 'admin@aspcv.com', passwordHash: adminHash, role: Role.SuperAdmin, roleName: 'SuperAdmin' }
   })
   users.push(adminUser)
 
-  const roles = [
-    { role: Role.SuperAdmin,          roleName: 'SuperAdmin',          dept: 'Management',  count: 1 },
-    { role: Role.BusinessHead,        roleName: 'BusinessHead',        dept: 'Management',  count: 2 },
-    { role: Role.ProjectHead,         roleName: 'ProjectHead',         dept: 'Project',     count: 3 },
-    { role: Role.SalesHead,           roleName: 'SalesHead',           dept: 'Sales',       count: 2 },
-    { role: Role.Manager,             roleName: 'Manager',             dept: 'Management',  count: 10 },
-    { role: Role.SeniorEngineer,      roleName: 'SeniorEngineer',      dept: 'Engineering', count: 15 },
-    { role: Role.Engineer,            roleName: 'Engineer',            dept: 'Engineering', count: 25 },
-    { role: Role.Technician,          roleName: 'Technician',          dept: 'Engineering', count: 20 },
-    { role: Role.Accountant,          roleName: 'Accountant',          dept: 'Accounts',    count: 8 },
-    { role: Role.HR,                  roleName: 'HR',                  dept: 'HR',          count: 4 },
-    { role: Role.Viewer,              roleName: 'SalesRepresentative', dept: 'Sales',       count: 9 }, // 9 + others = 100 total
+  const jeyadevUser = await prisma.user.create({
+    data: { name: 'Jeyadev', email: 'jeyadev2006@gmail.com', passwordHash: adminHash, role: Role.SuperAdmin, roleName: 'SuperAdmin' }
+  })
+  users.push(jeyadevUser)
+
+  function parseDDMMMYY(s: string): Date {
+    const [d, mon, y] = s.split('-')
+    const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
+    const year = 2000 + parseInt(y, 10)
+    return new Date(year, months[mon], parseInt(d, 10))
+  }
+
+  const STAFF_ROSTER: Array<{
+    employeeCode?: string; name: string; email: string; role: Role; roleName: string
+    dept: string; designation: string; qualification?: string; specialisation?: string
+    dob?: string; doj?: string
+  }> = [
+    { employeeCode: 'ASPCV006', name: 'Logesh N',          email: 'logesh@aspcv.com',                       role: Role.SuperAdmin,   roleName: 'SuperAdmin',          dept: 'Management', designation: 'Director',                    qualification: 'MBA, B.Tech EEE', specialisation: 'Marketing',    dob: '06-Feb-87', doj: '01-Apr-22' },
+    { employeeCode: undefined, name: 'Subashree',          email: 'subashree@aspcv.com',                     role: Role.BusinessHead, roleName: 'BusinessHead',        dept: 'Management', designation: 'Business Head' },
+    { employeeCode: undefined, name: 'Priya',              email: 'priya@aspcv.com',                         role: Role.HR,           roleName: 'HR',                  dept: 'HR',         designation: 'HR Officer' },
+    { employeeCode: 'ASPCV027', name: 'Manikandan E',      email: 'manikandan@aspcv.com',                    role: Role.Manager,      roleName: 'Manager',             dept: 'Sales',      designation: 'Mechanical Engineer',         qualification: 'MSC',             specialisation: 'Physics',      dob: '17-Mar-00', doj: '04-Feb-25' },
+    { employeeCode: 'ASPCV018', name: 'Dillipkumar S',     email: 'dilipkumar.s@aspcv.com',                  role: Role.Viewer,       roleName: 'SalesRepresentative', dept: 'Sales',      designation: 'Channel Sales',                qualification: 'ITI',             specialisation: 'ITI (MMV)',    dob: '28-Aug-85', doj: '01-Mar-23' },
+    { employeeCode: 'ASPCV007', name: 'Roop Ganesh M',     email: 'roopganesh@aspcv.com',                    role: Role.Viewer,       roleName: 'SalesRepresentative', dept: 'Sales',      designation: 'Manager - Service',            qualification: 'BCA',             specialisation: 'Computer App', dob: '30-Aug-87', doj: '01-Apr-22' },
+    { employeeCode: 'ASPCV036', name: 'Ganesh Pandian',    email: 'ganesh@aspcv.com',                        role: Role.Viewer,       roleName: 'Marketing',           dept: 'Marketing',  designation: 'Digital Marketing Executive', qualification: 'B.E & M.E',       specialisation: 'Marketing',    dob: '23-Feb-97', doj: '08-Sep-25' },
+    { employeeCode: undefined, name: 'Shalini GB',         email: 'accounts@aspcv.com',                      role: Role.Accountant,   roleName: 'Accountant',          dept: 'Accounts',   designation: 'Accounts Executive',           qualification: 'BBA',             specialisation: 'Accounts' },
+    { employeeCode: 'ASPCV029', name: 'Nantha Kumar O',    email: 'nanthakumar@aspirationenergy.com',        role: Role.ProjectHead,  roleName: 'ProjectHead',         dept: 'Project',    designation: 'Project Manager',             qualification: 'BE',              specialisation: 'EEE',          dob: '10-Nov-95', doj: '01-Nov-24' },
+    { employeeCode: 'ASPCV030', name: 'M Raj Kumar',       email: 'rajkumar.m@aspirationenergy.com',         role: Role.SeniorEngineer, roleName: 'SeniorEngineer',    dept: 'Project',    designation: 'Senior Engineer',              qualification: 'BE',              specialisation: 'EEE',          dob: '27-Dec-94', doj: '01-Nov-24' },
+    { employeeCode: 'ASPCV038', name: 'Raja Rajan K',      email: 'rajarajanaspcv@gmail.com',                role: Role.Engineer,     roleName: 'Engineer',            dept: 'Project',    designation: 'Project Engineer',             qualification: 'BE',              specialisation: 'EEE',          doj: '26-Dec-25' },
+    { employeeCode: 'ASPCV031', name: 'Krishna Moorthy G', email: 'krishnaaspcv@gmail.com',                  role: Role.Technician,   roleName: 'Technician',          dept: 'Service',    designation: 'Technician',                   qualification: 'Dip, B.Tech',     specialisation: 'ITI',          dob: '08-Jul-96', doj: '01-Nov-24' },
+    { employeeCode: undefined, name: 'Shakthi',            email: 'shakthi@aspcv.com',                       role: Role.Engineer,     roleName: 'Engineer',            dept: 'Project',    designation: 'Site Engineer' },
+    { employeeCode: undefined, name: 'Tamil',              email: 'tamil@aspcv.com',                         role: Role.Engineer,     roleName: 'Engineer',            dept: 'Project',    designation: 'Site Engineer' },
+    { employeeCode: 'ASPCV037', name: 'Priya Varshini',    email: 'priyavarshini@aspcv.com',                 role: Role.HR,           roleName: 'HR',                  dept: 'Accounts',   designation: 'Business Development',        qualification: 'MBA',             specialisation: 'Commerce',     dob: '16-Apr-00', doj: '28-Oct-25' },
+    { employeeCode: undefined, name: 'Gireeshwaran R',     email: 'gireeshwaran@termagen2x.in',              role: Role.Engineer,     roleName: 'Engineer',            dept: 'Project',    designation: 'Project Engineer',             qualification: 'BE',              specialisation: 'Mechanical' },
   ]
 
-  let userIndex = 1
-  for (const rDef of roles) {
-    for (let c = 0; c < rDef.count; c++) {
-      const name = generateIndianName()
-      const email = `${name.toLowerCase().replace(/ /g, '.')}.${userIndex++}@aspcv.com`
-      const deptId = deptMap[rDef.dept]
-      const designationId = designationMap[rDef.role === Role.SeniorEngineer ? 'Senior Engineer' : rDef.role === Role.Engineer ? 'Engineer' : 'Manager']
-      
-      const user = await prisma.user.create({
-        data: {
-          name,
-          email,
-          passwordHash: hash,
-          role: rDef.role,
-          roleName: rDef.roleName,
-          departmentId: deptId,
-          designationId,
-          isActive: true,
-          baseSalary: getRandomRange(25000, 180000),
-          hra: getRandomRange(10000, 40000),
-          allowances: getRandomRange(5000, 20000),
-          pan: `ABCDE${getRandomRange(1000, 9999)}F`,
-          bankAccount: `91${getRandomRange(100000000, 999999999)}`,
-          ifsc: 'HDFC0000240',
-          bankName: 'HDFC Bank',
-          emergencyContact: `+91 ${getRandomRange(90000, 99999)} ${getRandomRange(10000, 99999)}`,
-          joiningDate: new Date(Date.now() - getRandomRange(30, 700) * 24 * 3600 * 1000)
-        }
-      })
-      users.push(user)
-    }
+  for (const staff of STAFF_ROSTER) {
+    const deptId = deptMap[staff.dept]
+    const designationId = designationMap[staff.designation]
+    const user = await prisma.user.create({
+      data: {
+        name: staff.name,
+        email: staff.email,
+        employeeCode: staff.employeeCode,
+        passwordHash: hash,
+        mustChangePassword: true,
+        role: staff.role,
+        roleName: staff.roleName,
+        departmentId: deptId,
+        designationId,
+        isActive: true,
+        dateOfBirth: staff.dob ? parseDDMMMYY(staff.dob) : undefined,
+        joiningDate: staff.doj ? parseDDMMMYY(staff.doj) : undefined,
+        baseSalary: getRandomRange(25000, 180000),
+        hra: getRandomRange(10000, 40000),
+        allowances: getRandomRange(5000, 20000),
+        pan: `ABCDE${getRandomRange(1000, 9999)}F`,
+        bankAccount: `91${getRandomRange(100000000, 999999999)}`,
+        ifsc: 'HDFC0000240',
+        bankName: 'HDFC Bank',
+        emergencyContact: `+91 ${getRandomRange(90000, 99999)} ${getRandomRange(10000, 99999)}`,
+      }
+    })
+    users.push(user)
   }
 
   // Filter specific roles for assignments using roleName
@@ -764,23 +799,34 @@ async function main() {
   console.log('🎯 Seeding 200 Leads...')
   const leads: any[] = []
   const leadStatuses = [LeadStatus.Enquiry, LeadStatus.ProspectiveLead, LeadStatus.ProjectHold, LeadStatus.Hibernated, LeadStatus.OrderWon, LeadStatus.OrderLost]
-  
+
+  // Master rows are created above without their ids being kept — reload them so
+  // each lead can be linked to a real region / source / commercial model.
+  const regionRows = await prisma.region.findMany()
+  const sourceRows = await prisma.leadSourceMaster.findMany()
+  const commercialModelRows = await prisma.commercialModel.findMany()
+
   for (let i = 1; i <= 200; i++) {
     const company = getRandomElement(companies)
     const leadDate = new Date(Date.now() - getRandomRange(0, 365) * 24 * 3600 * 1000)
+    const nick = (company.nickname || company.name?.slice(0, 4) || 'XX').toUpperCase().replace(/\s+/g, '')
+    const sc = (company.stateCode || 'XX').toUpperCase()
+    const ac = (company.areaCode || 'XX').toUpperCase()
+    const cc = (company.cityCode || 'XX').toUpperCase()
     const lead = await prisma.lead.create({
       data: {
         id: `lead-${i}`,
         companyId: company.id,
         title: `${getRandomElement(PROJECT_TITLES)} – ${company.name}`,
-        source: getRandomElement(['Website', 'Direct', 'Referral', 'Channel Partner', 'Exhibition']),
-        region: getRandomElement(REGIONS),
-        commercialType: getRandomElement(['Capex', 'Opex']),
         estimatedValue: getRandomRange(100000, 5000000),
         closeDate: new Date(leadDate.getTime() + getRandomRange(15, 90) * 24 * 3600 * 1000),
         status: getRandomElement(leadStatuses),
         refNumber: `LD-2026-${String(i).padStart(4, '0')}`,
+        leadNumber: `ASPCV ${nick}-${sc}-${ac} ${cc}-${i}`,
         notes: 'Initial discussion completed.',
+        regionId: getRandomElement(regionRows).id,
+        leadSourceId: getRandomElement(sourceRows).id,
+        commercialModelId: getRandomElement(commercialModelRows).id,
         leadDate,
         createdAt: leadDate
       }
@@ -814,6 +860,7 @@ async function main() {
       data: {
         id: `deal-${i}`,
         leadId: lead.id,
+        leadNumber: lead.leadNumber,
         companyId: lead.companyId,
         title: `Deal – ${lead.title}`,
         stage: i <= 80 ? DealStage.OrderWon : getRandomElement(dealStages),
@@ -842,15 +889,17 @@ async function main() {
   const quotationStatuses = [QuotationStatus.Draft, QuotationStatus.Sent, QuotationStatus.Accepted, QuotationStatus.Rejected, QuotationStatus.Expired]
   
   for (let i = 1; i <= 150; i++) {
-    const company = getRandomElement(companies)
+    const linkedDeal = i <= 120 ? deals[i - 1] : null // first 120 quotes tie to the seeded deals
+    const company = linkedDeal ? { id: linkedDeal.companyId } : getRandomElement(companies)
     let totalAmt = 0
     const quoteCreatedAt = new Date(Date.now() - getRandomRange(10, 365) * 24 * 3600 * 1000)
-    
+
     const quote = await prisma.quotation.create({
       data: {
         id: `quotation-${i}`,
         refNumber: `QTN-2026-${String(i).padStart(4, '0')}`,
         companyId: company.id,
+        dealId: linkedDeal?.id,
         title: `Quotation for ${getRandomElement(PROJECT_TITLES)}`,
         status: i <= 100 ? QuotationStatus.Accepted : getRandomElement(quotationStatuses),
         validUntil: new Date(quoteCreatedAt.getTime() + 30 * 24 * 3600 * 1000),
@@ -892,99 +941,63 @@ async function main() {
       }
     })
     
-    quotations.push(quote)
+    quotations.push({ ...quote, leadNumber: linkedDeal?.leadNumber ?? null })
   }
 
-  // 9. Sales Orders (100 total Opportunities)
-  console.log('🛍️ Seeding 100 Sales Orders / Opportunities...')
-  const salesOrders: any[] = []
-  
-  for (let i = 1; i <= 100; i++) {
-    const quote = quotations[i - 1] // link first 100 quotes
-    const won = i <= 85
-    const soCreatedAt = new Date(quote.createdAt.getTime() + getRandomRange(2, 10) * 24 * 3600 * 1000)
-    
-    const so = await prisma.salesOrder.create({
-      data: {
-        id: `so-${i}`,
-        refNumber: `SO-2026-${String(i).padStart(4, '0')}`,
-        quotationId: quote.id,
-        companyId: quote.companyId,
-        title: `Sales Order – ${quote.title}`,
-        status: won ? SalesOrderStatus.Won : getRandomElement([SalesOrderStatus.Draft, SalesOrderStatus.Confirmed, SalesOrderStatus.Lost]),
-        budget: quote.totalAmount,
-        warrantyPeriod: quote.warrantyPeriod,
-        deliveryDate: quote.deliveryDate,
-        scope: quote.scope,
-        productDetails: 'Advanced Cleantech thermal systems specifications.',
-        notes: 'Handed over to project management.',
-        wonAt: won ? soCreatedAt : null,
-        createdAt: soCreatedAt
-      }
-    })
-    
-    // Handover Document
-    await prisma.handoverDocument.create({
-      data: {
-        id: `handover-${i}`,
-        refNumber: `HND-2026-${String(i).padStart(4, '0')}`,
-        salesOrderId: so.id,
-        projectName: so.title,
-        customerDetails: `Client company ID: ${so.companyId}`,
-        budget: so.budget,
-        warrantyPeriod: so.warrantyPeriod,
-        productDetails: so.productDetails,
-        deliveryDate: so.deliveryDate,
-        scope: so.scope,
-        status: won ? 'accepted' : 'pending',
-        acceptedById: won ? getRandomElement(pmUsers).id : null,
-        acceptedAt: won ? new Date(soCreatedAt.getTime() + 1 * 24 * 3600 * 1000) : null,
-        createdAt: soCreatedAt
-      }
-    })
-    
-    salesOrders.push(so)
+  // 9. Accept 85 quotations directly (Deal + Quotation -> Project, no Sales Order middleman)
+  console.log('📋 Accepting 85 Quotations (direct handover to Project)...')
+  const acceptedQuotes: any[] = []
+
+  for (let i = 1; i <= 85; i++) {
+    const quote = quotations[i - 1]
+    const acceptedAt = new Date(quote.createdAt.getTime() + getRandomRange(2, 10) * 24 * 3600 * 1000)
+    await prisma.quotation.update({ where: { id: quote.id }, data: { status: QuotationStatus.Accepted } })
+    acceptedQuotes.push({ ...quote, acceptedAt })
   }
 
   // 10. Projects (120 total)
   console.log('🏗️ Seeding 120 Projects (80 Completed, 40 Active/Planning)...')
   const projects: any[] = []
-  
-  // We need 120 Projects. We link 80 of them to our Won Sales Orders.
+
+  // We need 120 Projects. We link 80 of them to our Accepted Quotations (direct handover).
   // 80 should be Completed status, others distributed.
   for (let i = 1; i <= 120; i++) {
     const isCompleted = i <= 80
-    const so = i <= 85 ? salesOrders[i - 1] : null
-    const company = so ? null : getRandomElement(companies)
-    const companyId = so ? so.companyId : company!.id
-    
-    const status = isCompleted 
-      ? ProjectStatus.Completed 
+    const quote = i <= 85 ? acceptedQuotes[i - 1] : null
+    const company = quote ? null : getRandomElement(companies)
+    const companyId = quote ? quote.companyId : company!.id
+
+    const status = isCompleted
+      ? ProjectStatus.Completed
       : getRandomElement([ProjectStatus.Planning, ProjectStatus.Engineering, ProjectStatus.Procurement, ProjectStatus.Manufacturing, ProjectStatus.Installation, ProjectStatus.Testing, ProjectStatus.Active, ProjectStatus.OnHold])
-      
-    const budget = so ? so.budget! : getRandomRange(200000, 1500000)
+
+    const budget = quote ? quote.totalAmount! : getRandomRange(200000, 1500000)
     const actualSpend = isCompleted ? budget * getRandomRange(0.85, 0.98) : budget * getRandomRange(0.1, 0.7)
-    
-    const pStartDate = so 
-      ? new Date(so.createdAt.getTime() + getRandomRange(2, 10) * 24 * 3600 * 1000)
+
+    const pStartDate = quote
+      ? new Date(quote.acceptedAt.getTime() + getRandomRange(2, 10) * 24 * 3600 * 1000)
       : new Date(Date.now() - getRandomRange(30, 365) * 24 * 3600 * 1000)
     const durationDays = getRandomRange(30, 120)
     const pEndDate = isCompleted
       ? new Date(pStartDate.getTime() + durationDays * 24 * 3600 * 1000)
       : new Date(Date.now() + getRandomRange(20, 120) * 24 * 3600 * 1000)
     const pCompletedAt = isCompleted ? pEndDate : null
-    
+
     const p = await prisma.project.create({
       data: {
         id: `project-${i}`,
-        title: so ? `Project – ${so.title}` : `${getRandomElement(PROJECT_TITLES)} – Company ${i}`,
+        title: quote ? `Project – ${quote.title}` : `${getRandomElement(PROJECT_TITLES)} – Company ${i}`,
         companyId,
-        salesOrderId: so ? so.id : null,
+        dealId: quote?.dealId ?? null,
+        leadNumber: quote?.leadNumber ?? null,
+        quotationId: quote ? quote.id : null,
+        handoverNotes: quote ? 'Scope, pricing and delivery terms confirmed with client. Handed over to project management for execution.' : null,
+        handoverOneDriveUrl: quote ? `https://aspcv-my.sharepoint.com/:b:/g/personal/sales_aspcv_com/handover-${i}` : null,
         status,
         budget,
         actualBudget: actualSpend,
         remainingBudget: budget - actualSpend,
-        warrantyPeriod: so ? so.warrantyPeriod : 24,
+        warrantyPeriod: quote ? quote.warrantyPeriod : 24,
         warrantyStart: isCompleted ? pCompletedAt : null,
         warrantyEnd: isCompleted ? new Date(pCompletedAt!.getTime() + 24 * 30 * 24 * 3600 * 1000) : null,
         progress: isCompleted ? 100 : getRandomRange(5, 80),
@@ -1544,7 +1557,7 @@ async function main() {
   - 200 Leads
   - 120 Deals
   - 150 Quotations
-  - 100 Sales Orders / Opportunities
+  - 85 Quotations Accepted (direct Deal handover, no Sales Order)
   - 120 Projects (80 Completed)
   - 250 Tasks
   - 180 Material Requests

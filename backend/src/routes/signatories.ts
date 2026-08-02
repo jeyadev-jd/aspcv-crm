@@ -6,8 +6,17 @@ import { requirePermission } from '../middleware/permissions'
 const router = createSafeRouter()
 router.use(authenticate)
 
-router.get('/', requirePermission('signatory', 'read_all'), async (_req, res) => {
-  const rows = await prisma.signatory.findMany({ orderBy: { createdAt: 'asc' } })
+router.get('/', requirePermission('signatory', 'read_all'), async (req, res) => {
+  // signatureData is an inline base64 PNG (50-200KB each). The invoice/quotation
+  // PDFs need it, so it stays in the default response - but callers that only
+  // need names (pickers, counts) can pass ?light=1 and skip the payload.
+  const light = req.query.light === '1' || req.query.light === 'true'
+  const rows = await prisma.signatory.findMany({
+    orderBy: { createdAt: 'asc' },
+    ...(light
+      ? { select: { id: true, name: true, designation: true, isDefault: true, createdAt: true } }
+      : {}),
+  })
   res.json(rows)
 })
 

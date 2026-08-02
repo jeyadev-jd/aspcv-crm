@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Topbar from './Topbar'
+import ErrorBoundary from '@/components/shared/ErrorBoundary'
 import { useIsMobile } from '@/lib/useIsMobile'
 
 export default function AppLayout() {
   const isMobile = useIsMobile()
+  const location = useLocation()
   const [collapsed, setCollapsed] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -47,7 +49,11 @@ export default function AppLayout() {
       }}>
         <Topbar onToggleSidebar={toggleSidebar} />
         <main style={{ flex: 1, padding: isMobile ? '14px' : '24px 28px', minWidth: 0, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          <Outlet />
+          {/* Keyed on pathname so navigating away clears a crashed page's
+              error state instead of showing the fallback on the next route. */}
+          <ErrorBoundary key={location.pathname} label="this page">
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

@@ -12,6 +12,7 @@ import { useCrmData } from '@/lib/crmDataContext'
 import { useApiContacts, useCreateContact, useUpdateContact, useDeleteContact, type ApiContact } from '@/hooks/useContacts'
 import { useContactEvents, useCreateContactEvent, useDeleteContactEvent, type ContactEvent } from '@/hooks/useContactEvents'
 import DesignationInput from '@/components/shared/DesignationInput'
+import { useConfirm } from '@/components/shared/useConfirm'
 
 const avatarColors = ['#5D78FF', '#FF9B52', '#2BC155', '#FF5353', '#8B5CF6', '#F59E0B', '#06B6D4', '#EC4899']
 function avatarColor(name: string) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff; return avatarColors[Math.abs(h) % avatarColors.length] }
@@ -465,8 +466,10 @@ export default function Contacts() {
       {deleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 60 }}>
           <div style={{ background: '#fff', borderRadius: 16, padding: 24, width: 360, boxShadow: '0 20px 60px rgba(0,0,0,0.15)' }}>
-            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Delete Contact?</p>
-            <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>This action cannot be undone.</p>
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#374557', marginBottom: 8 }}>Archive this contact?</p>
+            <p style={{ fontSize: 12, color: '#B1B1BE', marginBottom: 20 }}>
+              The contact is hidden from lists but its history is kept. An admin can restore it later.
+            </p>
             <div style={{ display: 'flex', gap: 12 }}>
               <button onClick={() => setDeleteConfirm(null)} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={() => handleDelete(deleteConfirm!)} style={{ flex: 1, padding: '10px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none', background: '#FF5353', color: '#fff', cursor: 'pointer' }}>Delete</button>
@@ -478,7 +481,7 @@ export default function Contacts() {
       {/* Create / Edit Modal */}
       {showModal && (
         <div className="crm-modal-overlay" onClick={e => { if (e.target === e.currentTarget) closeModal() }}>
-          <div className="crm-modal" style={{ width: '100%', maxWidth: 520 }}>
+          <div className="crm-modal" role="dialog" aria-modal="true" style={{ width: '100%', maxWidth: 520 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #F0F1F5', flexShrink: 0 }}>
               <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>{editId ? 'Edit Contact' : 'New Contact'}</p>
               <button onClick={closeModal} style={{ color: '#B1B1BE', background: 'none', border: 'none', cursor: 'pointer', display: 'flex' }}><X size={16} /></button>
@@ -548,9 +551,11 @@ function ContactEventsSection({ contactId }: { contactId: string }) {
   const deleteEvent = useDeleteContactEvent(contactId)
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState({ type: 'birthday', title: 'Birthday', eventDate: '', recurring: true, notes: '' })
+  const { confirm, confirmDialog } = useConfirm()
 
   return (
     <div>
+      {confirmDialog}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
         <p style={{ fontSize: 9, color: '#B1B1BE', textTransform: 'uppercase', letterSpacing: 0.5, margin: 0 }}>Events</p>
         <button onClick={() => setShowAdd(v => !v)} style={{ background: 'none', border: 'none', fontSize: 11, color: '#5D78FF', cursor: 'pointer', fontWeight: 600 }}>+ Add</button>
@@ -593,7 +598,7 @@ function ContactEventsSection({ contactId }: { contactId: string }) {
               </div>
             </div>
           </div>
-          <button onClick={() => { if (confirm('Delete this event?')) deleteEvent.mutate(ev.id) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 3 }}>×</button>
+          <button onClick={() => confirm({ title: 'Delete this event?', onConfirm: () => deleteEvent.mutate(ev.id) })} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 3 }}>×</button>
         </div>
       ))}
       {events.length === 0 && !showAdd && <p style={{ fontSize: 11, color: '#C4C4C4', margin: 0 }}>No events added</p>}

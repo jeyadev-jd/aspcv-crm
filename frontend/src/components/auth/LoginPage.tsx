@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuthStore } from '@/lib/authStore'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { Zap, Eye, EyeOff } from 'lucide-react'
@@ -47,10 +47,10 @@ export default function LoginPage() {
 
           {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, position: 'relative', zIndex: 1 }}>
-            <img src="/favicon.svg" alt="ASPCV" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 10, background: '#fff', padding: 6, boxShadow: '0 2px 12px rgba(0,0,0,0.25)' }} />
+            <img src="/aspcv-logo1.png" alt="ASPCV" style={{ width: 44, height: 44, objectFit: 'contain', borderRadius: 10, background: '#fff', padding: 6, boxShadow: '0 2px 12px rgba(0,0,0,0.25)' }} />
             <div>
               <p style={{ fontSize: 15, fontWeight: 800, color: '#fff', letterSpacing: -0.3 }}>ASPCV</p>
-              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>Aspiration Cleantech Pvt. Ltd.</p>
+              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>Aspiration Cleantech Ventures Pvt. Ltd.</p>
             </div>
           </div>
 
@@ -67,7 +67,6 @@ export default function LoginPage() {
               {[
                 { icon: '⚡', label: 'Heat Pumps & Chillers' },
                 { icon: '🔆', label: 'ORC & Waste Heat Recovery' },
-                { icon: '💡', label: 'LED Lights & BLDC Fans' },
               ].map(({ icon, label }) => (
                 <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <span style={{ fontSize: 16 }}>{icon}</span>
@@ -79,7 +78,7 @@ export default function LoginPage() {
 
           {/* Footer */}
           <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', position: 'relative', zIndex: 1 }}>
-            © 2026 Aspiration Cleantech Pvt. Ltd.
+            © 2026 Aspiration Cleantech Ventures Pvt. Ltd.
           </p>
         </div>
       )}
@@ -162,6 +161,11 @@ export default function LoginPage() {
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
+              <div style={{ textAlign: 'right', marginTop: 8 }}>
+                <Link to="/forgot-password" style={{ fontSize: 12, color: '#5D78FF', fontWeight: 600, textDecoration: 'none' }}>
+                  Forgot password?
+                </Link>
+              </div>
             </div>
 
             {error && (
@@ -191,9 +195,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p style={{ fontSize: 11, color: '#94a3b8', textAlign: 'center', marginTop: 28 }}>
-            Contact your admin to reset your password
-          </p>
         </div>
       </div>
     </div>

@@ -5,6 +5,8 @@ import { useIsMobile } from '@/lib/useIsMobile'
 import DiscussionPanel from '@/components/shared/DiscussionPanel'
 import TimelinePanel from '@/components/shared/TimelinePanel'
 import TaskPanel from '@/components/shared/TaskPanel'
+import EntityReimbursements from '@/components/shared/EntityReimbursements'
+import ScopeItemsPanel from '@/components/shared/ScopeItemsPanel'
 import type { Lead } from '@/hooks/useLeads'
 import { useChangeLeadPipelineStage, useLeadStageHistory } from '@/hooks/useLeads'
 import { toast } from '@/lib/toast'
@@ -37,19 +39,76 @@ function PipelinePanel({ lead, isMobile }: { lead: Lead; isMobile: boolean }) {
   const currentIdx = PIPELINE_STAGES.indexOf(lead.pipelineStage as any)
   const isDropped = lead.pipelineStage === 'ProjectDropped'
 
-  async function advance() {
-    const next = PIPELINE_STAGES[currentIdx + 1]
-    if (!next) return
+  // Confirm dialog state: null = closed, 'forward' = advance, 'back' = revert
+  const [confirmDir, setConfirmDir] = useState<'forward' | 'back' | null>(null)
+
+  const nextStage = PIPELINE_STAGES[currentIdx + 1] ?? null
+  const prevStage = currentIdx > 0 ? PIPELINE_STAGES[currentIdx - 1] : null
+  const isOrderWonNext = nextStage === 'OrderWon'
+
+  async function doMove(stage: string) {
+    setConfirmDir(null)
     try {
-      await changeStage.mutateAsync({ id: lead.id, stage: next })
-      toast.success(`Advanced to ${PIPELINE_LABEL[next]}`)
+      await changeStage.mutateAsync({ id: lead.id, stage })
+      toast.success(`Stage moved: ${PIPELINE_LABEL[lead.pipelineStage]} → ${PIPELINE_LABEL[stage]}`)
     } catch (e: any) {
-      toast.error(e?.response?.data?.error ?? 'Could not advance stage')
+      toast.error(e?.response?.data?.error ?? 'Could not change stage')
     }
   }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+      {/* Confirm dialog */}
+      {confirmDir && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
+          <div role="dialog" aria-modal="true" style={{ background: '#fff', borderRadius: 16, padding: 24, width: 380, boxShadow: '0 20px 60px rgba(0,0,0,0.18)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {isOrderWonNext && confirmDir === 'forward' ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 22 }}>⚠️</span>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Advance to Order Won?</p>
+                </div>
+                <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
+                  Setting the pipeline stage to <strong>Order Won</strong> will automatically promote this lead and <strong>create a Deal</strong> in the Deals module. Ensure all lead details (estimated value, scope, contacts) are complete before proceeding.
+                </p>
+              </>
+            ) : confirmDir === 'back' ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 20 }}>↩</span>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Move Back to {PIPELINE_LABEL[prevStage!]}?</p>
+                </div>
+                <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
+                  This will move the lead from <strong>{PIPELINE_LABEL[lead.pipelineStage]}</strong> back to <strong>{PIPELINE_LABEL[prevStage!]}</strong>. The change will be recorded in the stage history audit trail.
+                </p>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 14, fontWeight: 700, color: '#374557' }}>Advance to {PIPELINE_LABEL[nextStage!]}?</p>
+                <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
+                  This will move the lead from <strong>{PIPELINE_LABEL[lead.pipelineStage]}</strong> to <strong>{PIPELINE_LABEL[nextStage!]}</strong> and record it in the stage history.
+                </p>
+              </>
+            )}
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <button onClick={() => setConfirmDir(null)}
+                style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: '1px solid #F0F1F5', color: '#374557', background: '#fff', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button
+                onClick={() => doMove(confirmDir === 'back' ? prevStage! : nextStage!)}
+                disabled={changeStage.isPending}
+                style={{ flex: 1, padding: '9px', borderRadius: 10, fontSize: 12, fontWeight: 600, border: 'none',
+                  background: confirmDir === 'back' ? '#F59E0B' : isOrderWonNext ? '#2BC155' : '#5D78FF',
+                  color: '#fff', cursor: 'pointer', opacity: changeStage.isPending ? 0.6 : 1 }}>
+                {changeStage.isPending ? 'Moving…' : confirmDir === 'back' ? '↩ Move Back' : isOrderWonNext ? '🏆 Confirm Order Won' : 'Advance →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stepper */}
       <div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -73,12 +132,28 @@ function PipelinePanel({ lead, isMobile }: { lead: Lead; isMobile: boolean }) {
             </span>
           )}
         </div>
-        {!isDropped && currentIdx < PIPELINE_STAGES.length - 1 && (
-          <button onClick={advance} disabled={changeStage.isPending}
-            style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none', background: '#5D78FF', color: '#fff', cursor: 'pointer', opacity: changeStage.isPending ? 0.6 : 1 }}>
-            {changeStage.isPending ? 'Moving…' : `Advance to ${PIPELINE_LABEL[PIPELINE_STAGES[currentIdx + 1]]} →`}
-          </button>
-        )}
+
+        {/* Action buttons row */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {/* Move Back button */}
+          {!isDropped && currentIdx > 0 && (
+            <button onClick={() => setConfirmDir('back')} disabled={changeStage.isPending}
+              style={{ padding: '8px 14px', borderRadius: 8, fontSize: 11, fontWeight: 600, border: '1.5px solid #F0F1F5',
+                background: '#FAFBFF', color: '#8C8C8C', cursor: 'pointer', opacity: changeStage.isPending ? 0.6 : 1 }}>
+              ↩ Back to {PIPELINE_LABEL[prevStage!]}
+            </button>
+          )}
+
+          {/* Advance button */}
+          {!isDropped && currentIdx < PIPELINE_STAGES.length - 1 && (
+            <button onClick={() => setConfirmDir('forward')} disabled={changeStage.isPending}
+              style={{ padding: '8px 16px', borderRadius: 8, fontSize: 12, fontWeight: 600, border: 'none',
+                background: isOrderWonNext ? '#2BC155' : '#5D78FF',
+                color: '#fff', cursor: 'pointer', opacity: changeStage.isPending ? 0.6 : 1 }}>
+              {changeStage.isPending ? 'Moving…' : isOrderWonNext ? `🏆 Mark Order Won →` : `Advance to ${PIPELINE_LABEL[nextStage!]} →`}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stage history */}
@@ -129,7 +204,7 @@ interface Props { lead: Lead; onClose: () => void; onEdit: (lead: Lead) => void 
 export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
   const { symbol } = useCurrency()
   const isMobile = useIsMobile()
-  const [activeTab, setActiveTab] = useState<'overview' | 'pipeline' | 'contacts' | 'discussion' | 'timeline' | 'tasks'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'pipeline' | 'contacts' | 'discussion' | 'timeline' | 'tasks' | 'expenses'>('overview')
   const s = statusStyle[lead.status] ?? statusStyle.Enquiry
   const sg = stageStyle[lead.stage] ?? stageStyle.Lead
   const isIndia = lead.company?.customerType === 'Indian' || lead.company?.customerType === 'India'
@@ -156,7 +231,7 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
 
   const tabs = (
     <div style={{ display: 'flex', borderBottom: '1px solid #F0F1F5', background: '#fff', flexShrink: 0 }}>
-      {(['overview', 'pipeline', 'contacts', 'discussion', 'timeline', 'tasks'] as const).map(tab => (
+      {(['overview', 'pipeline', 'contacts', 'discussion', 'timeline', 'tasks', 'expenses'] as const).map(tab => (
         <button key={tab} onClick={() => setActiveTab(tab)} style={{
           flex: 1, padding: '8px 4px', fontSize: 12, fontWeight: activeTab === tab ? 700 : 400,
           color: activeTab === tab ? '#5D78FF' : '#9CA3AF', background: 'none', border: 'none',
@@ -222,6 +297,9 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
           </InfoCard>
         )}
       </div>
+
+      {/* Scope of supply — the requirement list sales builds while qualifying */}
+      <ScopeItemsPanel entityType="Lead" entityId={lead.id} />
 
       {/* Sources */}
       {(lead.sources?.length > 0 || lead.leadSourceRef) && (
@@ -323,7 +401,13 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
     </div>
   )
 
-  const tabContent = activeTab === 'overview' ? overviewContent : activeTab === 'pipeline' ? pipelineContent : activeTab === 'contacts' ? contactsContent : activeTab === 'discussion' ? discussionContent : activeTab === 'timeline' ? timelineContent : tasksContent
+  const expensesContent = (
+    <div style={{ padding: isMobile ? '10px 14px' : '20px 24px' }}>
+      <EntityReimbursements entityType="Lead" entityId={lead.id} />
+    </div>
+  )
+
+  const tabContent = activeTab === 'overview' ? overviewContent : activeTab === 'pipeline' ? pipelineContent : activeTab === 'contacts' ? contactsContent : activeTab === 'discussion' ? discussionContent : activeTab === 'timeline' ? timelineContent : activeTab === 'expenses' ? expensesContent : tasksContent
 
   if (isMobile) {
     return (
@@ -342,7 +426,7 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 55, display: 'flex' }}>
       <div style={{ flex: 1, background: 'rgba(0,0,0,0.3)' }} onClick={onClose} />
-      <div style={{ width: 520, maxWidth: '100vw', background: '#fff', overflowY: 'auto', boxShadow: '-4px 0 32px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
+      <div role="dialog" aria-modal="true" aria-label="Lead details" style={{ width: 520, maxWidth: '100vw', background: '#fff', overflowY: 'auto', boxShadow: '-4px 0 32px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column' }}>
         {header}
         {tabs}
         <div style={{ flex: 1, overflowY: 'auto' }}>

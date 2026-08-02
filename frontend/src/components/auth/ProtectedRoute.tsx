@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
 import { useNavigate, Outlet } from 'react-router-dom'
 import { useAuthStore } from '@/lib/authStore'
+import IdleTimeout from './IdleTimeout'
 
 export default function ProtectedRoute() {
-  const { hydrate, fetchPermissions, permissions } = useAuthStore()
+  const { hydrate, fetchPermissions, permissions, mustChangePassword } = useAuthStore()
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -11,19 +12,27 @@ export default function ProtectedRoute() {
   }, [hydrate])
 
   useEffect(() => {
-    if (localStorage.getItem('crm_token') && Object.keys(permissions).length === 0) {
+    if (localStorage.getItem('crm_token') && !mustChangePassword && Object.keys(permissions).length === 0) {
       fetchPermissions()
     }
-  }, [fetchPermissions, permissions])
+  }, [fetchPermissions, permissions, mustChangePassword])
 
   const hasToken = !!localStorage.getItem('crm_token')
 
   useEffect(() => {
     if (!hasToken) {
       navigate('/login', { replace: true })
+    } else if (mustChangePassword) {
+      navigate('/change-password', { replace: true })
     }
-  }, [hasToken, navigate])
+  }, [hasToken, mustChangePassword, navigate])
 
   if (!hasToken) return null
-  return <Outlet />
+  if (mustChangePassword) return null
+  return (
+    <>
+      <IdleTimeout />
+      <Outlet />
+    </>
+  )
 }

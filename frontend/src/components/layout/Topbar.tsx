@@ -2,9 +2,12 @@ import { useState, useRef, useEffect } from 'react'
 import { Search, Bell, Settings, AlignJustify, UserCheck, Building2, Users, Briefcase, FolderOpen, LifeBuoy, X, AlertTriangle, Trash2 } from 'lucide-react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { searchRecords, typeColor } from '@/lib/searchData'
+import { typeColor } from '@/lib/searchData'
 import type { SearchResult } from '@/lib/searchData'
-import { useNotifications, useMarkNotificationRead, useMarkAllRead, useDeleteNotification } from '@/hooks/useNotifications'
+import { api } from '@/lib/api'
+import { useNotifications, useMarkNotificationRead, useMarkAllRead, useDeleteNotification, useClearNotifications } from '@/hooks/useNotifications'
+import { useAuthStore } from '@/lib/authStore'
+import { NOTIF_ROUTES } from '@/lib/notificationRoutes'
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -20,19 +23,36 @@ function relativeTime(iso: string): string {
 const sevColor: Record<string, string> = { info: '#5D78FF', warning: '#FF9B52', critical: '#FF5353' }
 
 const titles: Record<string, string> = {
-  '/':          'Dashboard',
-  '/leads':     'Leads',
-  '/accounts':  'Accounts',
-  '/contacts':  'Contacts',
-  '/deals':     'Deals',
-  '/projects':  'Projects & Installations',
-  '/tasks':     'Tasks',
-  '/kanban':    'Kanban Board',
-  '/calendar':  'Calendar',
-  '/invoices':  'Invoices',
-  '/support':   'Support Tickets',
-  '/reports':   'Reports & Analytics',
-  '/settings':  'Settings',
+  '/':               'Dashboard',
+  '/leads':          'Leads',
+  '/accounts':       'Accounts',
+  '/contacts':       'Contacts',
+  '/deals':          'Deals',
+  '/projects':       'Projects & Installations',
+  '/tasks':          'Tasks',
+  '/calendar':       'Calendar',
+  '/invoices':       'Invoices',
+  '/support':        'Support Tickets',
+  '/reports':        'Reports & Analytics',
+  '/settings':       'Settings',
+  '/service':        'Service & Warranty',
+  '/hr':             'Human Resources',
+  '/hr-reports':     'HR Reports',
+  '/leave':          'Leave Management',
+  '/reimbursements': 'Reimbursements',
+  '/fnf':            'Full & Final Settlement',
+  '/performance':    'Performance',
+  '/profile':        'My Profile',
+  '/warehouse':      'Warehouse',
+  '/raw-components': 'Inventory',
+  '/dealers':        'Dealers',
+  '/items':          'Items',
+  '/approvals':      'Approvals',
+  '/roles':          'Roles & Permissions',
+  '/users':          'User Management',
+  '/audit-logs':     'Audit Log',
+  '/business-rules': 'Business Rules',
+  '/notifications':  'Notifications',
 }
 
 const typeIcon: Record<string, React.FC<{ size?: number; style?: React.CSSProperties }>> = {
@@ -59,6 +79,11 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
   const [selectedIdx, setSelectedIdx] = useState(-1)
   const searchRef = useRef<HTMLDivElement>(null)
 
+  const currentUser = useAuthStore(s => s.user)
+  const avatarInitials = currentUser?.name
+    ? currentUser.name.trim().split(/\s+/).map(p => p[0]).join('').slice(0, 2).toUpperCase()
+    : 'U'
+
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef<HTMLDivElement>(null)
   const { data: notifData } = useNotifications()
@@ -67,6 +92,47 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
   const markRead = useMarkNotificationRead()
   const markAll = useMarkAllRead()
   const deleteNotif = useDeleteNotification()
+  const clearNotifs = useClearNotifications()
+
+  // Ask once so urgent alerts can surface while the tab is in the background.
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {})
+    }
+  }, [])
+
+  // Alert on newly-arrived urgent notifications. Seeded on first render so an
+  // existing backlog does not fire a burst of sounds at login.
+  const prevUnread = useRef<number | null>(null)
+  useEffect(() => {
+    const previous = prevUnread.current
+    prevUnread.current = unread
+    if (previous === null || unread <= previous) return
+
+    const arrived = notifs.filter(n => !n.read).slice(0, unread - previous)
+    const urgent = arrived.filter(n => n.severity === 'critical' || n.severity === 'warning')
+    if (urgent.length === 0) return
+
+    // Autoplay is blocked until the user has interacted with the page; a
+    // rejected promise here is expected and must not surface as an error.
+    try {
+      const audio = new Audio('/notification-alert.wav')
+      audio.volume = 0.5
+      void audio.play().catch(() => {})
+    } catch { /* no audio support */ }
+
+    if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+      const top = urgent[0]
+      try {
+        const popup = new Notification(top.title, {
+          body: top.message,
+          icon: '/aspcv-logo1.png',
+          tag: top.id, // dedupes if the same alert is seen twice
+        })
+        popup.onclick = () => { window.focus(); setNotifOpen(true); popup.close() }
+      } catch { /* notification construction can throw on some platforms */ }
+    }
+  }, [unread, notifs])
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -82,16 +148,33 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // Search hits the server so results reflect the live dataset, not a snapshot
+  // taken at page load. Debounced, and stale responses are discarded so a slow
+  // request cannot overwrite results for a newer query.
+  const searchSeq = useRef(0)
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   function handleSearch(q: string) {
     setQuery(q)
     setSelectedIdx(-1)
-    if (q.trim()) {
-      setResults(searchRecords(q))
-      setSearchOpen(true)
-    } else {
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+
+    if (!q.trim()) {
       setResults([])
       setSearchOpen(false)
+      return
     }
+
+    setSearchOpen(true)
+    const seq = ++searchSeq.current
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const { data } = await api.get('/search', { params: { q } })
+        if (seq === searchSeq.current) setResults(Array.isArray(data) ? data : [])
+      } catch {
+        if (seq === searchSeq.current) setResults([])
+      }
+    }, 250)
   }
 
   function handleSearchKeyDown(e: React.KeyboardEvent) {
@@ -113,7 +196,8 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
 
   function openNotif(n: { id: string; read: boolean; entityType?: string | null; entityId?: string | null }) {
     if (!n.read) markRead.mutate(n.id)
-    if (n.entityType === 'Project') { setNotifOpen(false); navigate('/projects') }
+    const route = n.entityType ? NOTIF_ROUTES[n.entityType.toLowerCase()] : undefined
+    if (route) { setNotifOpen(false); navigate(route) }
   }
 
   return (
@@ -254,12 +338,12 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
           <Bell size={20} />
           {unread > 0 && (
             <span style={{
-              position: 'absolute', top: -2, right: -2,
-              width: 16, height: 16, borderRadius: '50%',
-              background: '#FF5353', color: '#fff', fontSize: 9,
+              position: 'absolute', top: -4, right: -4,
+              minWidth: 16, height: 16, padding: '0 3px', borderRadius: 999,
+              background: '#FF5353', color: '#fff', fontSize: 9, lineHeight: 1,
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700,
-              border: '2px solid #fff',
-            }}>{unread}</span>
+              border: '2px solid #fff', boxSizing: 'content-box',
+            }}>{unread > 99 ? '99+' : unread}</span>
           )}
         </button>
 
@@ -272,11 +356,23 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid #F4F5F9' }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#374557' }}>Notifications</p>
-              {unread > 0 && (
-                <button onClick={() => markAll.mutate()} style={{ fontSize: 11, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>
-                  Mark all read
-                </button>
-              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {unread > 0 && (
+                  <button onClick={() => markAll.mutate()} style={{ fontSize: 11, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}>
+                    Mark all read
+                  </button>
+                )}
+                {notifs.length > 0 && (
+                  <button
+                    onClick={() => clearNotifs.mutate({})}
+                    disabled={clearNotifs.isPending}
+                    title="Delete all notifications"
+                    style={{ fontSize: 11, color: '#FF5353', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, padding: 0 }}
+                  >
+                    {clearNotifs.isPending ? 'Clearing…' : 'Clear all'}
+                  </button>
+                )}
+              </div>
             </div>
             <div style={{ maxHeight: 380, overflowY: 'auto' }}>
               {notifs.length === 0 && (
@@ -314,6 +410,16 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
                 )
               })}
             </div>
+            {/* The dropdown only holds the newest 100 — full history lives on
+                the notifications page. */}
+            <div style={{ borderTop: '1px solid #F0F1F5', padding: '10px 16px', textAlign: 'center' }}>
+              <button
+                onClick={() => { setNotifOpen(false); navigate('/notifications') }}
+                style={{ fontSize: 12, fontWeight: 600, color: '#5D78FF', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+              >
+                View all notifications
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -329,13 +435,17 @@ export default function Topbar({ onToggleSidebar }: TopbarProps) {
       </button>
 
       {/* Avatar */}
-      <div style={{
-        width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-        background: 'linear-gradient(135deg,#5D78FF,#8B5CF6)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer',
-      }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>J</span>
+      <div
+        onClick={() => navigate('/profile')}
+        title={currentUser?.name ?? 'Profile'}
+        style={{
+          width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+          background: 'linear-gradient(135deg,#5D78FF,#8B5CF6)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer',
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{avatarInitials}</span>
       </div>
     </header>
   )

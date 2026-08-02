@@ -16,6 +16,7 @@ export interface SalaryRecord {
   esiEmployer: number
   tds: number
   lateDeduction: number
+  absentDeduction: number
   otherDeduction: number
   netSalary: number
   daysPresent: number
@@ -23,7 +24,7 @@ export interface SalaryRecord {
   lateDays: number
   halfDayCuts: number
   fullDayCuts: number
-  status: 'draft' | 'approved' | 'paid'
+  status: 'draft' | 'approved' | 'paid' | 'pending'
   paidAt?: string
   createdAt: string
   user?: { id: string; name: string; role: string; department?: string }
@@ -56,6 +57,21 @@ export function useApproveSalary() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => api.patch(`/salary/${id}/approve`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['salary'] }),
+  })
+}
+
+export type SalaryEditFields = Partial<Pick<SalaryRecord,
+  'baseSalary' | 'hra' | 'allowances' | 'grossSalary' |
+  'pfEmployee' | 'pfEmployer' | 'esiEmployee' | 'esiEmployer' |
+  'tds' | 'lateDeduction' | 'absentDeduction' | 'otherDeduction'>>
+
+/** HR manual correction — raises an admin approval, does not write directly. */
+export function useManualEditSalary() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...fields }: SalaryEditFields & { id: string; reason?: string }) =>
+      api.patch(`/salary/${id}/manual-edit`, fields).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['salary'] }),
   })
 }

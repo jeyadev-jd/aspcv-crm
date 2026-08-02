@@ -4,6 +4,7 @@ import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission } from '../middleware/permissions'
 import { parsePagination, paginate } from '../lib/pagination'
 import { appendEvent } from '../services/timeline'
+import { createNotification } from '../services/notify'
 import { z } from 'zod'
 
 const router = createSafeRouter()
@@ -21,7 +22,7 @@ const poItemSchema = z.object({
 })
 
 const poSchema = z.object({
-  bomId: z.string().optional(),
+  projectId: z.string().optional(),
   supplierName: z.string().min(1),
   supplierEmail: z.string().optional(),
   supplierPhone: z.string().optional(),
@@ -40,14 +41,12 @@ function computeTotals(items: z.infer<typeof poItemSchema>[], taxPercent: number
 
 router.get('/', requirePermission('purchase_order', 'read_all'), async (req, res) => {
   try {
-    const { bomId } = req.query
     const pagination = parsePagination(req.query as Record<string, unknown>, 'createdAt')
-    const where = bomId ? { bomId: String(bomId) } : {}
+    const where = {}
     const [pos, total] = await Promise.all([
       prisma.purchaseOrder.findMany({
         where,
         include: {
-          bom: { include: { project: { select: { id: true, title: true } } } },
           items: true,
           goodsReceipts: { select: { id: true, refNumber: true, receivedAt: true } },
         },
@@ -65,7 +64,7 @@ router.get('/:id', requirePermission('purchase_order', 'read_all'), async (req, 
   try {
     const po = await prisma.purchaseOrder.findUnique({
       where: { id: (req.params.id as string) },
-      include: { bom: { include: { project: true } }, items: true, goodsReceipts: { include: { items: true } } },
+      include: { items: true, goodsReceipts: { include: { items: true } } },
     })
     if (!po) return res.status(404).json({ error: 'Not found' })
     res.json(po)
@@ -78,11 +77,34 @@ router.post('/', requirePermission('purchase_order', 'create'), async (req: Auth
     const items = data.items || []
     const taxPercent = data.taxPercent ?? DEFAULT_TAX_PERCENT
     const { subtotal, totalAmount } = computeTotals(items, taxPercent)
+
+    // The project budget agreed at handover caps procurement: reject a PO that
+    // would push committed spend past it.
+    if (data.projectId) {
+      const project = await prisma.project.findUnique({
+        where: { id: data.projectId },
+        select: { budget: true, title: true },
+      })
+      if (project?.budget != null && project.budget > 0) {
+        const existing = await prisma.purchaseOrder.aggregate({
+          where: { projectId: data.projectId },
+          _sum: { totalAmount: true },
+        })
+        const committed = existing._sum.totalAmount ?? 0
+        if (committed + totalAmount > project.budget) {
+          res.status(400).json({
+            error: `Purchase order exceeds the project budget. Budget ${project.budget}, already committed ${committed}, this PO ${totalAmount}.`,
+          })
+          return
+        }
+      }
+    }
+
     const count = await prisma.purchaseOrder.count()
     const refNumber = `PO-${String(count + 1).padStart(4, '0')}`
     const po = await prisma.purchaseOrder.create({
       data: {
-        refNumber, bomId: data.bomId, supplierName: data.supplierName, supplierEmail: data.supplierEmail,
+        refNumber, projectId: data.projectId, supplierName: data.supplierName, supplierEmail: data.supplierEmail,
         supplierPhone: data.supplierPhone, supplierAddress: data.supplierAddress,
         expectedDelivery: data.expectedDelivery ? new Date(data.expectedDelivery) : undefined,
         taxPercent, subtotal, totalAmount, notes: data.notes,
@@ -138,6 +160,35 @@ router.put('/:id', requirePermission('purchase_order', 'edit'), async (req: Auth
   } catch (e: any) { res.status(e?.name === 'ZodError' ? 400 : 500).json({ error: e?.name === 'ZodError' ? e.errors : 'Failed to update purchase order' }) }
 })
 
+// Update PO delivery date (Goods Tracking) — alerts assigned PM + engineers on the linked project
+router.patch('/:id/delivery-date', requirePermission('purchase_order', 'edit'), async (req: AuthRequest, res) => {
+  const { expectedDelivery } = req.body as { expectedDelivery: string }
+  if (!expectedDelivery) { res.status(400).json({ error: 'expectedDelivery required' }); return }
+
+  const po = await prisma.purchaseOrder.update({
+    where: { id: req.params.id as string },
+    data: { expectedDelivery: new Date(expectedDelivery) },
+    include: { project: { include: { engineers: true } } },
+  })
+  await appendEvent('PurchaseOrder', po.id, 'DELIVERY_DATE_UPDATED', `Expected delivery updated to ${new Date(expectedDelivery).toDateString()}`, req.user?.id)
+
+  if (po.project) {
+    const recipientIds = new Set<string>()
+    if (po.project.assignedPMId) recipientIds.add(po.project.assignedPMId)
+    if (po.project.assignedSEId) recipientIds.add(po.project.assignedSEId)
+    for (const e of po.project.engineers) recipientIds.add(e.userId)
+    if (recipientIds.size > 0) {
+      await createNotification({
+        userIds: [...recipientIds], type: 'purchase_order', severity: 'info',
+        title: `PO ${po.refNumber} delivery date updated`,
+        message: `Expected delivery for PO ${po.refNumber} (project "${po.project.title}") is now ${new Date(expectedDelivery).toDateString()}.`,
+        entityType: 'PurchaseOrder', entityId: po.id,
+      })
+    }
+  }
+  res.json(po)
+})
+
 router.post('/:id/approve', requirePermission('purchase_order', 'approve'), async (req: AuthRequest, res) => {
   try {
     const existing = await prisma.purchaseOrder.findUnique({ where: { id: (req.params.id as string) } })
@@ -165,11 +216,23 @@ router.post('/:id/send', requirePermission('purchase_order', 'approve'), async (
 
 router.delete('/:id', requirePermission('purchase_order', 'delete'), async (req: AuthRequest, res) => {
   try {
-    const existing = await prisma.purchaseOrder.findUnique({ where: { id: req.params.id as string } })
+    const existing = await prisma.purchaseOrder.findUnique({
+      where: { id: req.params.id as string },
+      include: { goodsReceipts: { select: { id: true } } },
+    })
+    if (!existing) { res.status(404).json({ error: 'Not found' }); return }
+    if (existing.goodsReceipts.length > 0) {
+      res.status(409).json({ error: 'Cannot delete a PO that has goods receipts — cancel it instead.' })
+      return
+    }
+    if (['Delivered', 'Closed'].includes(existing.status)) {
+      res.status(409).json({ error: `Cannot delete a ${existing.status} purchase order.` })
+      return
+    }
     await prisma.purchaseOrder.delete({ where: { id: (req.params.id as string) } })
-    if (existing) await appendEvent('PurchaseOrder', existing.id, 'DELETED', `Purchase order "${existing.refNumber}" deleted`, req.user?.id)
+    await appendEvent('PurchaseOrder', existing.id, 'DELETED', `Purchase order "${existing.refNumber}" deleted`, req.user?.id)
     res.json({ ok: true })
-  } catch (e) { res.status(500).json({ error: 'Failed to delete PO — it may have linked goods receipts' }) }
+  } catch (e) { res.status(500).json({ error: 'Failed to delete purchase order' }) }
 })
 
 export default router

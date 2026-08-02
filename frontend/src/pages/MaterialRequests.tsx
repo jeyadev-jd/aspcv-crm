@@ -1,10 +1,9 @@
 import { useState, useRef } from 'react'
 import { useMaterialRequests, useCreateMaterialRequest, useApproveMaterialRequest, useRejectMaterialRequest } from '../hooks/useMaterialRequests'
 import { useProjects } from '../hooks/useProjects'
-import { useComponents } from '../hooks/useComponents'
-import type { RawComponent } from '../hooks/useComponents'
 import { useItems } from '../hooks/useItems'
 import type { ItemAPI } from '../hooks/useItems'
+import { useDealers } from '../hooks/useDealers'
 import { useAuthStore } from '../lib/authStore'
 import { Plus, Check, X, ChevronDown, ChevronUp, Trash2, Download } from 'lucide-react'
 import { PDFDownloadLink } from '@react-pdf/renderer'
@@ -51,7 +50,11 @@ function ApprovalBadge({ label, approvedAt, approvedBy }: { label: string; appro
   )
 }
 
-const blankItem = () => ({ name: '', quantity: 1, unit: '', estimatedPrice: '', description: '', componentRefNo: '' })
+const blankItem = () => ({
+  name: '', quantity: 1, unit: '', estimatedPrice: '', description: '', componentRefNo: '',
+  // Sourcing: which dealer supplies this line, at what price, against which quote.
+  vendorId: '', unitPrice: '', referenceNumber: '',
+})
 
 export default function MaterialRequests() {
   const user = useAuthStore(s => s.user)
@@ -65,8 +68,8 @@ export default function MaterialRequests() {
 
   const { data: requests = [], isLoading } = useMaterialRequests({ status: filterStatus || undefined, mine: showMine || undefined })
   const { data: projects = [] } = useProjects()
-  const { data: components = [] } = useComponents()
   const { data: dealerItems = [] } = useItems()
+  const { data: dealers = [] } = useDealers()
   const create = useCreateMaterialRequest()
   const [dropdownIdx, setDropdownIdx] = useState<number | null>(null)
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -102,7 +105,17 @@ export default function MaterialRequests() {
     if (!validItems.length) return
     create.mutate({
       projectId: projectId || undefined,
-      items: validItems.map(i => ({ name: i.name, quantity: Number(i.quantity), unit: i.unit || undefined, estimatedPrice: i.estimatedPrice ? Number(i.estimatedPrice) : undefined, description: i.description || undefined, componentRefNo: i.componentRefNo || undefined })),
+      items: validItems.map(i => ({
+        name: i.name,
+        quantity: Number(i.quantity),
+        unit: i.unit || undefined,
+        estimatedPrice: i.estimatedPrice ? Number(i.estimatedPrice) : undefined,
+        description: i.description || undefined,
+        componentRefNo: i.componentRefNo || undefined,
+        vendorId: i.vendorId || undefined,
+        unitPrice: i.unitPrice ? Number(i.unitPrice) : undefined,
+        referenceNumber: i.referenceNumber || undefined,
+      })),
       notes: notes || undefined,
       totalEstimated: itemsTotal > 0 ? itemsTotal : undefined,
     }, {
@@ -112,11 +125,7 @@ export default function MaterialRequests() {
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1D23', margin: 0 }}>Material Requests</h1>
-          <p style={{ fontSize: 13, color: '#8A8FA8', marginTop: 4 }}>{requests.length} requests</p>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <CsvImportExport data={requests} columns={MR_CSV_COLS} filename="material-requests.csv" templateRow={MR_CSV_TEMPLATE} onImport={importMRs} />
           {canCreate && (
@@ -155,32 +164,29 @@ export default function MaterialRequests() {
             </select>
             {items.map((item, idx) => {
               const query = item.name.toLowerCase()
-              const rcSuggestions: (RawComponent & { _kind: 'rc' })[] = query.length >= 1
-                ? components.filter(c =>
-                    c.name.toLowerCase().includes(query) ||
-                    (c.category ?? '').toLowerCase().includes(query) ||
-                    c.refNumber.toLowerCase().includes(query)
-                  ).slice(0, 6).map(c => ({ ...c, _kind: 'rc' as const }))
-                : []
+              // Sourced from the dealer Item catalog only - a request is for
+              // something to procure from a dealer, not a lookup of existing
+              // warehouse stock (that's RawComponent, used elsewhere).
               const dealerSuggestions: (ItemAPI & { _kind: 'dealer' })[] = query.length >= 1
-                ? dealerItems.filter(it =>
-                    it.name.toLowerCase().includes(query) ||
-                    (it.category ?? '').toLowerCase().includes(query) ||
-                    (it.brand ?? '').toLowerCase().includes(query) ||
-                    (it.dealer?.name ?? '').toLowerCase().includes(query)
-                  ).slice(0, 6).map(it => ({ ...it, _kind: 'dealer' as const }))
+                ? (() => {
+                    const seen = new Set<string>()
+                    const out: (ItemAPI & { _kind: 'dealer' })[] = []
+                    for (const it of dealerItems) {
+                      if (seen.has(it.id)) continue // guards against a duplicate id ever slipping into the cache
+                      const hit =
+                        it.name.toLowerCase().includes(query) ||
+                        (it.category ?? '').toLowerCase().includes(query) ||
+                        (it.brand ?? '').toLowerCase().includes(query) ||
+                        (it.dealer?.name ?? '').toLowerCase().includes(query)
+                      if (!hit) continue
+                      seen.add(it.id)
+                      out.push({ ...it, _kind: 'dealer' as const })
+                      if (out.length >= 6) break
+                    }
+                    return out
+                  })()
                 : []
-              const suggestions = [...rcSuggestions, ...dealerSuggestions]
-              function pickRC(rc: RawComponent) {
-                setItems(prev => prev.map((x, i) => i === idx ? {
-                  ...x,
-                  name: rc.name,
-                  unit: rc.unit ?? x.unit,
-                  estimatedPrice: rc.price != null ? String(rc.price) : x.estimatedPrice,
-                  componentRefNo: rc.refNumber,
-                } : x))
-                setDropdownIdx(null)
-              }
+              const suggestions = dealerSuggestions
               function pickDealerItem(it: ItemAPI) {
                 setItems(prev => prev.map((x, i) => i === idx ? {
                   ...x,
@@ -188,6 +194,11 @@ export default function MaterialRequests() {
                   unit: it.unit ?? x.unit,
                   estimatedPrice: it.price != null ? String(it.price) : x.estimatedPrice,
                   componentRefNo: it.partNumber ?? `Dealer: ${it.dealer?.name ?? ''}`,
+                  // Carry the dealer and their price straight onto the line so the
+                  // approved request raises a PO against the right vendor.
+                  vendorId: it.dealerId ?? x.vendorId,
+                  unitPrice: it.price != null ? String(it.price) : x.unitPrice,
+                  referenceNumber: it.partNumber ?? x.referenceNumber,
                 } : x))
                 setDropdownIdx(null)
               }
@@ -199,24 +210,24 @@ export default function MaterialRequests() {
                       onChange={e => { setItems(p => p.map((x, i) => i === idx ? { ...x, name: e.target.value } : x)); setDropdownIdx(idx) }}
                       onFocus={() => setDropdownIdx(idx)}
                       onBlur={() => setTimeout(() => setDropdownIdx(null), 150)}
-                      placeholder="Item name * (search inventory + dealer items)"
+                      placeholder="Item name * (search dealer items)"
                       style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: '100%', boxSizing: 'border-box' as const }}
                     />
                     {dropdownIdx === idx && suggestions.length > 0 && (
                       <div ref={dropdownRef} style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #E8E9F0', borderRadius: 8, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 999, maxHeight: 280, overflowY: 'auto' }}>
                         {suggestions.map(s => (
-                          <div key={`${s._kind}-${s.id}`} onMouseDown={() => s._kind === 'rc' ? pickRC(s) : pickDealerItem(s)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #F4F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+                          <div key={`${s._kind}-${s.id}`} onMouseDown={() => pickDealerItem(s)} style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #F4F5F9', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                             onMouseEnter={e => (e.currentTarget.style.background = '#F4F5FF')}
                             onMouseLeave={e => (e.currentTarget.style.background = '#fff')}>
                             <div>
                               <div style={{ fontSize: 13, fontWeight: 600, color: '#374557', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {s.name}
-                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: s._kind === 'rc' ? '#E7FAF0' : '#E8EDFF', color: s._kind === 'rc' ? '#2BC155' : '#5D78FF' }}>
-                                  {s._kind === 'rc' ? 'Inventory' : 'Dealer'}
+                                <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#E8EDFF', color: '#5D78FF' }}>
+                                  Dealer
                                 </span>
                               </div>
                               <div style={{ fontSize: 11, color: '#8A8FA8' }}>
-                                {s._kind === 'rc' ? `${s.category} · ${s.refNumber} · ${s.unit ?? ''}` : `${s.dealer?.name ?? ''} · ${s.category ?? ''} · ${s.unit ?? ''}`}
+                                {s.dealer?.name ?? ''} · {s.category ?? ''} · {s.unit ?? ''}
                               </div>
                             </div>
                             {s.price != null && (
@@ -231,6 +242,13 @@ export default function MaterialRequests() {
                   <input value={item.unit} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, unit: e.target.value } : x))} placeholder="Unit" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 80 }} />
                   <input value={item.estimatedPrice} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, estimatedPrice: e.target.value } : x))} placeholder="Est. Price" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 100 }} />
                   <input value={item.componentRefNo} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, componentRefNo: e.target.value } : x))} placeholder="RC Ref#" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 120 }} />
+                  {/* Sourcing — dealer and quote reference */}
+                  <select value={item.vendorId} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, vendorId: e.target.value } : x))}
+                    style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 150 }}>
+                    <option value="">Dealer…</option>
+                    {dealers.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                  <input value={item.referenceNumber} onChange={e => setItems(p => p.map((x, i) => i === idx ? { ...x, referenceNumber: e.target.value } : x))} placeholder="Ref#" style={{ border: '1.5px solid #E8E9F0', borderRadius: 7, padding: '7px 10px', fontSize: 13, width: 110 }} />
                   {items.length > 1 && <button onClick={() => setItems(p => p.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#EF4444' }}><Trash2 size={14} /></button>}
                 </div>
               )

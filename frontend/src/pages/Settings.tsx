@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
 import { useAuthStore } from '@/lib/authStore'
 import { useIsMobile } from '@/lib/useIsMobile'
+import { useActiveCompanyProfile, useCreateCompanyProfile, useUpdateCompanyProfile } from '@/hooks/useCompanyProfile'
 import {
   Settings as SettingsIcon, Building2, Bell, User, Shield,
   ExternalLink, CheckCircle, ChevronRight,
@@ -92,9 +93,60 @@ export default function Settings() {
   })
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({})
 
+  // ── Company profile (drives the invoice letterhead) ──
+  const { data: companyProfile } = useActiveCompanyProfile()
+  const createCompany = useCreateCompanyProfile()
+  const updateCompany = useUpdateCompanyProfile()
+  const [savingCompany, setSavingCompany] = useState(false)
+  const blankCp = {
+    companyName: '', legalName: '', registeredAddr: '', gstin: '', pan: '',
+    udyam: '', state: '', stateCode: '', email: '', phone: '', website: '',
+  }
+  const [cpForm, setCpForm] = useState<typeof blankCp | null>(null)
+  // Server value until the user edits, then the local draft takes over.
+  const cp = cpForm ?? {
+    companyName: companyProfile?.companyName ?? '',
+    legalName: companyProfile?.legalName ?? '',
+    registeredAddr: companyProfile?.registeredAddr ?? '',
+    gstin: companyProfile?.gstin ?? '',
+    pan: companyProfile?.pan ?? '',
+    udyam: companyProfile?.udyam ?? '',
+    state: companyProfile?.state ?? '',
+    stateCode: companyProfile?.stateCode ?? '',
+    email: companyProfile?.email ?? '',
+    phone: companyProfile?.phone ?? '',
+    website: companyProfile?.website ?? '',
+  }
+  const setCp = (fn: (c: typeof blankCp) => typeof blankCp) => setCpForm(fn(cp))
+
   function save(msg = 'Saved') {
     setSavedMsg(msg)
     setTimeout(() => setSavedMsg(''), 2500)
+  }
+
+  async function saveCompany() {
+    const required: [keyof typeof blankCp, string][] = [
+      ['companyName', 'Company Name'], ['legalName', 'Legal Name'],
+      ['registeredAddr', 'Registered Address'], ['gstin', 'GSTIN'], ['pan', 'PAN'],
+      ['state', 'State'], ['stateCode', 'State Code'], ['email', 'Company Email'], ['phone', 'Company Phone'],
+    ]
+    const missing = required.filter(([k]) => !cp[k].trim()).map(([, label]) => label)
+    if (missing.length) { save(`Required: ${missing.join(', ')}`); return }
+
+    setSavingCompany(true)
+    try {
+      if (companyProfile?.id) {
+        await updateCompany.mutateAsync({ id: companyProfile.id, ...cp })
+      } else {
+        await createCompany.mutateAsync({ ...cp, country: 'India', isActive: true })
+      }
+      setCpForm(null)
+      save('Company settings saved')
+    } catch (err: any) {
+      save(err?.response?.data?.error ?? 'Save failed')
+    } finally {
+      setSavingCompany(false)
+    }
   }
 
   function saveProfile() {
@@ -196,23 +248,40 @@ export default function Settings() {
               <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 4 }}>Company Information</p>
               <p style={{ fontSize: 11, color: '#B1B1BE', marginBottom: 24 }}>Shown on invoices, reports, and system emails.</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <FieldRow label="Company Name" desc="Legal name on invoices">
-                  <input defaultValue="Aspiration Cleantech Ventures" style={inp()} />
+                <FieldRow label="Company Name" desc="Name in the invoice letterhead">
+                  <input value={cp.companyName} onChange={e => setCp(c => ({ ...c, companyName: e.target.value }))} placeholder="Aspiration Cleantech Ventures Pvt.Ltd." style={inp()} />
                 </FieldRow>
-                <FieldRow label="Trading Name" desc="Short name in the CRM">
-                  <input defaultValue="ASPCV" style={inp()} />
+                <FieldRow label="Legal Name" desc="Registered name on the tax invoice">
+                  <input value={cp.legalName} onChange={e => setCp(c => ({ ...c, legalName: e.target.value }))} placeholder="Aspiration Cleantech Ventures Private Limited" style={inp()} />
                 </FieldRow>
                 <FieldRow label="Company Email" desc="Primary contact email">
-                  <input defaultValue="admin@aspcv.co.uk" type="email" style={inp()} />
+                  <input value={cp.email} onChange={e => setCp(c => ({ ...c, email: e.target.value }))} type="email" placeholder="info@aspcv.com" style={inp()} />
                 </FieldRow>
                 <FieldRow label="Company Phone" desc="Main office number">
-                  <input defaultValue="+44 113 000 1234" style={inp()} />
+                  <input value={cp.phone} onChange={e => setCp(c => ({ ...c, phone: e.target.value }))} placeholder="+91 96777 63170" style={inp()} />
                 </FieldRow>
-                <FieldRow label="Registered Address" desc="HQ / registered address">
-                  <input defaultValue="Leeds, LS1 1BA, United Kingdom" style={inp()} />
+                <FieldRow label="Website" desc="Printed under the phone number">
+                  <input value={cp.website} onChange={e => setCp(c => ({ ...c, website: e.target.value }))} placeholder="www.aspcv.com" style={inp()} />
                 </FieldRow>
-                <FieldRow label="GST / Tax Number" desc="Used on invoices">
-                  <input defaultValue="" placeholder="e.g. 29ABCDE1234F1Z5" style={inp()} />
+                <FieldRow label="Registered Address" desc="One line per row — appears exactly like this on the invoice">
+                  <textarea value={cp.registeredAddr} onChange={e => setCp(c => ({ ...c, registeredAddr: e.target.value }))} rows={4}
+                    placeholder={'2nd Floor, No.18/4,\nMunusamy Maistry Street,\nIssa Pallavaram,\nChennai – 600043, Tamil Nadu, India'}
+                    style={{ ...inp(), resize: 'vertical', fontFamily: 'inherit' }} />
+                </FieldRow>
+                <FieldRow label="GSTIN" desc="Used on invoices">
+                  <input value={cp.gstin} onChange={e => setCp(c => ({ ...c, gstin: e.target.value }))} placeholder="33AAPCA1794H1ZH" style={inp()} />
+                </FieldRow>
+                <FieldRow label="PAN">
+                  <input value={cp.pan} onChange={e => setCp(c => ({ ...c, pan: e.target.value }))} placeholder="AAPCA1794H" style={inp()} />
+                </FieldRow>
+                <FieldRow label="UDYAM Number" desc="Optional MSME registration">
+                  <input value={cp.udyam} onChange={e => setCp(c => ({ ...c, udyam: e.target.value }))} placeholder="UDYAM-TN-02-0087917" style={inp()} />
+                </FieldRow>
+                <FieldRow label="State / State Code" desc="Drives intra vs inter-state GST">
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <input value={cp.state} onChange={e => setCp(c => ({ ...c, state: e.target.value }))} placeholder="Tamil Nadu" style={inp()} />
+                    <input value={cp.stateCode} onChange={e => setCp(c => ({ ...c, stateCode: e.target.value }))} placeholder="33" style={{ ...inp(), width: 90 }} />
+                  </div>
                 </FieldRow>
                 <FieldRow label="Currency" desc="Default for deals & invoices">
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -248,8 +317,8 @@ export default function Settings() {
                   <input defaultValue="09:00" type="time" style={{ ...inp(), width: 120 }} />
                 </FieldRow>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingTop: 4 }}>
-                  <button onClick={() => save('Company settings saved')} style={{ padding: '9px 22px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                    Save Changes
+                  <button onClick={saveCompany} disabled={savingCompany} style={{ padding: '9px 22px', background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: savingCompany ? 0.6 : 1 }}>
+                    {savingCompany ? 'Saving…' : 'Save Changes'}
                   </button>
                   {savedMsg && (
                     <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#22C55E', fontWeight: 600 }}>
