@@ -1,2 +1,0 @@
--- Indexes already applied directly to production database.
--- This migration is kept as a no-op for migration history consistency.
