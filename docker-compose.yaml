@@ -48,8 +48,7 @@ services:
       retries: 10
 
   backend:
-    build:
-      context: ./backend
+    image: ghcr.io/jeyadev-jd/aspcv-crm-backend:latest
     restart: unless-stopped
     depends_on:
       db:
@@ -75,10 +74,7 @@ services:
       - backups:/app/backups
 
   frontend:
-    build:
-      context: ./frontend
-      args:
-        VITE_API_URL: https://api.${DOMAIN}/api
+    image: ghcr.io/jeyadev-jd/aspcv-crm-frontend:latest
     restart: unless-stopped
     depends_on:
       - backend
