@@ -1,4 +1,4 @@
-FROM node:20-bookworm AS build
+FROM node:20-slim AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -6,21 +6,21 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# node:20-slim's OpenSSL detection was unreliable even after `apt-get install
-# openssl` and pinning binaryTargets - the -slim variant kept failing the
-# CLI's own `openssl version` probe at container start ("Prisma failed to
-# detect the libssl/openssl version"), which is separate from which engine
-# binary got bundled. The full (non-slim) bookworm image ships OpenSSL and
-# its dev tooling already wired up correctly, which -slim's minimal install
-# apparently does not replicate.
-FROM node:20-bookworm
+# Root cause of the persistent "Schema engine error" (misdiagnosed twice as
+# an OpenSSL/base-image issue): `prisma` the CLI is a devDependency, and this
+# stage used to run `npm ci --omit=dev`, which strips it. `npx prisma migrate
+# deploy` then had no locally-installed CLI to run and fell back to fetching
+# one ad hoc at container start - an unpinned, uncontrolled resolution with
+# no guarantee it matched the schema-engine binary actually generated in the
+# build stage. Copying the build stage's full node_modules (CLI included)
+# instead of a fresh --omit=dev install fixes this at the actual source.
+FROM node:20-slim
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-RUN npm ci --omit=dev
+COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 EXPOSE 4000
 # Migrations run before the API starts, so a fresh container never serves
 # traffic against a schema it hasn't applied yet.
