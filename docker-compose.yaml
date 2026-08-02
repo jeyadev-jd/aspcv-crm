@@ -5,6 +5,7 @@ services:
   # VIRTUAL_HOST - this is the only container that binds 80/443.
   proxy:
     image: nginxproxy/nginx-proxy:1.6
+    container_name: aspcv-crm-proxy-1
     restart: unless-stopped
     ports:
       - "80:80"
@@ -17,7 +18,8 @@ services:
 
   # Watches the same containers as `proxy` and requests/renews Let's Encrypt
   # certificates automatically from their LETSENCRYPT_HOST labels - no manual
-  # certbot invocation needed.
+  # certbot invocation needed. Needs to be told proxy's exact container name;
+  # without it, acme-companion cannot find nginx-proxy and crash-loops.
   acme:
     image: nginxproxy/acme-companion:2.4
     restart: unless-stopped
@@ -27,10 +29,11 @@ services:
       - vhost:/etc/nginx/vhost.d
       - html:/usr/share/nginx/html
       - acme:/etc/acme.sh
-    environment:
-      DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL}
     depends_on:
       - proxy
+    environment:
+      NGINX_PROXY_CONTAINER: aspcv-crm-proxy-1
+      DEFAULT_EMAIL: ${LETSENCRYPT_EMAIL}
 
   db:
     image: postgres:16-alpine
