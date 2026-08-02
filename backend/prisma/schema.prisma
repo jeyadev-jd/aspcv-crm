@@ -1,5 +1,11 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Pinned rather than auto-detected: the Docker build/runtime images
+  // (node:20-slim, Debian bookworm) kept generating the wrong engine even
+  // with OpenSSL installed - Prisma's detection at `generate` time was
+  // unreliable across the two stages. debian-openssl-3.0.x matches
+  // bookworm's actual OpenSSL major version.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
