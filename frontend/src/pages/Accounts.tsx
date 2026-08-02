@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
 import { useIsMobile } from '@/lib/useIsMobile'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Building2, Trash2, Edit2, CheckCircle2, PauseCircle } from 'lucide-react'
+import { X, Plus, Building2, Trash2, Edit2, CheckCircle2, PauseCircle } from 'lucide-react'
 import type React from 'react'
 import { useCrmData, type Account } from '@/lib/crmDataContext'
 import { api } from '@/lib/api'
@@ -287,7 +287,6 @@ export default function Accounts() {
   )
 }
 
-const dropdownStyle: React.CSSProperties = { position: 'absolute', right: 0, top: '100%', marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #F0F1F5', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 150, overflow: 'hidden', padding: '4px 0' }
 const menuItem: React.CSSProperties = { display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 14px', fontSize: 12, color: '#374557', background: 'none', border: 'none', cursor: 'pointer' }
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {

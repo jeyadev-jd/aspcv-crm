@@ -13,10 +13,9 @@ import { useBulkSelect } from '@/hooks/useBulkSelect'
 import BulkActionBar from '@/components/shared/BulkActionBar'
 import BulkDeleteDialog from '@/components/shared/BulkDeleteDialog'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useCurrency } from '@/lib/currencyContext'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, FolderOpen, Edit2, Trash2, CheckCircle2, Play, Pause, Loader2, Download, Check, RefreshCw, ClipboardList, Cpu, Shield, XCircle, Wrench, AlertTriangle, FolderKanban, Wallet, TrendingUp, AlertOctagon, Archive, Zap, RotateCcw } from 'lucide-react'
+import { X, Plus, FolderOpen, Edit2, Trash2, CheckCircle2, Play, Pause, Download, Check, RefreshCw, ClipboardList, Cpu, Shield, XCircle, Wrench, AlertTriangle, FolderKanban, Wallet, TrendingUp, AlertOctagon, Archive, RotateCcw } from 'lucide-react'
 import WarrantyAllocationModal, { type WarrantyAllocation } from '@/components/projects/WarrantyAllocationModal'
 import EntityReimbursements from '@/components/shared/EntityReimbursements'
 import ScopeItemsPanel from '@/components/shared/ScopeItemsPanel'
@@ -1105,7 +1104,7 @@ function ProjectDetailModal({ proj, symbol, onClose, onEdit, onSaveMeta, onAppli
 
               {/* Scope of supply carried from the originating deal */}
               <div style={{ background: '#fff', borderRadius: 12, padding: 16, border: '1px solid #F0F1F5' }}>
-                <ScopeItemsPanel entityType="Project" entityId={proj.id} showInventory />
+                <ScopeItemsPanel entityType="Project" entityId={proj.id} />
               </div>
 
               {/* Cost breakdown (ERP fields) */}
@@ -1769,7 +1768,7 @@ function ProjectERPTab({ projectId, symbol, projectTitle, progress = 0, remainin
       </div>
 
       {/* Purchase Orders */}
-      {erp?.purchaseOrders?.length > 0 && (
+      {erp && erp.purchaseOrders?.length > 0 && (
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.8, marginBottom: 8 }}>PURCHASE ORDERS</p>
           {erp.purchaseOrders.map((po: PurchaseOrderAPI) => (
@@ -1800,7 +1799,7 @@ function ProjectERPTab({ projectId, symbol, projectTitle, progress = 0, remainin
       )}
 
       {/* Work Orders */}
-      {erp?.workOrders?.length > 0 && (
+      {erp && erp.workOrders?.length > 0 && (
         <div>
           <p style={{ fontSize: 11, fontWeight: 700, color: '#B1B1BE', letterSpacing: 0.8, marginBottom: 8 }}>WORK ORDERS</p>
           {erp.workOrders.map((wo: WorkOrderAPI) => (
@@ -2553,7 +2552,6 @@ function ActiveProjectsTab() {
   )
 }
 
-const dropdownStyle: React.CSSProperties = { position: 'absolute', right: 0, top: '100%', marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #F0F1F5', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 160, overflow: 'hidden', padding: '4px 0' }
 const menuItem: React.CSSProperties = { display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 14px', fontSize: 12, color: '#374557', background: 'none', border: 'none', cursor: 'pointer' }
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {

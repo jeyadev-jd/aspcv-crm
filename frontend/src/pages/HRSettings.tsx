@@ -9,7 +9,7 @@ const inp = (): React.CSSProperties => ({
   border: '1px solid #E5E7EB', outline: 'none', boxSizing: 'border-box',
 })
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
   return (
     <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', padding: 20, marginBottom: 20 }}>
       <p style={{ fontSize: 14, fontWeight: 700, color: '#374557', marginBottom: 16, borderBottom: '1px solid #F0F1F5', paddingBottom: 8 }}>{title}</p>

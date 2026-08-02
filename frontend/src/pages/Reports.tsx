@@ -456,7 +456,7 @@ export default function Reports() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F4F5F9" vertical={false} />
                   <XAxis dataKey="m" tick={{ fontSize: 10, fill: '#B1B1BE' }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: '#B1B1BE' }} axisLine={false} tickLine={false} tickFormatter={tickFmt} />
-                  <Tooltip formatter={(v: number) => `${symbol}${Math.round(Number(v)).toLocaleString()}`} contentStyle={tooltipStyle} />
+                  <Tooltip formatter={(v: unknown) => `${symbol}${Math.round(Number(v)).toLocaleString()}`} contentStyle={tooltipStyle} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="Target" fill="#E8EDFF" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="Actual" fill="#5D78FF" radius={[4, 4, 0, 0]} />
@@ -542,7 +542,7 @@ export default function Reports() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#F4F5F9" vertical={false} />
                       <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#B1B1BE' }} axisLine={false} tickLine={false} />
                       <YAxis tick={{ fontSize: 10, fill: '#B1B1BE' }} axisLine={false} tickLine={false} tickFormatter={tickFmt} />
-                      <Tooltip formatter={(v: number) => `${symbol}${Math.round(Number(v)).toLocaleString()}`} contentStyle={tooltipStyle} />
+                      <Tooltip formatter={(v: unknown) => `${symbol}${Math.round(Number(v)).toLocaleString()}`} contentStyle={tooltipStyle} />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       <Bar dataKey="Created" fill="#5D78FF" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="Won" fill="#2BC155" radius={[4, 4, 0, 0]} />
@@ -566,7 +566,7 @@ export default function Reports() {
                       <CartesianGrid strokeDasharray="3 3" stroke="#F4F5F9" horizontal={false} />
                       <XAxis type="number" tick={{ fontSize: 9, fill: '#B1B1BE' }} axisLine={false} tickLine={false} tickFormatter={tickFmt} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: '#374557' }} axisLine={false} tickLine={false} width={90} />
-                      <Tooltip formatter={(v: number) => fmt(Number(v), symbol, currency)} contentStyle={tooltipStyle} />
+                      <Tooltip formatter={(v: unknown) => fmt(Number(v), symbol, currency)} contentStyle={tooltipStyle} />
                       <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                         {pipeline.map((p, i) => <Cell key={i} fill={STAGE_COLOR[p.stage] ?? '#5D78FF'} />)}
                       </Bar>
@@ -648,7 +648,7 @@ export default function Reports() {
                         <CartesianGrid strokeDasharray="3 3" stroke="#F4F5F9" vertical={false} />
                         <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#B1B1BE' }} axisLine={false} tickLine={false} />
                         <YAxis tick={{ fontSize: 10, fill: '#B1B1BE' }} axisLine={false} tickLine={false} tickFormatter={tickFmt} />
-                        <Tooltip formatter={(v: number) => `${symbol}${Math.round(Number(v)).toLocaleString()}`} contentStyle={tooltipStyle} />
+                        <Tooltip formatter={(v: unknown) => `${symbol}${Math.round(Number(v)).toLocaleString()}`} contentStyle={tooltipStyle} />
                         <Legend wrapperStyle={{ fontSize: 11 }} />
                         <Bar dataKey="Budget" fill="#E8EDFF" radius={[4, 4, 0, 0]} />
                         <Bar dataKey="Spend" fill="#5D78FF" radius={[4, 4, 0, 0]} />
@@ -844,7 +844,7 @@ export default function Reports() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#F4F5F9" horizontal={false} />
                   <XAxis type="number" tick={{ fontSize: 9, fill: '#B1B1BE' }} axisLine={false} tickLine={false} tickFormatter={tickFmt} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: '#374557' }} axisLine={false} tickLine={false} width={140} />
-                  <Tooltip formatter={(v: number) => fmt(Number(v), symbol, currency)} contentStyle={tooltipStyle} />
+                  <Tooltip formatter={(v: unknown) => fmt(Number(v), symbol, currency)} contentStyle={tooltipStyle} />
                   <Bar dataKey="revenue" fill="#5D78FF" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>

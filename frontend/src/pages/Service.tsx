@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type React from 'react'
-import { AlertTriangle, Shield, ShieldOff, Plus, CheckCircle2, Download, Search, X } from 'lucide-react'
+import { AlertTriangle, Shield, Plus, CheckCircle2, Download, Search, X } from 'lucide-react'
 import { PDFDownloadLink } from '@react-pdf/renderer'
 import EmptyState from '@/components/shared/EmptyState'
 import { useServiceRecords, useCreateServiceRequest, useUpdateServiceRequest, useWarrantyExpiring, useWarrantyExpired } from '@/hooks/useERP'

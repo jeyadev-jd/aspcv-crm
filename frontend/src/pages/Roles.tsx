@@ -8,8 +8,8 @@ import {
   Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
   FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
   MessageSquare, ClipboardCheck, Shield, Store,
-  ShieldPlus, Truck, PackageCheck, Cog, ScrollText, PenTool,
-  Landmark, Settings, Scale, HardHat, ClipboardSignature,
+  ShieldPlus, Truck, Cog, ScrollText, PenTool,
+  Landmark, Settings, HardHat, ClipboardSignature,
 } from 'lucide-react'
 import { useConfirm } from '@/components/shared/useConfirm'
 
@@ -158,7 +158,6 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
   ]},
 ]
 
-const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap(g => g.perms.map(p => p.key))
 
 export default function Roles() {
   const { confirm, confirmDialog } = useConfirm()

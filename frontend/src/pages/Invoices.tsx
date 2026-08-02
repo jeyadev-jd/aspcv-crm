@@ -1350,8 +1350,7 @@ export default function Invoices() {
                       ...f,
                       projectId: pid,
                       // Auto-fill customer from project company if customer is blank
-                      customer: f.customer || proj?.company?.name || proj?.name || f.customer,
-                      toAddr: f.toAddr || proj?.company?.address || f.toAddr,
+                      customer: f.customer || proj?.company?.name || proj?.title || f.customer,
                     }))
                   }}
                 />

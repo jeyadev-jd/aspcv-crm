@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import {
-  HelpCircle, LayoutDashboard, Users, Briefcase, FolderKanban, Factory,
+  HelpCircle, LayoutDashboard, Users, FolderKanban, Factory,
   Boxes, Package, FileText, UserCircle, Clock, Wallet, ClipboardCheck,
   BarChart3, ChevronDown, ChevronRight,
 } from 'lucide-react'

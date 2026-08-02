@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { BulkDeleteResult } from './useSupport'
+import type { ProjectAPI } from './useProjects'
 
 // ─── Purchase Orders ──────────────────────────────────────────────────────────
 
@@ -288,7 +289,10 @@ export function useWarrantyExpired(enabled = true) {
 // included — purchaseOrders/workOrders match PurchaseOrderAPI/WorkOrderAPI
 // (same include shape as their own list endpoints); other fields used by the
 // ERP tab are typed loosely since the tab only reads a handful of them.
-export interface ProjectERP {
+// GET /projects/:id/erp returns the full Project row (every scalar column,
+// see backend/src/routes/projects.ts) plus these nested relations - so this
+// type extends ProjectAPI rather than redeclaring its cost/budget fields.
+export interface ProjectERP extends ProjectAPI {
   purchaseOrders: PurchaseOrderAPI[]
   workOrders: WorkOrderAPI[]
   serviceRecord?: {

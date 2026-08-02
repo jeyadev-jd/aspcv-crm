@@ -6,19 +6,19 @@ import type { FilterDef, FilterValues } from '@/components/shared/FilterPanel'
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '@/lib/currencyContext'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Briefcase, Trash2, Edit2, CheckCircle2, XCircle, ArrowRightCircle, Loader2, ExternalLink, AlertTriangle, RotateCcw } from 'lucide-react'
+import { X, Plus, Briefcase, Trash2, Edit2, CheckCircle2, XCircle, ArrowRightCircle, ExternalLink, AlertTriangle, RotateCcw } from 'lucide-react'
 import EmptyState from '@/components/shared/EmptyState'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
-import { useDeals, useCreateDeal, useUpdateDeal, useUpdateDealStage, useDeleteDeal, useBulkDeleteDeals, useCloseWonDeal, useAssignDealPM, useRevertDealToLead, DEAL_STAGES, stageToUI } from '@/hooks/useDeals'
+import { useDeals, useCreateDeal, useUpdateDeal, useUpdateDealStage, useDeleteDeal, useBulkDeleteDeals, useCloseWonDeal, useAssignDealPM, useRevertDealToLead, stageToUI } from '@/hooks/useDeals'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import BulkActionBar from '@/components/shared/BulkActionBar'
 import BulkDeleteDialog from '@/components/shared/BulkDeleteDialog'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/lib/authStore'
 import { toast } from '@/lib/toast'
-import { Link, Upload } from 'lucide-react'
+import { Link } from 'lucide-react'
 import { useDepartments } from '@/hooks/useDepartments'
 import { useLead } from '@/hooks/useLeads'
 import LeadDetailPanel from '@/components/shared/LeadDetailPanel'
@@ -246,7 +246,7 @@ export default function Deals() {
     setForm({
       name: deal.title,
       account: deal.accountName,
-      contact: deal.contact?.name ?? '',
+      contact: '',
       stage: deal.uiStage,
       amount: String(deal.amount || ''),
       closeDate: deal.closeDate ? deal.closeDate.slice(0, 10) : '',
@@ -842,7 +842,6 @@ export default function Deals() {
   )
 }
 
-const dropdownStyle: React.CSSProperties = { position: 'absolute', right: 0, top: '100%', marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #F0F1F5', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 170, overflow: 'hidden', padding: '4px 0' }
 const menuItem: React.CSSProperties = { display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 14px', fontSize: 12, color: '#374557', background: 'none', border: 'none', cursor: 'pointer' }
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {

@@ -45,7 +45,7 @@ export interface Lead {
   companyId: string
   company: {
     id: string; name: string; customerType?: string
-    region?: string; state?: string; city?: string; area?: string
+    region?: string; country?: string; state?: string; city?: string; area?: string
     nickname?: string; stateCode?: string; areaCode?: string; cityCode?: string
   }
   title: string
@@ -142,7 +142,7 @@ export function useCreateLead() {
 export function useUpdateLead() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, ...data }: Partial<Lead> & { id: string }) => api.patch(`/leads/${id}`, data).then(r => r.data),
+    mutationFn: ({ id, ...data }: Record<string, unknown> & { id: string }) => api.patch(`/leads/${id}`, data).then(r => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   })
 }

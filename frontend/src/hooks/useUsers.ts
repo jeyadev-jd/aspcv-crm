@@ -17,6 +17,8 @@ export interface CrmUser {
   allowances?: number | null
   pfApplicable?: boolean
   esiApplicable?: boolean
+  uan?: string | null
+  esiNumber?: string | null
   pan?: string | null
   bankAccount?: string | null
   ifsc?: string | null

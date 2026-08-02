@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { X, Briefcase, ExternalLink, Edit2, DollarSign, Calendar, TrendingUp, Users, Building2, FileText, Plus, Trash2, Check, Send, Link as LinkIcon, Hash } from 'lucide-react'
+import { X, Briefcase, ExternalLink, Edit2, DollarSign, Calendar, TrendingUp, FileText, Plus, Trash2, Check, Send, Link as LinkIcon, Hash } from 'lucide-react'
 import type { DealAPI } from '@/hooks/useDeals'
 import { API_ORIGIN } from '@/lib/api'
 import { useQuotations, useCreateQuotation, useUpdateQuotation, useSubmitQuotationForApproval, useApproveQuotation, useRejectQuotation, useSendQuotation } from '@/hooks/useSales'

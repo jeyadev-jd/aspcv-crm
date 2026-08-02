@@ -7,10 +7,9 @@ import {
   UserCheck, Handshake, Contact, Building2, FolderOpen, CheckSquare,
   Calendar, UserCircle, AlarmClock, Wallet, BarChart2,
   FileText, Package, ClipboardList, Boxes, Wrench, Headphones,
-  MessageSquare, ClipboardCheck, Shield, Briefcase, Plus, Trash2, AlertTriangle,
+  MessageSquare, ClipboardCheck, Shield, Briefcase, Plus, Trash2,
 } from 'lucide-react'
 import { useDepartments, useCreateDepartment, useDeleteDepartment, useDepartmentMembers } from '@/hooks/useDepartments'
-import EmptyState from '@/components/shared/EmptyState'
 import { useAuthStore } from '@/lib/authStore'
 import { useConfirm } from '@/components/shared/useConfirm'
 
@@ -158,7 +157,6 @@ const PERMISSION_GROUPS: { label: string; Icon: React.ElementType; perms: { key:
   ]},
 ]
 
-const ALL_PERMISSIONS = PERMISSION_GROUPS.flatMap(g => g.perms.map(p => p.key))
 
 function SectionHeader({ label, Icon }: { label: string; Icon: React.ElementType }) {
   return (
@@ -461,7 +459,7 @@ export default function UserManagement() {
   const [deptFilter, setDeptFilter] = useState('all')
   const [roleFilter, setRoleFilter] = useState('all')
 
-  const { data: users = [], isLoading, isError, refetch } = useQuery<User[]>({
+  const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ['users', 'all'],
     queryFn: () => api.get('/users', { params: { includePending: 'true', pageSize: 1000 } }).then(r => r.data.data),
   })

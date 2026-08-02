@@ -33,7 +33,7 @@ function fmtDuration(ms: number): string {
   return `${Math.max(1, Math.floor(ms / 60000))}m`
 }
 
-function PipelinePanel({ lead, isMobile }: { lead: Lead; isMobile: boolean }) {
+function PipelinePanel({ lead }: { lead: Lead }) {
   const changeStage = useChangeLeadPipelineStage()
   const { data: history = [] } = useLeadStageHistory(lead.id)
   const currentIdx = PIPELINE_STAGES.indexOf(lead.pipelineStage as any)
@@ -209,7 +209,7 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
   const sg = stageStyle[lead.stage] ?? stageStyle.Lead
   const isIndia = lead.company?.customerType === 'Indian' || lead.company?.customerType === 'India'
   const address = [
-    isIndia ? lead.company?.region : lead.company?.['country'],
+    isIndia ? lead.company?.region : lead.company?.country,
     lead.company?.state !== 'None' ? lead.company?.state : null,
     lead.company?.city, lead.company?.area,
   ].filter(Boolean).join(', ')
@@ -397,7 +397,7 @@ export default function LeadDetailPanel({ lead, onClose, onEdit }: Props) {
 
   const pipelineContent = (
     <div style={{ padding: isMobile ? '10px 14px' : '20px 24px' }}>
-      <PipelinePanel lead={lead} isMobile={isMobile} />
+      <PipelinePanel lead={lead} />
     </div>
   )
 

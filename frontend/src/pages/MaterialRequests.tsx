@@ -35,7 +35,7 @@ const MANAGER_ROLES = ['Manager', 'SuperAdmin']
 const BIZHEAD_ROLES = ['BusinessHead', 'SuperAdmin']
 const ACCOUNTANT_ROLES = ['Accountant', 'SuperAdmin']
 
-function ApprovalBadge({ label, approvedAt, approvedBy }: { label: string; approvedAt?: string; approvedBy?: string }) {
+function ApprovalBadge({ label, approvedAt }: { label: string; approvedAt?: string }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
       <div style={{ fontSize: 10, color: '#8A8FA8', fontWeight: 600 }}>{label}</div>

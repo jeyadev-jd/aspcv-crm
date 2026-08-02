@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, X, UserPlus, FileCheck, Shield, LogOut } from 'lucide-react'
+import { Plus, UserPlus, FileCheck, Shield, LogOut } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
 

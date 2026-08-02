@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Paperclip, Upload, X, FileText, Image, Link as LinkIcon } from 'lucide-react'
+import { Upload, X, FileText, Image, Link as LinkIcon } from 'lucide-react'
 import { api, API_ORIGIN } from '@/lib/api'
 
 interface Attachment {

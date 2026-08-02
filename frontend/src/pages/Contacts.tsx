@@ -3,14 +3,14 @@ import { useState, useRef, useEffect } from 'react'
 import {
   MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Trash2, Edit2,
   Search, Phone, Mail, MessageCircle, Building2, SlidersHorizontal,
-  ChevronDown, User, Loader2, AlertTriangle,
+  ChevronDown, User, AlertTriangle,
 } from 'lucide-react'
 import EmptyState from '@/components/shared/EmptyState'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
 import { useApiContacts, useCreateContact, useUpdateContact, useDeleteContact, type ApiContact } from '@/hooks/useContacts'
-import { useContactEvents, useCreateContactEvent, useDeleteContactEvent, type ContactEvent } from '@/hooks/useContactEvents'
+import { useContactEvents, useCreateContactEvent, useDeleteContactEvent } from '@/hooks/useContactEvents'
 import DesignationInput from '@/components/shared/DesignationInput'
 import { useConfirm } from '@/components/shared/useConfirm'
 

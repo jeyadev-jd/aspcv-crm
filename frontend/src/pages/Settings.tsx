@@ -182,7 +182,7 @@ export default function Settings() {
               <button key={tab} onClick={() => setActiveTab(tab)} style={{
                 display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
                 padding: '9px 14px', fontSize: 12, fontWeight: activeTab === tab ? 700 : 500,
-                border: 'none', borderRadius: 8, cursor: 'pointer',
+                borderRadius: 8, cursor: 'pointer',
                 background: activeTab === tab ? '#5D78FF' : '#fff',
                 color: activeTab === tab ? '#fff' : '#374557',
                 border: `1px solid ${activeTab === tab ? '#5D78FF' : '#f0f1f5'}`,

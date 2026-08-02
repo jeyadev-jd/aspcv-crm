@@ -6,7 +6,7 @@ import { useCurrency } from '@/lib/currencyContext'
 import { useIsMobile } from '@/lib/useIsMobile'
 import {
   MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, UserCheck,
-  Trash2, Edit2, Loader2, Globe, MapPin,
+  Trash2, Edit2, Globe, MapPin,
   SlidersHorizontal, ChevronDown, AlertTriangle,
 } from 'lucide-react'
 import EmptyState from '@/components/shared/EmptyState'
@@ -23,6 +23,7 @@ import IndustryInput from '@/components/shared/IndustryInput'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/lib/authStore'
 import { useDepartments } from '@/hooks/useDepartments'
+import { toast } from '@/lib/toast'
 import { useRegions } from '@/hooks/useRegions'
 import { useCommercialModels } from '@/hooks/useCommercialModels'
 import { useLeadSourcesMaster } from '@/hooks/useLeadSourcesMaster'
@@ -58,11 +59,6 @@ const LEAD_CSV_COLS: CsvColDef<Lead>[] = [
 ]
 const LEAD_CSV_TEMPLATE = { Title: 'Heat Pump Project', Company: 'Acme Industries', CustomerType: 'India', Status: 'Enquiry', Stage: 'Lead', Region: 'South', CommercialType: 'Capex', EstimatedValue: '1500000', CloseDate: '2026-12-31', LeadDate: '2026-06-01', State: 'Tamil Nadu', City: 'Chennai', Area: 'Anna Nagar', PrimaryContact: 'Raj Kumar', ContactEmail: 'raj@acme.com', ContactPhone: '9876543210', Source: 'Direct', SourceName: '', MonthlyRemarks: '', Notes: '' }
 
-const productOptions = [
-  'Air Source Heat Pump 8kW', 'Water Source Heat Pump 12kW', 'Swimming Pool Heat Pump 200L',
-  'Heat Pump Dryer Unit', 'Solar Tunnel Dryer 10kWp', 'Sludge Dryer Unit 10kWh',
-  'Process Chiller 7kW', 'Waste Heat Recovery Unit', 'ORC Power Module 50kW', 'BLDC Ceiling Fan + LED Kit',
-]
 
 const INDIA_STATES = [
   'None', 'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh',
@@ -205,7 +201,6 @@ export default function Leads() {
   const [statusConfirm, setStatusConfirm] = useState<{ leadId: string; status: string; label: string } | null>(null)
   const [filterSheetOpen, setFilterSheetOpen] = useState(false)
   const [statusDropOpen, setStatusDropOpen] = useState(false)
-  const [statusDropRect, setStatusDropRect] = useState<DOMRect | null>(null)
   const statusBtnRef = useRef<HTMLButtonElement>(null)
   const [detailLead, setDetailLead] = useState<typeof leads[0] | null>(null)
   const [companySuggestions, setCompanySuggestions] = useState<string[]>([])
@@ -536,10 +531,10 @@ export default function Leads() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
             {isMobile ? (
               <button data-status-drop ref={statusBtnRef}
-                onClick={() => { const r = statusBtnRef.current?.getBoundingClientRect() ?? null; setStatusDropRect(r); setStatusDropOpen(o => !o) }}
+                onClick={() => setStatusDropOpen(o => !o)}
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 10, border: `1.5px solid ${filters.status.length ? '#5D78FF' : '#E8EAED'}`, background: filters.status.length ? '#EEF2FF' : '#fff', cursor: 'pointer' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: filters.status.length ? '#5D78FF' : '#374557' }}>
-                  {filters.status.length === 1 ? `${filters.status[0]} (${counts[filters.status[0]] ?? 0})` : `All (${leads.length})`}
+                  {filters.status.length === 1 ? `${filters.status[0]} (${counts[filters.status[0] as UIStatus] ?? 0})` : `All (${leads.length})`}
                 </span>
                 <ChevronDown size={14} color={filters.status.length ? '#5D78FF' : '#9CA3AF'} style={{ transform: statusDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
               </button>

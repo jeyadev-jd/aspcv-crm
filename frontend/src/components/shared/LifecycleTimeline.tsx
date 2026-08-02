@@ -28,7 +28,6 @@ export default function LifecycleTimeline({ current, completedUpto, onStageClick
       {STAGES.map((stage, i) => {
         const isDone = i <= completedIdx
         const isCurrent = i === currentIdx
-        const isFuture = i > currentIdx
 
         return (
           <div key={stage.key} style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>

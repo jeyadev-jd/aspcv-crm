@@ -1,7 +1,6 @@
 import { useState, useMemo } from 'react'
 import { X, Package, Search, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useComponents } from '@/hooks/useComponents'
-import type { RawComponent } from '@/hooks/useComponents'
 import type { ScopeItemAPI } from '@/hooks/useScopeItems'
 import { useAllocateComponent } from '@/hooks/useScopeItems'
 import { toast } from '@/lib/toast'

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Play, CheckSquare, Cpu, Wrench, FlaskConical, Trash2, ClipboardList, Package, AlertTriangle, IndianRupee, Search, X } from 'lucide-react'
+import { Plus, Play, CheckSquare, Wrench, FlaskConical, Trash2, ClipboardList, Package, AlertTriangle, IndianRupee, Search, X } from 'lucide-react'
 import { useCurrency } from '@/lib/currencyContext'
 import { api } from '@/lib/api'
 import { useWorkOrders, useCreateWorkOrder, useUpdateWorkOrder, useAddProductionLog, useConsumeMaterial, useDeleteWorkOrder, useBulkDeleteWorkOrders } from '@/hooks/useERP'

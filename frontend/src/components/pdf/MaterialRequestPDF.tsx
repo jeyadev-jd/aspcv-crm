@@ -1,5 +1,5 @@
-import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer'
-import logoUrl from '/aspcv-logo.png?url'
+import { Document, Page, View, Text, StyleSheet, Image } from '@react-pdf/renderer'
+import logoUrl from '/aspcv-logo1.png?url'
 
 const CO = {
   name: 'Aspiration Cleantech Ventures Pvt.Ltd.',
@@ -13,6 +13,7 @@ const s = StyleSheet.create({
   page:    { fontSize: 8, fontFamily: 'Helvetica', padding: '20 30', color: '#111' },
   bold:    { fontFamily: 'Helvetica-Bold' },
   header:  { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  logo:    { width: 90, height: 32, objectFit: 'contain' },
   titleBox:{ border: '1.5 solid #1A3A6B', padding: '5 0', alignItems: 'center', marginBottom: 10 },
   table:   { border: '1 solid #aaa', marginBottom: 8 },
   tRow:    { flexDirection: 'row', borderBottom: '0.5 solid #ddd' },
@@ -79,6 +80,7 @@ export function MaterialRequestPDF(p: MaterialRequestPDFProps) {
             <Text>{CO.addr2}</Text>
             <Text>Ph: {CO.phone}  |  {CO.email}</Text>
           </View>
+          <Image src={logoUrl} style={s.logo} />
         </View>
 
         <View style={s.titleBox}>

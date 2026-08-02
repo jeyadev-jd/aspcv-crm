@@ -3,7 +3,7 @@ import RowMenu from '@/components/shared/RowMenu'
 import Spinner from '@/components/shared/Spinner'
 import EmptyState from '@/components/shared/EmptyState'
 import { useState } from 'react'
-import { MoreHorizontal, X, Plus, ChevronLeft, ChevronRight, Wrench, Edit2, Trash2, CheckCircle2, Play, Pause, Loader2, AlertTriangle } from 'lucide-react'
+import { X, Plus, Wrench, Edit2, Trash2, CheckCircle2, Play, Pause, AlertTriangle } from 'lucide-react'
 import type React from 'react'
 import { useIsMobile } from '@/lib/useIsMobile'
 import { useCrmData } from '@/lib/crmDataContext'
@@ -354,7 +354,6 @@ export default function Installations() {
   )
 }
 
-const dropdownStyle: React.CSSProperties = { position: 'absolute', right: 0, top: '100%', marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #F0F1F5', boxShadow: '0 4px 20px rgba(0,0,0,0.12)', zIndex: 100, minWidth: 160, overflow: 'hidden', padding: '4px 0' }
 const menuItem: React.CSSProperties = { display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left', padding: '8px 14px', fontSize: 12, color: '#374557', background: 'none', border: 'none', cursor: 'pointer' }
 
 function Field({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {

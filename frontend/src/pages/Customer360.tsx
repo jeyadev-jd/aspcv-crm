@@ -103,7 +103,7 @@ export default function Customer360() {
   const [eventForm, setEventForm] = useState({ title: '', date: '', startTime: '10:00', endTime: '11:00', category: 'FollowUp' as string })
 
   if (companyLoading) return <Spinner />
-  if (!company) return <EmptyState title="Company not found" />
+  if (!company) return <EmptyState icon={Building2} title="Company not found" />
 
   async function scheduleEvent() {
     if (!eventForm.title.trim() || !eventForm.date) { toast.error('Title and date required'); return }

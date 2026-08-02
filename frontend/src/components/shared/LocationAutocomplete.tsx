@@ -12,7 +12,7 @@ interface Props {
   onAreaChange: (area: Area | null) => void
 }
 
-export default function LocationAutocomplete({ cityId, areaId, onCityChange, onAreaChange }: Props) {
+export default function LocationAutocomplete({ cityId, onCityChange, onAreaChange }: Props) {
   const [cityQuery, setCityQuery] = useState('')
   const [areaQuery, setAreaQuery] = useState('')
   const [cities, setCities] = useState<City[]>([])

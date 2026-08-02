@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthStore } from '@/lib/authStore'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query'
 import AppLayout from '@/components/layout/AppLayout'
 import { CurrencyProvider } from '@/lib/currencyContext'
 import { CrmDataProvider } from '@/lib/crmDataContext'
@@ -52,18 +52,20 @@ const queryClient = new QueryClient({
     // Shared records change under you while you work, so they refetch on focus
     // rather than serving a stale cache for half a minute.
     queries: { retry: 1, staleTime: 0, refetchOnWindowFocus: true },
-    mutations: {
-      // React Query v5 runs this *in addition to* a mutation's own onError, so
-      // it only fires when the caller has not handled the error itself —
-      // otherwise one failure would raise two toasts.
-      onError: (err: unknown, _vars, _ctx, mutation) => {
-        if (mutation?.options.onError) return
-        Promise.all([import('@/lib/toast'), import('@/lib/apiError')]).then(([toastMod, errMod]) => {
-          toastMod.toast.error(errMod.friendlyError(err))
-        })
-      },
-    },
   },
+  // MutationCache's onError (not defaultOptions.mutations.onError) is the only
+  // place that receives the Mutation object itself - defaultOptions.mutations
+  // only gets (error, variables, onMutateResult, context), with no way to see
+  // whether the call site already supplied its own onError. Without this
+  // distinction every mutation with a custom onError toast would show twice.
+  mutationCache: new MutationCache({
+    onError: (err, _vars, _ctx, mutation) => {
+      if (mutation.options.onError) return
+      Promise.all([import('@/lib/toast'), import('@/lib/apiError')]).then(([toastMod, errMod]) => {
+        toastMod.toast.error(errMod.friendlyError(err))
+      })
+    },
+  }),
 })
 
 // Inner component so useToast works inside ToastProvider
