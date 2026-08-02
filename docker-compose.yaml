@@ -64,13 +64,6 @@ services:
       FRONTEND_URL: https://${DOMAIN}
       CORS_ORIGIN: https://${DOMAIN}
       NODE_ENV: production
-      # Temporary: Prisma normally parses schema-engine stderr as structured
-      # JSON logs and only surfaces .fields.message from them. When the
-      # engine crashes before it can emit that format (e.g. exec/ABI
-      # failure), the parse yields nothing and the wrapper error is just
-      # "Schema engine error:" with no detail. DEBUG=* bypasses that and
-      # prints the engine's raw stderr directly.
-      DEBUG: "*"
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_USER: ${SMTP_USER}

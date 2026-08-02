@@ -6,16 +6,20 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
-# Root cause of the persistent "Schema engine error" (misdiagnosed twice as
-# an OpenSSL/base-image issue): `prisma` the CLI is a devDependency, and this
-# stage used to run `npm ci --omit=dev`, which strips it. `npx prisma migrate
-# deploy` then had no locally-installed CLI to run and fell back to fetching
-# one ad hoc at container start - an unpinned, uncontrolled resolution with
-# no guarantee it matched the schema-engine binary actually generated in the
-# build stage. Copying the build stage's full node_modules (CLI included)
-# instead of a fresh --omit=dev install fixes this at the actual source.
+# This runtime stage needs BOTH fixes verified by DEBUG=* output, which were
+# incorrectly conflated as one problem across earlier attempts:
+#  1. The `prisma` CLI is a devDependency; `npm ci --omit=dev` here used to
+#     strip it, so `npx prisma migrate deploy` had no local CLI to run.
+#     Fixed by copying the build stage's full node_modules instead.
+#  2. Separately, this image has no libssl at all ("Couldn't find any
+#     version of libssl or OpenSSL in the system" - confirmed via DEBUG=*,
+#     not inferred). That apt-get install line existed in an earlier
+#     revision but was accidentally dropped when reverting an unrelated
+#     base-image experiment, which is why the identical error kept
+#     recurring despite fixing (1).
 FROM node:20-slim
 WORKDIR /app
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production
 COPY package*.json ./
 COPY --from=build /app/node_modules ./node_modules
