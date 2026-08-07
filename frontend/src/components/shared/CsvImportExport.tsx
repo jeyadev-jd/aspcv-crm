@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
-import { Download, Upload, FileText, X, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Download, Upload, FileText, X, AlertCircle, CheckCircle2, FileSpreadsheet } from 'lucide-react'
 import { exportCSV, parseCSV } from '@/lib/csvUtils'
+import { exportXlsx, readSheetRows } from '@/lib/xlsxUtils'
 
 export interface CsvColDef<T> {
   header: string
@@ -33,10 +34,18 @@ export function CsvImportExport<T>({ data, columns, filename, templateRow, onImp
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<ImportResult | null>(null)
 
+  function buildExportRows() {
+    return data.map(item => Object.fromEntries(columns.map(col => [col.header, col.accessor(item)])))
+  }
+
   function handleExport() {
     if (!data.length) return
-    const rows = data.map(item => Object.fromEntries(columns.map(col => [col.header, col.accessor(item)])))
-    exportCSV(rows, filename)
+    exportCSV(buildExportRows(), filename)
+  }
+
+  async function handleExportXlsx() {
+    if (!data.length) return
+    await exportXlsx(buildExportRows(), filename, label ?? 'Sheet1')
   }
 
   function handleTemplate() {
@@ -48,9 +57,11 @@ export function CsvImportExport<T>({ data, columns, filename, templateRow, onImp
     const file = e.target.files?.[0]
     if (!file) return
     e.target.value = ''
-    const text = await file.text()
-    const rows = parseCSV(text)
-    if (!rows.length) { setResult({ total: 0, success: 0, errors: ['No valid rows found in CSV'] }); return }
+    // .xlsx is a zip archive, so it must be read as a workbook rather than text.
+    const rows = file.name.toLowerCase().endsWith('.xlsx')
+      ? await readSheetRows(file)
+      : parseCSV(await file.text())
+    if (!rows.length) { setResult({ total: 0, success: 0, errors: ['No valid rows found in the file'] }); return }
     setImporting(true)
     try {
       const res = await onImport(rows)
@@ -74,7 +85,12 @@ export function CsvImportExport<T>({ data, columns, filename, templateRow, onImp
           <Download size={13} />{!compact && (label ? `Export ${label}` : 'Export')}
         </button>
 
-        <button onClick={() => fileRef.current?.click()} disabled={importing} title="Import from CSV file"
+        <button onClick={handleExportXlsx} disabled={!data.length} title="Export all current data as Excel (.xlsx)"
+          style={{ ...btnBase, background: data.length ? '#fff' : '#F4F5F9', color: data.length ? '#166534' : '#B1B1BE', borderColor: data.length ? '#E8EAED' : 'transparent' }}>
+          <FileSpreadsheet size={13} />{!compact && 'Excel'}
+        </button>
+
+        <button onClick={() => fileRef.current?.click()} disabled={importing} title="Import from a CSV or Excel file"
           style={{ ...btnBase, background: importing ? '#F4F5F9' : '#EEF2FF', color: importing ? '#B1B1BE' : '#5D78FF', borderColor: '#5D78FF' }}>
           <Upload size={13} />{!compact && (importing ? 'Importing…' : 'Import')}
         </button>
@@ -84,7 +100,7 @@ export function CsvImportExport<T>({ data, columns, filename, templateRow, onImp
           <FileText size={13} />{!compact && 'Template'}
         </button>
 
-        <input ref={fileRef} type="file" accept=".csv,text/csv" onChange={handleFile} style={{ display: 'none' }} />
+        <input ref={fileRef} type="file" accept=".csv,text/csv,.xlsx" onChange={handleFile} style={{ display: 'none' }} />
       </div>
 
       {/* Result toast */}

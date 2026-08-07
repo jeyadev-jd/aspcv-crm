@@ -8,6 +8,7 @@ import { X, Plus, Building2, Trash2, Edit2, CheckCircle2, PauseCircle } from 'lu
 import type React from 'react'
 import { useCrmData, type Account } from '@/lib/crmDataContext'
 import { api } from '@/lib/api'
+import ImportExportMenu from '@/components/shared/ImportExportMenu'
 
 const DEFAULT_STATUS_STYLE = { bg: '#F4F5F9', color: '#8C8C8C' }
 const statusStyle: Record<string, { bg: string; color: string }> = {
@@ -126,9 +127,12 @@ export default function Accounts() {
               <button key={f} onClick={() => changeFilter(f)} style={{ padding: '6px 14px', borderRadius: 20, fontSize: 11, fontWeight: 600, border: 'none', cursor: 'pointer', background: filter === f ? '#5D78FF' : '#F4F5F9', color: filter === f ? '#fff' : '#B1B1BE', transition: 'all 0.15s' }}>{f}</button>
             ))}
           </div>
-          <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
-            <Plus size={14} /> New Account
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ImportExportMenu entity="companies" invalidateKey="companies" label="Companies" />
+            <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer' }}>
+              <Plus size={14} /> New Account
+            </button>
+          </div>
         </div>
 
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #F0F1F5', overflow: 'hidden', flex: 1, minHeight: 'calc(100vh - 200px)', display: 'flex', flexDirection: 'column' }}>

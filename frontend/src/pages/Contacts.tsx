@@ -13,6 +13,7 @@ import { useApiContacts, useCreateContact, useUpdateContact, useDeleteContact, t
 import { useContactEvents, useCreateContactEvent, useDeleteContactEvent } from '@/hooks/useContactEvents'
 import DesignationInput from '@/components/shared/DesignationInput'
 import { useConfirm } from '@/components/shared/useConfirm'
+import ImportExportMenu from '@/components/shared/ImportExportMenu'
 
 const avatarColors = ['#5D78FF', '#FF9B52', '#2BC155', '#FF5353', '#8B5CF6', '#F59E0B', '#06B6D4', '#EC4899']
 function avatarColor(name: string) { let h = 0; for (const c of name) h = (h * 31 + c.charCodeAt(0)) & 0xffffffff; return avatarColors[Math.abs(h) % avatarColors.length] }
@@ -192,6 +193,7 @@ export default function Contacts() {
               />
               {search && <button onClick={() => { setSearch(''); setPage(1) }} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', display: 'flex' }}><X size={12} /></button>}
             </div>
+            <ImportExportMenu entity="contacts" invalidateKey="contacts" label="Contacts" />
             <button onClick={openCreate} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 18px', borderRadius: 10, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <Plus size={14} /> New Contact
             </button>

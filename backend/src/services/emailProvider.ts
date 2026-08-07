@@ -5,6 +5,8 @@ export interface EmailMessage {
   subject: string
   body: string
   attachmentPaths?: string[]
+  /** In-memory attachments (generated PDFs) that were never written to disk. */
+  attachments?: { filename: string; content: Buffer }[]
 }
 
 export interface IEmailProvider {
@@ -43,7 +45,10 @@ export class SmtpEmailProvider implements IEmailProvider {
       to: message.to.join(', '),
       subject: message.subject,
       html: message.body,
-      attachments: message.attachmentPaths?.map((path) => ({ path })),
+      attachments: [
+        ...(message.attachmentPaths?.map((path) => ({ path })) ?? []),
+        ...(message.attachments ?? []),
+      ],
     })
   }
   async listThreads(_entityType: string, _entityId: string): Promise<unknown[]> {

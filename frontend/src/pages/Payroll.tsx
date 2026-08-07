@@ -4,9 +4,11 @@ import { useUsers } from '../hooks/useUsers'
 import { useAuthStore } from '../lib/authStore'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
-import { Play, CheckCircle, DollarSign, Pencil } from 'lucide-react'
+import { Play, CheckCircle, DollarSign, Pencil, Download, Mail } from 'lucide-react'
 import type { SalaryRecord } from '../hooks/useSalary'
 import SalaryEditModal from '@/components/hr/SalaryEditModal'
+import { downloadFile } from '@/lib/download'
+import { api } from '@/lib/api'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 function fmt(n: number) { return `₹${Math.round(n).toLocaleString('en-IN')}` }
@@ -41,6 +43,34 @@ export default function Payroll() {
   // the NEFT export, so both ask before firing.
   const [approveFor, setApproveFor] = useState<SalaryRecord | null>(null)
   const [payFor, setPayFor] = useState<SalaryRecord | null>(null)
+
+  // Tracks the row whose slip is downloading/sending so only that button shows
+  // a busy state rather than the whole table.
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  async function downloadSlip(r: SalaryRecord) {
+    setBusyId(r.id)
+    try {
+      await downloadFile(`/salary/${r.id}/pdf`, `Payslip-${r.user?.name ?? 'employee'}.pdf`)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not download payslip')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  async function resendSlip(r: SalaryRecord) {
+    setBusyId(r.id)
+    try {
+      await api.post(`/salary/${r.id}/email`)
+      toast.success(`Payslip emailed to ${r.user?.name ?? 'employee'}`)
+    } catch (err) {
+      const msg = (err as { response?: { data?: { error?: string } } }).response?.data?.error
+      toast.error(msg ?? 'Could not send payslip email')
+    } finally {
+      setBusyId(null)
+    }
+  }
 
   return (
     <div style={{ width: '100%', boxSizing: 'border-box' as const }}>
@@ -165,6 +195,16 @@ export default function Payroll() {
                             <DollarSign size={11} />Mark Paid
                           </button>
                         )}
+                        <button onClick={() => downloadSlip(r)} disabled={busyId === r.id} title="Download payslip PDF"
+                          style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: busyId === r.id ? 'default' : 'pointer', opacity: busyId === r.id ? 0.6 : 1, display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <Download size={11} />PDF
+                        </button>
+                        {canGenerate && r.status !== 'draft' && (
+                          <button onClick={() => resendSlip(r)} disabled={busyId === r.id} title="Email this payslip to the employee again"
+                            style={{ background: '#F3F4F6', color: '#374151', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: busyId === r.id ? 'default' : 'pointer', opacity: busyId === r.id ? 0.6 : 1, display: 'flex', gap: 4, alignItems: 'center' }}>
+                            <Mail size={11} />Resend
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -178,12 +218,22 @@ export default function Payroll() {
       {approveFor && (
         <ConfirmDialog
           title="Approve this salary record?"
-          message={`${approveFor.user?.name ?? 'This employee'} — net ${fmt(approveFor.netSalary)} for ${MONTHS[approveFor.month - 1]} ${approveFor.year}. Approved records are included in the NEFT export.`}
+          message={`${approveFor.user?.name ?? 'This employee'} — net ${fmt(approveFor.netSalary)} for ${MONTHS[approveFor.month - 1]} ${approveFor.year}. Approved records are included in the NEFT export, and the payslip is emailed to the employee.`}
           confirmLabel="Approve"
           danger={false}
           isPending={approve.isPending}
           onCancel={() => setApproveFor(null)}
-          onConfirm={() => { approve.mutate(approveFor.id); setApproveFor(null) }}
+          onConfirm={() => {
+            const name = approveFor.user?.name ?? 'employee'
+            approve.mutate(approveFor.id, {
+              // Approval succeeds even if SMTP is down, so report delivery separately.
+              onSuccess: (res: { emailSent?: boolean; emailError?: string }) => {
+                if (res?.emailSent) toast.success(`Approved — payslip emailed to ${name}`)
+                else toast.error(`Approved, but the payslip email failed: ${res?.emailError ?? 'unknown error'}`)
+              },
+            })
+            setApproveFor(null)
+          }}
         />
       )}
 

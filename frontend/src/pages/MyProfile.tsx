@@ -4,10 +4,10 @@ import { useAuthStore } from '../lib/authStore'
 import { useMySalary } from '../hooks/useSalary'
 import { useMyAttendance } from '../hooks/useAttendance'
 import { useUsers } from '../hooks/useUsers'
-import { PDFDownloadLink } from '@react-pdf/renderer'
-import SalarySlipPDF from '../components/pdf/SalarySlipPDF'
 import { Download, Cake, Calendar, Building, CreditCard, Phone, Wallet, LogOut } from 'lucide-react'
 import { useConfirm } from '../components/shared/useConfirm'
+import { downloadFile } from '@/lib/download'
+import { toast } from '@/lib/toast'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -36,6 +36,7 @@ export default function MyProfile() {
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
+  const [slipBusyId, setSlipBusyId] = useState<string | null>(null)
   const { data: salaryRecords = [] } = useMySalary()
   const { data: attendance = [] } = useMyAttendance(month, year)
   const { data: users = [] } = useUsers()
@@ -165,16 +166,24 @@ export default function MyProfile() {
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <span style={{ background: ss.bg, color: ss.color, fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20 }}>{r.status}</span>
                     {r.status !== 'draft' && (
-                      <PDFDownloadLink
-                        document={<SalarySlipPDF record={r} employeeName={user.name} designation={user.designation} />}
-                        fileName={`salary-${MONTHS[r.month - 1]}-${r.year}-${user.name.replace(/\s+/g, '_')}.pdf`}
+                      // Rendered server-side so the employee's copy is byte-for-byte
+                      // the same slip HR downloads and the system emails on approval.
+                      <button
+                        onClick={async () => {
+                          setSlipBusyId(r.id)
+                          try {
+                            await downloadFile(`/salary/${r.id}/pdf`, `Payslip-${MONTHS[r.month - 1]}-${r.year}.pdf`)
+                          } catch (err) {
+                            toast.error(err instanceof Error ? err.message : 'Could not download payslip')
+                          } finally {
+                            setSlipBusyId(null)
+                          }
+                        }}
+                        disabled={slipBusyId === r.id}
+                        style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: slipBusyId === r.id ? 'default' : 'pointer', opacity: slipBusyId === r.id ? 0.6 : 1, display: 'flex', gap: 5, alignItems: 'center' }}
                       >
-                        {({ loading }) => (
-                          <button style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 5, alignItems: 'center' }}>
-                            <Download size={12} />{loading ? 'Preparing...' : 'Download PDF'}
-                          </button>
-                        )}
-                      </PDFDownloadLink>
+                        <Download size={12} />{slipBusyId === r.id ? 'Preparing...' : 'Download PDF'}
+                      </button>
                     )}
                   </div>
                 </div>

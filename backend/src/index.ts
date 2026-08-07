@@ -7,6 +7,7 @@ import invoicesRouter from './routes/invoices'
 import tasksRouter from './routes/tasks'
 import auditLogsRouter from './routes/audit-logs'
 import businessRulesRouter from './routes/business-rules'
+import dataTransferRouter from './routes/data-transfer'
 import { auditLogger } from './middleware/auditLogger'
 import reportsRouter from './routes/reports'
 import calendarRouter from './routes/calendar'
@@ -120,6 +121,7 @@ app.use('/api/tasks', tasksRouter)
 app.use('/api/reports', reportsRouter)
 app.use('/api/audit-logs', auditLogsRouter)
 app.use('/api/business-rules', businessRulesRouter)
+app.use('/api/data-transfer', dataTransferRouter)
 app.use('/api/calendar', calendarRouter)
 
 // Enterprise routes

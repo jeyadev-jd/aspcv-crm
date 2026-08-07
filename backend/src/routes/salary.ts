@@ -1,10 +1,11 @@
 import { createSafeRouter } from '../lib/safeRouter'
 import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
-import { requirePermission } from '../middleware/permissions'
+import { requirePermission, resolvePermission } from '../middleware/permissions'
 import { parsePagination, paginate } from '../lib/pagination'
 import { decryptIfPresent } from '../lib/encrypt'
 import { notifyRoles } from '../services/notify'
+import { emailPayslip, generatePayslipPdf } from '../services/payslip'
 
 const router = createSafeRouter()
 router.use(authenticate)
@@ -230,7 +231,40 @@ router.patch('/:id/manual-edit', requirePermission('salary', 'generate'), async 
 
 router.patch('/:id/approve', requirePermission('salary', 'approve'), async (req: AuthRequest, res) => {
   const record = await prisma.salaryRecord.update({ where: { id: req.params.id as string }, data: { status: 'approved' } })
-  res.json(record)
+  // Approval is the trigger for delivery. emailPayslip never throws, so a mail
+  // outage leaves the record approved and reports the failure to the caller
+  // instead of rolling the approval back.
+  const delivery = await emailPayslip(record.id)
+  res.json({ ...record, emailSent: delivery.sent, emailError: delivery.error })
+})
+
+/**
+ * Employees may download their own slip; anyone with read_all (HR/admin) may
+ * download any. Streams the same PDF that gets emailed on approval.
+ */
+router.get('/:id/pdf', requirePermission('salary', 'read_own'), async (req: AuthRequest, res) => {
+  const id = req.params.id as string
+  const record = await prisma.salaryRecord.findUnique({ where: { id }, select: { userId: true } })
+  if (!record) return res.status(404).json({ error: 'Salary record not found' })
+
+  if (record.userId !== req.user!.id) {
+    const canReadAll = await resolvePermission(req.user!.id, req.user!.roleName, 'salary', 'read_all')
+    if (!canReadAll) return res.status(403).json({ error: 'Not allowed to download this payslip' })
+  }
+
+  const slip = await generatePayslipPdf(id)
+  if (!slip) return res.status(404).json({ error: 'Salary record not found' })
+
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="${slip.filename}"`)
+  return res.send(slip.buffer)
+})
+
+/** Manual resend, for when the approval-time email bounced or details changed. */
+router.post('/:id/email', requirePermission('salary', 'approve'), async (req: AuthRequest, res) => {
+  const delivery = await emailPayslip(req.params.id as string)
+  if (!delivery.sent) return res.status(502).json({ error: delivery.error ?? 'Failed to send payslip' })
+  res.json({ sent: true })
 })
 
 router.patch('/:id/paid', requirePermission('salary', 'mark_paid'), async (req: AuthRequest, res) => {

@@ -37,6 +37,8 @@ COPY package*.json ./
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
+# Payslip logo - resolveLogoPath() inlines this into generated PDFs.
+COPY --from=build /app/assets ./assets
 EXPOSE 4000
 # Migrations run before the API starts, so a fresh container never serves
 # traffic against a schema it hasn't applied yet. On failure, dump the
