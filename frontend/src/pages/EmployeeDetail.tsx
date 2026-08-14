@@ -13,6 +13,7 @@ import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/lib/authStore'
 import { downloadFile } from '@/lib/download'
 import { toast } from '@/lib/toast'
+import SalaryModelEditor from '@/components/hr/SalaryModelEditor'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -105,6 +106,26 @@ export default function EmployeeDetail() {
           )}
         </div>
       </div>
+
+      {/* The editor sits above the breakdown and stays visible even when the
+          calculation fails - an unset master salary is the usual cause, and
+          this is where it gets entered. Frozen once the period is approved. */}
+      {canManage && !isApproved && (
+        <SalaryModelEditor
+          employeeId={id!}
+          initial={{
+            masterGross: employee?.masterGross ?? null,
+            masterBasic: employee?.masterBasic ?? null,
+            masterHra: employee?.masterHra ?? null,
+            masterOthers: employee?.masterOthers ?? null,
+            masterSpecial1: employee?.masterSpecial1 ?? null,
+            masterSpecial2: employee?.masterSpecial2 ?? null,
+            variablePayPa: employee?.variablePayPa ?? null,
+            pfApplicable: employee?.pfApplicable ?? true,
+            esiApplicable: employee?.esiApplicable ?? true,
+          }}
+        />
+      )}
 
       {error ? (
         <div style={{ display: 'flex', gap: 10, padding: 16, borderRadius: 10, background: '#FEF2F2', color: '#B91C1C', fontSize: 13 }}>

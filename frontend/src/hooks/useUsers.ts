@@ -26,6 +26,21 @@ export interface CrmUser {
   bankName?: string | null
   emergencyContact?: string | null
   createdAt?: string
+  // Master salary (Salary Model.xlsx). Basic/HRA/Others are null unless the
+  // 50/25/25 split has been explicitly overridden for this employee.
+  masterGross?: number | null
+  masterBasic?: number | null
+  masterHra?: number | null
+  masterOthers?: number | null
+  masterSpecial1?: number | null
+  masterSpecial2?: number | null
+  variablePayPa?: number | null
+  // Employment lifecycle
+  probationDays?: number | null
+  priorExperienceMonths?: number | null
+  dorLetterDate?: string | null
+  lastWorkingDate?: string | null
+  confirmationDate?: string | null
 }
 
 export function useUsers(enabled = true) {

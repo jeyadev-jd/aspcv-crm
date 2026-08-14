@@ -3,7 +3,9 @@ import prisma from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { requirePermission, resolvePermission } from '../middleware/permissions'
 import { parsePagination, paginate } from '../lib/pagination'
-import { calculatePayroll, PayrollValidationError } from '../services/payroll/engine'
+import { calculatePayroll, PayrollValidationError, loadRates, resolveProfessionalTax } from '../services/payroll/engine'
+import * as F from '../services/payroll/formulas'
+import { calcTDS } from '../services/payroll/tds'
 import {
   runForEmployee,
   runForAll,
@@ -313,6 +315,109 @@ router.get('/adjustments/:userId', async (req: AuthRequest, res) => {
     orderBy: { createdAt: 'desc' },
   })
   return res.json(adjustments)
+})
+
+// ─── Live formula preview ────────────────────────────────────────────────────
+
+/**
+ * Recomputes every derived field from values the user is currently typing,
+ * without touching the database. This is what makes the salary editor behave
+ * like the spreadsheet: change Master Gross and every dependent cell updates.
+ *
+ * Stateless by design - it takes the inputs in the body rather than reading the
+ * employee, so an unsaved edit previews correctly. The arithmetic is the same
+ * formulas module the persisted run uses, so preview and saved payroll can
+ * never disagree.
+ */
+router.post('/preview', requirePermission('salary', 'read_all'), async (req: AuthRequest, res) => {
+  const b = req.body as Record<string, unknown>
+  const num = (v: unknown, fallback = 0) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : fallback
+  }
+
+  const masterGrossInput = num(b.masterGross)
+  if (masterGrossInput < 0) return res.status(400).json({ error: 'Master gross cannot be negative' })
+
+  const pfApplicable = b.pfApplicable !== false
+  const esiApplicable = b.esiApplicable !== false
+  const rates = await loadRates()
+
+  // Explicit overrides win; otherwise fall back to the 50/25/25 split.
+  const split = F.splitMasterGross(masterGrossInput, {
+    basic: b.masterBasic === undefined || b.masterBasic === null || b.masterBasic === '' ? null : num(b.masterBasic),
+    hra: b.masterHra === undefined || b.masterHra === null || b.masterHra === '' ? null : num(b.masterHra),
+    others: b.masterOthers === undefined || b.masterOthers === null || b.masterOthers === '' ? null : num(b.masterOthers),
+  })
+
+  const masterSpecial1 = num(b.masterSpecial1)
+  const masterSpecial2 = num(b.masterSpecial2)
+  const masterGross = F.masterGrossTotal({
+    basic: split.basic, hra: split.hra, others: split.others,
+    special1: masterSpecial1, special2: masterSpecial2,
+  })
+
+  const masterPfBasic = F.masterPfBasic(masterGross, split.hra, rates)
+  const masterCoPf = pfApplicable ? F.masterCoPf(masterPfBasic, rates) : 0
+  const masterForEsi = F.masterForEsi(masterGross, rates)
+  const masterEsiGross = esiApplicable ? F.masterEsiGross(masterGross, rates) : 0
+  const masterCoEsi = esiApplicable ? F.masterCoEsi(masterGross, rates) : 0
+  const masterCtcPm = F.masterCtcPm(masterGross, masterCoPf, masterCoEsi)
+  const masterCtcPa = F.round2(masterCtcPm * 12)
+  const variablePayPa = num(b.variablePayPa)
+
+  // Monthly side: the caller supplies the day counts so the preview can show
+  // "what if this employee had N days of LOP" before payroll is ever run.
+  const calendarDays = num(b.calendarDays, 30) || 30
+  const lop = num(b.lop)
+  const daysForSalary = Math.max(0, num(b.daysForSalary, calendarDays - lop))
+
+  const monthlyBasic = F.prorate(split.basic, calendarDays, daysForSalary)
+  const monthlyHra = F.prorate(split.hra, calendarDays, daysForSalary)
+  const monthlyOthers = F.prorate(split.others, calendarDays, daysForSalary)
+  const monthlySpecial1 = num(b.monthlySpecial1)
+  const monthlySpecial2 = num(b.monthlySpecial2)
+  const monthlyGross = F.monthlyGrossTotal({
+    basic: monthlyBasic, hra: monthlyHra, others: monthlyOthers,
+    special1: monthlySpecial1, special2: monthlySpecial2,
+  })
+  const grossHra = F.grossMinusHra(monthlyGross, monthlyHra)
+
+  const employeePf = F.employeePf(grossHra, rates, pfApplicable)
+  const employeeEsi = F.employeeEsi(monthlyGross, masterCoEsi, rates, esiApplicable)
+  const employeeTds = b.employeeTds !== undefined ? num(b.employeeTds) : calcTDS(masterGross * 12)
+  const employeePt = b.employeePt !== undefined ? num(b.employeePt) : await resolveProfessionalTax(monthlyGross)
+  const employeeDeduction1 = num(b.employeeDeduction1)
+  const employeeDeduction2 = num(b.employeeDeduction2)
+  const totalDeduction = F.totalDeduction({
+    pf: employeePf, esi: employeeEsi, tds: employeeTds, pt: employeePt,
+    deduction1: employeeDeduction1, deduction2: employeeDeduction2,
+  })
+  const tda = num(b.tda)
+  const netPay = F.netPay(monthlyGross, totalDeduction, tda)
+
+  const employerPf = pfApplicable ? F.employerPf(employeePf) : 0
+  const adminCharges = F.adminCharges(grossHra, rates, pfApplicable)
+  const edliCharges = F.edliCharges(grossHra, rates, pfApplicable)
+  const employerEsi = F.employerEsi(monthlyGross, rates, esiApplicable)
+  const totalEmployerCost = F.totalEmployerCost({
+    employeePf, employeePt, netPay, employerPf, adminCharges, edliCharges, employeeEsi, employerEsi,
+  })
+
+  return res.json({
+    masterBasic: split.basic, masterHra: split.hra, masterOthers: split.others,
+    masterSpecial1, masterSpecial2, masterGross,
+    masterPfBasic, masterCoPf, masterForEsi, masterEsiGross, masterCoEsi,
+    masterCtcPm, masterCtcPa, variablePayPa,
+    masterCtcPaTotal: F.masterCtcPaTotal(masterCtcPa, variablePayPa),
+    calendarDays, lop, daysForSalary,
+    monthlyBasic, monthlyHra, monthlyOthers, monthlySpecial1, monthlySpecial2,
+    monthlyGross, grossHra,
+    employeePf, employeeEsi, employeeTds, employeePt,
+    employeeDeduction1, employeeDeduction2, totalDeduction, tda, netPay,
+    employerPf, adminCharges, edliCharges, employerEsi, totalEmployerCost,
+    configVersion: rates.version,
+  })
 })
 
 // ─── Salary slip from the approved snapshot ──────────────────────────────────

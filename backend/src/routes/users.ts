@@ -22,7 +22,7 @@ router.get('/', requirePermission('hr_user', 'read_all'), async (req: AuthReques
   const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
-      select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: { select: { id: true, name: true } }, departmentId: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, uan: true, esiNumber: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: { select: { id: true, name: true } }, departmentId: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, uan: true, esiNumber: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true, employeeCode: true, masterGross: true, masterBasic: true, masterHra: true, masterOthers: true, masterSpecial1: true, masterSpecial2: true, variablePayPa: true, probationDays: true, priorExperienceMonths: true, dorLetterDate: true, lastWorkingDate: true, confirmationDate: true },
       orderBy: { [pagination.sort as string]: pagination.order },
       skip: pagination.skip,
       take: pagination.take,
@@ -76,7 +76,17 @@ router.post('/', requirePermission('hr_user', 'create'), async (req: AuthRequest
 const EDITABLE_USER_FIELDS = [
   'name', 'email', 'designation', 'departmentId', 'baseSalary', 'hra', 'allowances',
   'pfApplicable', 'esiApplicable', 'uan', 'esiNumber', 'pan', 'bankAccount', 'ifsc', 'bankName', 'emergencyContact',
+  // Master salary (Salary Model.xlsx cols U-Z, AJ). Basic/HRA/Others are the
+  // 50/25/25 split of masterGross but stay individually editable, matching the
+  // workbook where each cell can be overridden.
+  'masterGross', 'masterBasic', 'masterHra', 'masterOthers',
+  'masterSpecial1', 'masterSpecial2', 'variablePayPa',
+  // Employment lifecycle
+  'employeeCode', 'probationDays', 'priorExperienceMonths',
 ] as const
+
+/** Lifecycle dates parsed out of the body separately from the scalar fields. */
+const EDITABLE_USER_DATES = ['dorLetterDate', 'lastWorkingDate', 'confirmationDate', 'probationEndDate'] as const
 
 router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthRequest, res) => {
   const existingUser = await prisma.user.findUnique({ where: { id: req.params.id as string } })
@@ -98,6 +108,20 @@ router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthReque
   }
   if (body.dateOfBirth !== undefined) update.dateOfBirth = body.dateOfBirth ? new Date(body.dateOfBirth as string) : null
   if (body.joiningDate !== undefined) update.joiningDate = body.joiningDate ? new Date(body.joiningDate as string) : null
+  for (const field of EDITABLE_USER_DATES) {
+    if (body[field] !== undefined) update[field] = body[field] ? new Date(body[field] as string) : null
+  }
+
+  // DOJ must not fall after the last working day. Checked against the merged
+  // result rather than the payload alone, so changing either date in isolation
+  // still gets validated against the stored value of the other.
+  const doj = (update.joiningDate as Date | null | undefined) ?? existingUser!.joiningDate
+  const dol = (update.lastWorkingDate as Date | null | undefined) ?? existingUser!.lastWorkingDate
+  if (doj && dol && dol < doj) {
+    res.status(400).json({ error: 'Last working date cannot precede the joining date' })
+    return
+  }
+
   const user = await prisma.user.update({
     where: { id: req.params.id as string },
     data: update,

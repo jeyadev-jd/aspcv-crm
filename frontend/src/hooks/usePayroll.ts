@@ -240,6 +240,58 @@ export function usePayrollAdjustments(userId: string | null, month?: number, yea
   })
 }
 
+/** Values the salary editor sends up on every keystroke. */
+export interface PreviewInput {
+  masterGross?: number | string
+  masterBasic?: number | string | null
+  masterHra?: number | string | null
+  masterOthers?: number | string | null
+  masterSpecial1?: number | string
+  masterSpecial2?: number | string
+  variablePayPa?: number | string
+  pfApplicable?: boolean
+  esiApplicable?: boolean
+  calendarDays?: number | string
+  lop?: number | string
+  monthlySpecial1?: number | string
+  monthlySpecial2?: number | string
+  employeeDeduction1?: number | string
+  employeeDeduction2?: number | string
+  tda?: number | string
+}
+
+export type PreviewResult = Omit<
+  PayrollCalculation,
+  'userId' | 'month' | 'year' | 'lifecycle' | 'version' | 'isCurrent' | 'user' | 'period' |
+  'daysInMonth' | 'daysPresent' | 'daysAbsent' | 'lateDays' | 'lateLopDays' |
+  'approvedLeaveDays' | 'holidayDays' | 'weeklyOffDays' | 'adjustmentTotal'
+>
+
+/**
+ * Recomputes every derived field from the values being typed, without saving.
+ * Same formulas the persisted run uses, so the preview can never disagree with
+ * what payroll will actually produce.
+ */
+export function usePayrollPreview() {
+  return useMutation({
+    mutationFn: (input: PreviewInput) =>
+      api.post<PreviewResult>('/payroll/preview', input).then((r) => r.data),
+  })
+}
+
+/** Saves the master salary and lifecycle fields onto the employee record. */
+export function useUpdateEmployeeSalary() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, ...body }: { id: string } & Record<string, unknown>) =>
+      api.patch(`/users/${id}`, body).then((r) => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] })
+      qc.invalidateQueries({ queryKey: ['users'] })
+    },
+  })
+}
+
 export function useCreateAdjustment() {
   const qc = useQueryClient()
   return useMutation({
