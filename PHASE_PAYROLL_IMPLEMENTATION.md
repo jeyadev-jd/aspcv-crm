@@ -232,7 +232,7 @@ No new permission system. The existing RBAC is reused:
 
 | Action | Permission |
 |---|---|
-| View directory | `user:read_all` |
+| View directory | `hr_user:read_all` (the resource the existing `/api/users` routes already use) |
 | View others' salary/payroll | `salary:read_all` |
 | Run payroll | `salary:generate` |
 | Approve / reopen period | `salary:approve` |

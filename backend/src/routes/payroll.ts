@@ -41,7 +41,7 @@ function months(from: Date, to: Date): number {
  * Directory rows. Salary columns are only attached for callers with
  * salary:read_all - everyone else gets the non-confidential fields.
  */
-router.get('/directory', requirePermission('user', 'read_all'), async (req: AuthRequest, res) => {
+router.get('/directory', requirePermission('hr_user', 'read_all'), async (req: AuthRequest, res) => {
   const { search, status, departmentId, month, year } = req.query as Record<string, string>
   const pagination = parsePagination(req.query as Record<string, unknown>)
   const showSalary = await canViewOthers(req)

@@ -123,8 +123,8 @@ export default function App() {
                 Onboarding and HR Settings are tabs inside it, not routes */}
             <Route path="/hr"               element={<HR />} />
             <Route path="/attendance"       element={<Attendance />} />
-            <Route path="/employees"        element={<PermGuard resource="user" action="read_all"><EmployeeDirectory /></PermGuard>} />
-            <Route path="/employees/:id"    element={<PermGuard resource="user" action="read_all"><EmployeeDetail /></PermGuard>} />
+            <Route path="/employees"        element={<PermGuard resource="hr_user" action="read_all"><EmployeeDirectory /></PermGuard>} />
+            <Route path="/employees/:id"    element={<PermGuard resource="hr_user" action="read_all"><EmployeeDetail /></PermGuard>} />
             <Route path="/payroll"          element={<Navigate to="/hr" replace />} />
             <Route path="/salary-structure" element={<Navigate to="/hr" replace />} />
             <Route path="/hr-settings"      element={<Navigate to="/hr" replace />} />
