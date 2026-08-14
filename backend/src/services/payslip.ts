@@ -61,6 +61,87 @@ export async function buildPayslipData(salaryRecordId: string): Promise<{
   return { data, employeeEmail: u.email, employeeName: u.name }
 }
 
+/**
+ * Builds slip data from an approved PayrollRecord snapshot. This is the
+ * authoritative source once a payroll period is approved - the figures printed
+ * here are exactly the approved ones, never a fresh recalculation.
+ */
+export async function buildPayslipDataFromPayroll(payrollRecordId: string): Promise<{
+  data: PayslipData
+  employeeEmail: string
+  employeeName: string
+} | null> {
+  const record = await prisma.payrollRecord.findUnique({
+    where: { id: payrollRecordId },
+    include: { user: { include: { designation: true } }, period: true },
+  })
+  if (!record?.user) return null
+
+  const company = await prisma.companyProfile.findFirst({ where: { isActive: true } })
+  const u = record.user
+
+  const data: PayslipData = {
+    month: record.period.month,
+    year: record.period.year,
+    employeeName: u.name,
+    employeeCode: u.employeeCode,
+    designation: u.designation?.name ?? null,
+    pan: decryptIfPresent(u.pan),
+    bankName: u.bankName,
+    bankAccount: decryptIfPresent(u.bankAccount),
+    uan: u.uan,
+    daysPaid: record.daysForSalary,
+    baseSalary: record.monthlyBasic,
+    hra: record.monthlyHra,
+    allowances: record.monthlyOthers + record.monthlySpecial1 + record.monthlySpecial2,
+    grossSalary: record.monthlyGross,
+    pfEmployee: record.employeePf,
+    pfEmployer: record.employerPf,
+    tds: record.employeeTds,
+    professionalTax: record.employeePt,
+    // The slip's "Loss of Pay" row shows the value of the unpaid days rather
+    // than the day count, matching how the earnings rows are expressed.
+    lossOfPay:
+      record.lop > 0 && record.daysForSalary + record.lop > 0
+        ? Math.round(
+            (record.masterGross / (record.daysForSalary + record.lop)) * record.lop * 100
+          ) / 100
+        : 0,
+    netSalary: record.netPay,
+    company: {
+      legalName: company?.legalName ?? 'Aspiration Cleantech Ventures Private Limited',
+      addressLine1: company?.registeredAddr ?? '',
+      addressLine2: [company?.state, company?.country].filter(Boolean).join(', '),
+      logoPath: resolveLogoPath(),
+    },
+  }
+
+  return { data, employeeEmail: u.email, employeeName: u.name }
+}
+
+/** Renders the slip from an approved payroll snapshot. */
+export async function generatePayrollPayslipPdf(payrollRecordId: string): Promise<{
+  buffer: Buffer
+  filename: string
+  employeeEmail: string
+  employeeName: string
+  month: number
+  year: number
+} | null> {
+  const built = await buildPayslipDataFromPayroll(payrollRecordId)
+  if (!built) return null
+  const buffer = await renderPayslipPdf(built.data)
+  const safeName = built.employeeName.replace(/[^a-zA-Z0-9]+/g, '-')
+  return {
+    buffer,
+    filename: `Payslip-${safeName}-${MONTH_LABEL[built.data.month - 1]}-${built.data.year}.pdf`,
+    employeeEmail: built.employeeEmail,
+    employeeName: built.employeeName,
+    month: built.data.month,
+    year: built.data.year,
+  }
+}
+
 export async function generatePayslipPdf(salaryRecordId: string): Promise<{
   buffer: Buffer
   filename: string

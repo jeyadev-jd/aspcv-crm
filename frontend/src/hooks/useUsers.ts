@@ -6,6 +6,7 @@ export interface CrmUser {
   name: string
   email: string
   role: string
+  employeeCode?: string | null
   isActive?: boolean
   designation?: { id: string; name: string } | null
   dateOfBirth?: string | null

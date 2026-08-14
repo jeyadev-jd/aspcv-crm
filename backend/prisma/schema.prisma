@@ -695,6 +695,30 @@ model User {
   noticePeriodDays         Int                      @default(30)
   probationEndDate         DateTime?
   confirmationDate         DateTime?
+  // ── Employment lifecycle (Salary Model.xlsx cols L, M, N, O) ──
+  // Probation length in days; DOC (date of confirmation) = DOJ + this.
+  probationDays            Int?
+  // DOR = date the resignation letter was received; DOL = last working day.
+  // exitDate above stays as the legacy/general exit marker.
+  dorLetterDate            DateTime?
+  lastWorkingDate          DateTime?
+  // Prior experience in months as on the ASPCV joining date (xlsx col H).
+  // Experience *since* DOJ (col I) is always derived, never stored.
+  priorExperienceMonths    Int?
+
+  // ── Master salary (xlsx cols U-Z, AJ) ──
+  // Master Gross is the input; Basic/HRA/Others default to 50/25/25 of it but
+  // are stored explicitly because the sheet allows overriding each one.
+  masterGross              Float?
+  masterBasic              Float?
+  masterHra                Float?
+  masterOthers             Float?
+  masterSpecial1           Float?                   @default(0)
+  masterSpecial2           Float?                   @default(0)
+  variablePayPa            Float?                   @default(0)
+  payrollRecords           PayrollRecord[]
+  payrollAdjustments       PayrollAdjustment[]      @relation("AdjustmentEmployee")
+  payrollAdjustmentsMade   PayrollAdjustment[]      @relation("AdjustmentCreatedBy")
   // Enterprise workflow relations
   approvalsAssigned        ApprovalAction[]         @relation("ApprovalAssignedTo")
   approvalsDelegated       ApprovalAction[]         @relation("ApprovalDelegatedTo")
@@ -3283,4 +3307,217 @@ model DepartmentBudget {
   @@unique([departmentId, financialYear, category])
   @@index([departmentId])
   @@index([financialYear])
+}
+
+// ─── Payroll (Salary Model.xlsx implementation) ───────────────────────────────
+//
+// The workbook is one sheet per payroll month ("June 2026"). PayrollPeriod is
+// that sheet; PayrollRecord is one employee row within it.
+
+enum PayrollPeriodStatus {
+  Draft // calculations may be re-run freely
+  Approved // snapshot frozen; salary slips read from here
+  Reopened // superseded by a newer version; kept for audit
+  Paid
+}
+
+/// Lifecycle classification for an employee within a period (xlsx cols P/Q/R).
+enum PayrollLifecycle {
+  Joiner
+  Leaver
+  Stayer
+}
+
+model PayrollPeriod {
+  id     String @id @default(cuid())
+  month  Int
+  year   Int
+  /// Payroll/leave cut-off is the 26th of the previous month to the 25th of
+  /// this one. Stored explicitly so a historical period keeps its own window
+  /// even if the company rule changes later.
+  cycleStart DateTime
+  cycleEnd   DateTime
+  /// xlsx col AL - calendar days used as the proration denominator.
+  calendarDays Int
+  /// xlsx col AM - days in the payroll month.
+  daysInMonth  Int
+  status       PayrollPeriodStatus @default(Draft)
+  approvedById String?
+  approvedAt   DateTime?
+  notes        String?
+  createdById  String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  records      PayrollRecord[]
+
+  @@unique([month, year])
+  @@index([status])
+}
+
+/// One employee's calculated payroll for one period. Every monetary column is
+/// an immutable snapshot once the parent period is approved - master salary
+/// changes afterwards must not alter an approved run, so the master values are
+/// copied in rather than read through the User relation at display time.
+model PayrollRecord {
+  id       String        @id @default(cuid())
+  periodId String
+  period   PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User          @relation(fields: [userId], references: [id])
+
+  /// Increments each time an approved period is reopened and recalculated.
+  version   Int     @default(1)
+  isCurrent Boolean @default(true)
+
+  lifecycle PayrollLifecycle @default(Stayer)
+
+  // ── Master salary snapshot (xlsx U-AK) ──
+  masterBasic    Float @default(0)
+  masterHra      Float @default(0)
+  masterOthers   Float @default(0)
+  masterSpecial1 Float @default(0)
+  masterSpecial2 Float @default(0)
+  masterGross    Float @default(0)
+  /// xlsx AC: min(masterGross - masterHra, 15000)
+  masterPfBasic  Float @default(0)
+  /// xlsx AD: masterPfBasic * 12%
+  masterCoPf     Float @default(0)
+  /// xlsx AE: "ESI" | "NO ESI" - eligibility label at master level.
+  masterForEsi   String @default("NO ESI")
+  /// xlsx AF: masterGross when <= 21000, else 0
+  masterEsiGross Float @default(0)
+  /// xlsx AG: masterEsiGross * 3.25%
+  masterCoEsi    Float @default(0)
+  /// xlsx AH: masterGross + masterCoPf + masterCoEsi
+  masterCtcPm    Float @default(0)
+  masterCtcPa    Float @default(0)
+  variablePayPa  Float @default(0)
+  /// xlsx AK: masterCtcPa + variablePayPa
+  masterCtcPaTotal Float @default(0)
+
+  // ── Attendance / salary days (xlsx AN-AO) ──
+  lop               Float @default(0)
+  daysForSalary     Float @default(0)
+  /// Inputs behind the LOP figure, kept for the breakdown view.
+  daysPresent       Int   @default(0)
+  daysAbsent        Int   @default(0)
+  lateDays          Int   @default(0)
+  lateLopDays       Float @default(0)
+  approvedLeaveDays Float @default(0)
+  holidayDays       Int   @default(0)
+  weeklyOffDays     Int   @default(0)
+
+  // ── Monthly earnings (xlsx AQ-AW) ──
+  monthlyBasic    Float @default(0)
+  monthlyHra      Float @default(0)
+  monthlyOthers   Float @default(0)
+  monthlySpecial1 Float @default(0)
+  monthlySpecial2 Float @default(0)
+  monthlyGross    Float @default(0)
+  /// xlsx AW: monthlyGross - monthlyHra. The PF/admin/EDLI wage basis.
+  grossHra        Float @default(0)
+
+  // ── Employee deductions (xlsx AX-BE) ──
+  employeePf         Float @default(0)
+  employeeEsi        Float @default(0)
+  employeeTds        Float @default(0)
+  employeePt         Float @default(0)
+  employeeDeduction1 Float @default(0)
+  employeeDeduction2 Float @default(0)
+  totalDeduction     Float @default(0)
+  /// xlsx BE: manual entry, subtracted alongside total deduction.
+  tda                Float @default(0)
+  /// xlsx BF: monthlyGross - totalDeduction - tda
+  netPay             Float @default(0)
+
+  // ── Employer contributions (xlsx BG-BK) ──
+  employerPf        Float @default(0)
+  adminCharges      Float @default(0)
+  edliCharges       Float @default(0)
+  employerEsi       Float @default(0)
+  /// xlsx BK. See PHASE_PAYROLL_IMPLEMENTATION.md - the workbook has two
+  /// variants of this formula; the ESI-inclusive one is implemented.
+  totalEmployerCost Float @default(0)
+
+  /// Sum of approved PayrollAdjustment rows folded into this calculation.
+  adjustmentTotal Float @default(0)
+
+  /// Version of the statutory configuration used, so an old run can explain
+  /// which PF ceiling / ESI threshold / PT slab produced its numbers.
+  configVersion String?
+  calculatedAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  adjustments PayrollAdjustment[]
+
+  /// One row per employee per period per version; superseded versions keep
+  /// isCurrent = false. Prevents duplicate payroll processing.
+  @@unique([periodId, userId, version])
+  @@index([userId])
+  @@index([periodId, isCurrent])
+}
+
+/// Explicit manual correction. Calculated columns are never overwritten in
+/// place - an adjustment is an auditable row that the engine folds in.
+model PayrollAdjustment {
+  id              String         @id @default(cuid())
+  payrollRecordId String?
+  payrollRecord   PayrollRecord? @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User           @relation("AdjustmentEmployee", fields: [userId], references: [id])
+  month           Int
+  year            Int
+  /// Positive adds to net pay, negative deducts.
+  amount          Float
+  type            String         @default("other")
+  reason          String
+  createdById     String
+  createdBy       User           @relation("AdjustmentCreatedBy", fields: [createdById], references: [id])
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@index([userId, month, year])
+  @@index([payrollRecordId])
+}
+
+/// Statutory rates and thresholds. Held as data (not constants) so an approved
+/// run can name the version that produced it, and so rates can change without
+/// a code deploy.
+model PayrollStatutoryConfig {
+  id             String   @id @default(cuid())
+  version        String   @unique
+  effectiveFrom  DateTime
+  pfWageCeiling  Float    @default(15000)
+  pfEmployeeRate Float    @default(0.12)
+  pfEmployerRate Float    @default(0.12)
+  /// xlsx AX caps employee PF at a flat 1800 once the wage basis exceeds the
+  /// ceiling, rather than recomputing 12% of the ceiling.
+  pfCappedAmount   Float    @default(1800)
+  esiWageThreshold Float    @default(21000)
+  esiEmployeeRate  Float    @default(0.0075)
+  esiEmployerRate  Float    @default(0.0325)
+  adminChargeRate  Float    @default(0.005)
+  edliChargeRate   Float    @default(0.005)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  @@index([isActive])
+}
+
+/// Tamil Nadu professional tax. The workbook uses a flat 208/month; the slab
+/// table is kept configurable so half-yearly municipal slabs can replace it
+/// without touching code.
+model ProfessionalTaxSlab {
+  id        String   @id @default(cuid())
+  state     String   @default("Tamil Nadu")
+  minAmount Float
+  maxAmount Float?
+  /// Monthly PT payable for this band.
+  amount    Float
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([state, isActive])
 }
