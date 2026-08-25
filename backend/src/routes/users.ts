@@ -13,19 +13,21 @@ const router = createSafeRouter()
 router.use(authenticate)
 
 router.get('/', requirePermission('hr_user', 'read_all'), async (req: AuthRequest, res) => {
-  const { includePending } = req.query as Record<string, string>
+  const { includePending, all } = req.query as Record<string, string>
   const pagination = parsePagination(req.query as Record<string, unknown>, 'name')
   const where = {
     ...(includePending === 'true' ? {} : { isActive: true }),
     ...(pagination.search && { name: { contains: pagination.search, mode: 'insensitive' as const } }),
   }
+  // `all=true` bypasses MAX_PAGE_SIZE: the HR directory and payroll screens
+  // load the full roster to compute company-wide totals, and a silently
+  // truncated list under-reports them past 100 employees.
   const [users, total] = await Promise.all([
     prisma.user.findMany({
       where,
       select: { id: true, name: true, email: true, role: true, roleName: true, designation: true, isActive: true, dateOfBirth: true, joiningDate: true, department: { select: { id: true, name: true } }, departmentId: true, baseSalary: true, hra: true, allowances: true, pfApplicable: true, esiApplicable: true, uan: true, esiNumber: true, pan: true, bankAccount: true, ifsc: true, bankName: true, emergencyContact: true, createdAt: true, employeeCode: true, masterGross: true, masterBasic: true, masterHra: true, masterOthers: true, masterSpecial1: true, masterSpecial2: true, variablePayPa: true, probationDays: true, priorExperienceMonths: true, dorLetterDate: true, lastWorkingDate: true, confirmationDate: true },
       orderBy: { [pagination.sort as string]: pagination.order },
-      skip: pagination.skip,
-      take: pagination.take,
+      ...(all === 'true' ? {} : { skip: pagination.skip, take: pagination.take }),
     }),
     prisma.user.count({ where }),
   ])
@@ -85,6 +87,17 @@ const EDITABLE_USER_FIELDS = [
   'employeeCode', 'probationDays', 'priorExperienceMonths',
 ] as const
 
+// These feed every payroll calculation directly. A non-finite or negative
+// value here (NaN, a stray minus sign, a string that happened to coerce)
+// propagates straight into net pay, CTC and statutory contributions with no
+// downstream check - the engine trusts what it reads off the user record.
+const NUMERIC_SALARY_FIELDS = [
+  'baseSalary', 'hra', 'allowances',
+  'masterGross', 'masterBasic', 'masterHra', 'masterOthers',
+  'masterSpecial1', 'masterSpecial2', 'variablePayPa',
+  'probationDays', 'priorExperienceMonths',
+] as const
+
 /** Lifecycle dates parsed out of the body separately from the scalar fields. */
 const EDITABLE_USER_DATES = ['dorLetterDate', 'lastWorkingDate', 'confirmationDate', 'probationEndDate'] as const
 
@@ -92,6 +105,18 @@ router.patch('/:id', requirePermission('hr_user', 'edit'), async (req: AuthReque
   const existingUser = await prisma.user.findUnique({ where: { id: req.params.id as string } })
   if (!rejectIfInactive(existingUser, res)) return
   const body = req.body as Record<string, unknown>
+
+  for (const field of NUMERIC_SALARY_FIELDS) {
+    const v = body[field]
+    if (v === undefined || v === null) continue // clearing the field is fine
+    const n = Number(v)
+    if (!Number.isFinite(n) || n < 0) {
+      res.status(400).json({ error: `${field} must be a non-negative number` })
+      return
+    }
+    body[field] = n // normalise so a numeric string can't slip through as-is
+  }
+
   const update: Record<string, unknown> = {}
   for (const field of EDITABLE_USER_FIELDS) {
     if (body[field] !== undefined) {

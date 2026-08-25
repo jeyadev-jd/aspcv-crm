@@ -39,6 +39,29 @@ describe('master salary (xlsx U-AK)', () => {
     expect(s).toEqual({ basic: 6000, hra: 2000, others: 2000 })
   })
 
+  /**
+   * U/V/W are blank data-entry cells in the workbook and AA is =SUM(U:Z), so
+   * typed components must drive the gross rather than being re-derived from it.
+   * Reference: Basic 9000 / HRA 5000 / Others 3000.
+   */
+  it('drives gross from typed components rather than re-splitting it', () => {
+    const s = F.splitMasterGross(17000, { basic: 9000, hra: 5000, others: 3000 })
+    expect(s).toEqual({ basic: 9000, hra: 5000, others: 3000 })
+
+    const gross = F.masterGrossTotal({ ...s, special1: 0, special2: 0 })
+    expect(gross).toBe(17000)
+
+    // PF basis = Gross − HRA = 12000, under the 15000 ceiling.
+    expect(F.masterPfBasic(gross, s.hra, R)).toBe(12000)
+    expect(F.masterCoPf(12000, R)).toBe(1440)
+  })
+
+  it('does not reintroduce a percentage for a component left blank', () => {
+    // Only Basic supplied - HRA/Others contribute nothing rather than 25% each.
+    const s = F.splitMasterGross(17000, { basic: 9000 })
+    expect(s).toEqual({ basic: 9000, hra: 0, others: 0 })
+  })
+
   it('sums master gross from components (AA)', () => {
     expect(
       F.masterGrossTotal({ basic: 5000, hra: 2500, others: 2500, special1: 0, special2: 0 })
@@ -69,10 +92,34 @@ describe('master salary (xlsx U-AK)', () => {
   })
 
   it('zeroes ESI gross and employer ESI above the threshold (AF/AG)', () => {
-    expect(F.masterEsiGross(10000, R)).toBe(10000)
-    expect(F.masterCoEsi(10000, R)).toBe(325)
-    expect(F.masterEsiGross(25000, R)).toBe(0)
-    expect(F.masterCoEsi(25000, R)).toBe(0)
+    // Signature is (masterGross, eligibilityWage, rates) - eligibility and the
+    // contribution base are both the master gross.
+    expect(F.masterEsiGross(10000, 10000, R)).toBe(10000)
+    expect(F.masterCoEsi(10000, 10000, R)).toBe(325)
+    expect(F.masterEsiGross(25000, 25000, R)).toBe(0)
+    expect(F.masterCoEsi(25000, 25000, R)).toBe(0)
+  })
+
+  /**
+   * Eligibility is tested on MASTER GROSS. A gross of 25000 is outside the
+   * scheme even though its 50% basic (12500) sits below the threshold - the
+   * basic must never decide coverage.
+   */
+  it('decides eligibility on master gross rather than master basic', () => {
+    const gross = 25000
+    const basic = F.splitMasterGross(gross).basic // 12500, below the threshold
+    expect(basic).toBeLessThan(R.esiWageThreshold)
+
+    expect(F.masterForEsi(gross, R)).toBe('NO ESI')
+    expect(F.isEsiCovered(gross, R)).toBe(false)
+    expect(F.masterEsiGross(gross, gross, R)).toBe(0)
+    expect(F.masterCoEsi(gross, gross, R)).toBe(0)
+  })
+
+  it('covers an employee whose master gross is at or below the threshold', () => {
+    expect(F.masterForEsi(21000, R)).toBe('ESI')
+    expect(F.isEsiCovered(21000, R)).toBe(true)
+    expect(F.masterEsiGross(21000, 21000, R)).toBe(21000)
   })
 
   it('computes monthly and annual CTC (AH/AI/AK)', () => {
@@ -122,13 +169,74 @@ describe('employee deductions (xlsx AX-BF)', () => {
     expect(F.employeePf(7500, R, false)).toBe(0)
   })
 
-  it('computes employee ESI at 0.75% when master ESI applies (AY)', () => {
-    expect(F.employeeEsi(10000, 325, R)).toBe(75)
+  it('computes employee ESI at 0.75% of the earned gross (AY)', () => {
+    expect(F.employeeEsi(10000, true, R)).toBe(75)
   })
 
-  it('returns zero employee ESI when the master row is ESI-exempt', () => {
-    // masterCoEsi = 0 means the master gross exceeded the threshold.
-    expect(F.employeeEsi(10000, 0, R)).toBe(0)
+  /**
+   * Scenario A: fixed gross above the limit, LOP drops earned gross below it.
+   * The employee stays OUT - a temporary drop does not pull them in.
+   */
+  it('does not pull an exempt employee in when LOP drops their earned gross', () => {
+    // Master gross 25000 -> not covered. Earned only 18000 this month.
+    const covered = F.isEsiCovered(25000, R)
+    expect(covered).toBe(false)
+    expect(F.employeeEsi(18000, covered, R)).toBe(0)
+    expect(F.employerEsi(18000, covered, R)).toBe(0)
+  })
+
+  /**
+   * Scenario B: covered employee with LOP contributes on the REDUCED earned
+   * gross, not the full salary.
+   */
+  it('charges a covered employee proportionately on the reduced earned gross', () => {
+    // Master gross 20000 -> covered. 5 days LOP left 16667 earned.
+    const covered = F.isEsiCovered(20000, R)
+    expect(covered).toBe(true)
+    expect(F.employeeEsi(16667, covered, R)).toBe(125)
+    expect(F.employerEsi(16667, covered, R)).toBe(541.68)
+  })
+
+  it('honours an explicit ESI exemption on the employee', () => {
+    expect(F.employeeEsi(10000, true, R, false)).toBe(0)
+  })
+
+  it('keeps employee and employer ESI agreeing on coverage', () => {
+    // Both sides read the same master-level decision, so one can never
+    // contribute while the other does not.
+    for (const basic of [15000, 20999, 21000, 21500]) {
+      const covered = F.isEsiCovered(basic, R)
+      const emp = F.employeeEsi(18000, covered, R)
+      const er = F.employerEsi(18000, covered, R)
+      expect(emp > 0).toBe(er > 0)
+    }
+  })
+
+  /**
+   * The 176 daily-average rule: when earnings per paid day fall to the
+   * threshold or below, the employee's 0.75% is waived but the employer still
+   * pays its full 3.25% so cover is maintained.
+   */
+  describe('daily-average wage exemption', () => {
+    it('computes the average over days actually paid', () => {
+      expect(F.dailyAverageWage(5280, 30)).toBe(176)
+    })
+
+    it('waives the employee share at or below the threshold', () => {
+      // 5280 over 30 paid days = exactly 176.
+      expect(F.employeeEsi(5280, true, R, true, 30)).toBe(0)
+      // Employer still pays.
+      expect(F.employerEsi(5280, true, R)).toBe(171.6)
+    })
+
+    it('still charges the employee just above the threshold', () => {
+      // 5310 over 30 days = 177, above the exemption. 5310 * 0.75% = 39.825.
+      expect(F.employeeEsi(5310, true, R, true, 30)).toBe(39.82)
+    })
+
+    it('ignores the exemption when no day count is supplied', () => {
+      expect(F.employeeEsi(5280, true, R, true, 0)).toBe(39.6)
+    })
   })
 
   it('sums total deduction (BD)', () => {
@@ -166,15 +274,12 @@ describe('employer contributions (xlsx BG-BK)', () => {
     expect(F.edliCharges(20000, R)).toBe(75)
   })
 
-  it('computes employer ESI at 3.25% below the threshold (BJ)', () => {
-    expect(F.employerEsi(10000, R)).toBe(325)
+  it('computes employer ESI at 3.25% of the earned gross (BJ)', () => {
+    expect(F.employerEsi(10000, true, R)).toBe(325)
   })
 
-  it('uses the strict < comparison from the workbook (BJ)', () => {
-    // The sheet writes IF(AV<21000,...) - exactly 21000 yields zero here even
-    // though the master-level formula (>21000) would treat it as eligible.
-    expect(F.employerEsi(21000, R)).toBe(0)
-    expect(F.employerEsi(20999, R)).toBe(682.47)
+  it('pays nothing for an employee outside the scheme', () => {
+    expect(F.employerEsi(20999, false, R)).toBe(0)
   })
 
   it('computes total employer cost including ESI (BK)', () => {
@@ -198,7 +303,7 @@ describe('end-to-end reference row (xlsx row 2)', () => {
     const masterGross = F.masterGrossTotal({ ...split, special1: 0, special2: 0 })
     const pfBasic = F.masterPfBasic(masterGross, split.hra, R)
     const coPf = F.masterCoPf(pfBasic, R)
-    const coEsi = F.masterCoEsi(masterGross, R)
+    const coEsi = F.masterCoEsi(masterGross, masterGross, R)
 
     expect(masterGross).toBe(10000)
     expect(pfBasic).toBe(7500)
@@ -223,9 +328,9 @@ describe('end-to-end reference row (xlsx row 2)', () => {
     expect(monthlyGross).toBe(10000)
     expect(grossHra).toBe(7500)
     expect(F.employeePf(grossHra, R)).toBe(900)
-    expect(F.employeeEsi(monthlyGross, coEsi, R)).toBe(75)
+    expect(F.employeeEsi(monthlyGross, coEsi > 0, R)).toBe(75)
     expect(F.adminCharges(grossHra, R)).toBe(37.5)
-    expect(F.employerEsi(monthlyGross, R)).toBe(325)
+    expect(F.employerEsi(monthlyGross, coEsi > 0, R)).toBe(325)
   })
 
   it('halves the earnings for a half-month joiner', () => {
@@ -271,18 +376,27 @@ describe('ESI eligibility cases', () => {
   it('treats an employee below the threshold as ESI-eligible throughout', () => {
     const g = 18000
     expect(F.masterForEsi(g, R)).toBe('ESI')
-    expect(F.masterCoEsi(g, R)).toBe(585)
-    expect(F.employeeEsi(g, 585, R)).toBe(135)
-    expect(F.employerEsi(g, R)).toBe(585)
+    expect(F.masterCoEsi(g, g, R)).toBe(585)
+    expect(F.employeeEsi(g, true, R)).toBe(135)
+    expect(F.employerEsi(g, true, R)).toBe(585)
   })
 
   it('excludes an employee above the threshold from every ESI figure', () => {
     const g = 30000
     expect(F.masterForEsi(g, R)).toBe('NO ESI')
-    expect(F.masterEsiGross(g, R)).toBe(0)
-    expect(F.masterCoEsi(g, R)).toBe(0)
-    expect(F.employeeEsi(g, 0, R)).toBe(0)
-    expect(F.employerEsi(g, R)).toBe(0)
+    expect(F.masterEsiGross(g, g, R)).toBe(0)
+    expect(F.masterCoEsi(g, g, R)).toBe(0)
+    expect(F.employeeEsi(g, false, R)).toBe(0)
+    expect(F.employerEsi(g, false, R)).toBe(0)
+  })
+
+  it('keeps a high earner out even when LOP drops their earned gross', () => {
+    // Master gross 30000 puts them outside the scheme; a heavy-LOP month that
+    // leaves only 16000 earned does NOT pull them in.
+    const covered = F.isEsiCovered(30000, R)
+    expect(covered).toBe(false)
+    expect(F.employeeEsi(16000, covered, R)).toBe(0)
+    expect(F.employerEsi(16000, covered, R)).toBe(0)
   })
 })
 
@@ -340,6 +454,67 @@ describe('payroll period (26th to 25th cycle)', () => {
   it('pays nothing when the employment window misses the period', () => {
     const { cycleStart, cycleEnd } = cycleWindow(6, 2026)
     expect(payableWindowDays(new Date('2026-07-01'), null, cycleStart, cycleEnd, 31)).toBe(0)
+  })
+})
+
+/**
+ * Hours-based LOP (confirmed company rule): pay follows hours worked against
+ * hours owed. With an 8-hour standard, an 8-hour shortfall costs one day and a
+ * 16-hour shortfall costs two. Only whole standard-days are deducted.
+ *
+ * Mirrors the arithmetic in summariseAttendance so the rule is pinned without
+ * needing a database.
+ */
+function hoursLop(requiredHours: number, workedHours: number, creditedLeaveHours = 0, standard = 8) {
+  const shortfall = Math.max(0, requiredHours - workedHours - creditedLeaveHours)
+  return { shortfall, lopDays: standard > 0 ? Math.floor(shortfall / standard) : 0 }
+}
+
+describe('hours-based LOP', () => {
+  it('deducts nothing when the full month is worked', () => {
+    // 24 working days x 8h = 192h owed, 192h worked.
+    expect(hoursLop(192, 192)).toEqual({ shortfall: 0, lopDays: 0 })
+  })
+
+  it('cuts one day for an 8-hour shortfall', () => {
+    expect(hoursLop(192, 184)).toEqual({ shortfall: 8, lopDays: 1 })
+  })
+
+  it('cuts two days for a 16-hour shortfall', () => {
+    expect(hoursLop(192, 176)).toEqual({ shortfall: 16, lopDays: 2 })
+  })
+
+  it('ignores a partial-day shortfall', () => {
+    // 7h short of the standard day - not yet a whole day of pay.
+    expect(hoursLop(192, 185)).toEqual({ shortfall: 7, lopDays: 0 })
+  })
+
+  it('rounds a part-day shortfall down, never up', () => {
+    // 15h short is one whole day plus 7h, so one day is cut.
+    expect(hoursLop(192, 177)).toEqual({ shortfall: 15, lopDays: 1 })
+  })
+
+  it('never produces negative LOP when extra hours are worked', () => {
+    expect(hoursLop(192, 210)).toEqual({ shortfall: 0, lopDays: 0 })
+  })
+
+  it('credits approved leave so it is not treated as a shortfall', () => {
+    // Worked 176h, two approved leave days credited at 8h each = 192h total.
+    expect(hoursLop(192, 176, 16)).toEqual({ shortfall: 0, lopDays: 0 })
+  })
+
+  it('still cuts when leave does not cover the whole gap', () => {
+    // Owed 192, worked 168, one leave day credited (8h) - 16h still short.
+    expect(hoursLop(192, 168, 8)).toEqual({ shortfall: 16, lopDays: 2 })
+  })
+
+  it('honours a non-8-hour standard day', () => {
+    // 9-hour standard: 18h short is exactly two days.
+    expect(hoursLop(180, 162, 0, 9)).toEqual({ shortfall: 18, lopDays: 2 })
+  })
+
+  it('deducts the whole month when nothing was worked', () => {
+    expect(hoursLop(192, 0)).toEqual({ shortfall: 192, lopDays: 24 })
   })
 })
 

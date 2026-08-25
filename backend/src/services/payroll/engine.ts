@@ -55,6 +55,14 @@ export interface PayrollCalculation {
   approvedLeaveDays: number
   holidayDays: number
   weeklyOffDays: number
+  // Hours-based LOP inputs, surfaced so the breakdown can show the working.
+  standardHoursPerDay: number
+  workingDays: number
+  requiredHours: number
+  workedHours: number
+  creditedLeaveHours: number
+  shortfallHours: number
+  hoursLopDays: number
 
   // Monthly earnings (xlsx AQ-AW)
   monthlyBasic: number
@@ -198,9 +206,13 @@ export async function calculatePayroll(
 
   const masterPfBasic = F.masterPfBasic(masterGross, split.hra, rates)
   const masterCoPf = user.pfApplicable ? F.masterCoPf(masterPfBasic, rates) : 0
-  const masterForEsi = F.masterForEsi(masterGross, rates)
-  const masterEsiGross = user.esiApplicable ? F.masterEsiGross(masterGross, rates) : 0
-  const masterCoEsi = user.esiApplicable ? F.masterCoEsi(masterGross, rates) : 0
+  // ESI eligibility is decided on MASTER GROSS and is fixed for the employee:
+  // a month reduced by LOP never pulls them in or pushes them out.
+  const esiEligibilityWage = masterGross
+  const esiCovered = user.esiApplicable && F.isEsiCovered(esiEligibilityWage, rates)
+  const masterForEsi = F.masterForEsi(esiEligibilityWage, rates)
+  const masterEsiGross = user.esiApplicable ? F.masterEsiGross(masterGross, esiEligibilityWage, rates) : 0
+  const masterCoEsi = user.esiApplicable ? F.masterCoEsi(masterGross, esiEligibilityWage, rates) : 0
   const masterCtcPm = F.masterCtcPm(masterGross, masterCoPf, masterCoEsi)
   const masterCtcPa = F.round2(masterCtcPm * 12)
   const variablePayPa = user.variablePayPa ?? 0
@@ -249,7 +261,10 @@ export async function calculatePayroll(
 
   // ── Deductions (xlsx AX-BF) ──
   const employeePf = F.employeePf(grossHra, rates, user.pfApplicable)
-  const employeeEsi = F.employeeEsi(monthlyGross, masterCoEsi, rates, user.esiApplicable)
+  // Contribution is proportionate to what was actually earned, and the
+  // employee share is waived when the average daily wage falls to the
+  // exemption threshold - the employer still pays its full share.
+  const employeeEsi = F.employeeEsi(monthlyGross, esiCovered, rates, user.esiApplicable, daysForSalary)
   // TDS uses the existing CRM implementation, annualised off the master CTC.
   const employeeTds = calcTDS(masterGross * 12)
   const employeePt = await resolveProfessionalTax(monthlyGross)
@@ -265,9 +280,24 @@ export async function calculatePayroll(
   })
   const tda = options.tda ?? 0
 
-  // Approved adjustments for this employee and period.
+  // Approved adjustments for this employee and period. Once the period itself
+  // is approved its figures are final, so only adjustments approved before that
+  // moment count - otherwise a later approval would make this live calculation
+  // disagree with the frozen record and the payslip printed from it.
+  const period = await prisma.payrollPeriod.findUnique({
+    where: { month_year: { month, year } },
+    select: { status: true, approvedAt: true },
+  })
+  const lockedAt =
+    period && (period.status === 'Approved' || period.status === 'Paid') ? period.approvedAt : null
+
   const adjustments = await prisma.payrollAdjustment.findMany({
-    where: { userId, month, year, approvedAt: { not: null } },
+    where: {
+      userId,
+      month,
+      year,
+      approvedAt: lockedAt ? { not: null, lte: lockedAt } : { not: null },
+    },
   })
   const adjustmentTotal = F.round2(adjustments.reduce((s, a) => s + a.amount, 0))
 
@@ -277,7 +307,7 @@ export async function calculatePayroll(
   const employerPf = user.pfApplicable ? F.employerPf(employeePf) : 0
   const adminCharges = F.adminCharges(grossHra, rates, user.pfApplicable)
   const edliCharges = F.edliCharges(grossHra, rates, user.pfApplicable)
-  const employerEsi = F.employerEsi(monthlyGross, rates, user.esiApplicable)
+  const employerEsi = F.employerEsi(monthlyGross, esiCovered, rates, user.esiApplicable)
   const totalEmployerCost = F.totalEmployerCost({
     employeePf,
     employeePt,
@@ -320,6 +350,13 @@ export async function calculatePayroll(
     approvedLeaveDays: attendance.approvedLeaveDays,
     holidayDays: attendance.holidayDays,
     weeklyOffDays: attendance.weeklyOffDays,
+    standardHoursPerDay: attendance.standardHoursPerDay,
+    workingDays: attendance.workingDays,
+    requiredHours: attendance.requiredHours,
+    workedHours: attendance.workedHours,
+    creditedLeaveHours: attendance.creditedLeaveHours,
+    shortfallHours: attendance.shortfallHours,
+    hoursLopDays: attendance.hoursLopDays,
     monthlyBasic,
     monthlyHra,
     monthlyOthers,
@@ -374,6 +411,13 @@ export function toRecordData(calc: PayrollCalculation) {
     approvedLeaveDays: calc.approvedLeaveDays,
     holidayDays: calc.holidayDays,
     weeklyOffDays: calc.weeklyOffDays,
+    standardHoursPerDay: calc.standardHoursPerDay,
+    workingDays: calc.workingDays,
+    requiredHours: calc.requiredHours,
+    workedHours: calc.workedHours,
+    creditedLeaveHours: calc.creditedLeaveHours,
+    shortfallHours: calc.shortfallHours,
+    hoursLopDays: calc.hoursLopDays,
     monthlyBasic: calc.monthlyBasic,
     monthlyHra: calc.monthlyHra,
     monthlyOthers: calc.monthlyOthers,

@@ -40,7 +40,9 @@ export function useMySalary() {
 export function useAllSalary(month?: number, year?: number, userId?: string) {
   return useQuery<SalaryRecord[]>({
     queryKey: ['salary', 'all', month, year, userId],
-    queryFn: () => api.get('/salary/all', { params: { month, year, userId, pageSize: 1000 } }).then(r => r.data.data),
+    // pageSize alone is clamped server-side at 100; all=true is the actual
+    // bypass the summary cards and "Generate All" rely on for correct totals.
+    queryFn: () => api.get('/salary/all', { params: { month, year, userId, all: true } }).then(r => r.data.data),
   })
 }
 

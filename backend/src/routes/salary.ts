@@ -37,6 +37,15 @@ router.post('/generate', requirePermission('salary', 'generate'), async (req: Au
   const user = await prisma.user.findUnique({ where: { id: userId } })
   if (!user || !user.baseSalary) { res.status(400).json({ error: 'User or salary not configured' }); return }
 
+  // A paid record must never be silently overwritten by a re-run - it would
+  // revert to 'draft' while paidAt stays set, then re-enter the approve/pay
+  // flow and risk a second payout for a month already settled.
+  const priorRecord = await prisma.salaryRecord.findUnique({ where: { userId_month_year: { userId, month, year } } })
+  if (priorRecord?.status === 'paid') {
+    res.status(409).json({ error: 'This salary record is already paid and cannot be regenerated' })
+    return
+  }
+
   const start = new Date(Date.UTC(year, month - 1, 1))
   const end = new Date(Date.UTC(year, month, 1))
   const daysInMonth = new Date(year, month, 0).getDate()
@@ -47,7 +56,12 @@ router.post('/generate', requirePermission('salary', 'generate'), async (req: Au
 
   const daysPresent = records.filter(r => ['present', 'late', 'half_day'].includes(r.status)).length
   const leaveDays = records.filter(r => r.status === 'leave').length
-  const daysAbsent = Math.max(0, daysInMonth - daysPresent - leaveDays)
+  // Absence is counted from explicit 'absent' records only, never derived by
+  // subtracting from the full calendar month. Subtraction previously charged
+  // an employee for days that had not happened yet when payroll was run
+  // mid-month, and for weekly offs/holidays that were never working days to
+  // begin with - neither is ever marked 'absent' in the attendance table.
+  const daysAbsent = records.filter(r => r.status === 'absent').length
   const lateDays = records.filter(r => r.minutesLate > 0).length
 
   // Late-to-LOP engine: fetch rules from DB, find matching rule
@@ -182,10 +196,18 @@ router.patch('/:id/manual-edit', requirePermission('salary', 'generate'), async 
 
   const body = req.body as Record<string, unknown> & { reason?: string }
   const fields: Record<string, number> = {}
+  // Number.isNaN alone lets 'Infinity'/'-Infinity' and negative amounts
+  // through - Infinity then poisons netSalary (and everything summed from it)
+  // once an admin approves the correction, and a negative gross or deduction
+  // corrupts the same figures silently.
   for (const k of SALARY_EDIT_KEYS) {
-    if (body[k] !== undefined && body[k] !== null && !Number.isNaN(Number(body[k]))) {
-      fields[k] = Number(body[k])
+    if (body[k] === undefined || body[k] === null) continue
+    const n = Number(body[k])
+    if (!Number.isFinite(n) || n < 0) {
+      res.status(400).json({ error: `${k} must be a non-negative number` })
+      return
     }
+    fields[k] = n
   }
   if (Object.keys(fields).length === 0) { res.status(400).json({ error: 'No editable fields provided' }); return }
 
@@ -211,6 +233,18 @@ router.patch('/:id/manual-edit', requirePermission('salary', 'generate'), async 
 })
 
 router.patch('/:id/approve', requirePermission('salary', 'approve'), async (req: AuthRequest, res) => {
+  const existing = await prisma.salaryRecord.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ error: 'Salary record not found' }); return }
+
+  // Only a draft can be approved. 'pending' is parked awaiting a manual-edit
+  // approval and must go through that flow first; 'approved'/'paid' are past
+  // this step already - re-approving would re-send the payslip email on every
+  // click and, for 'paid', would drag a settled record backwards.
+  if (existing.status !== 'draft') {
+    res.status(409).json({ error: `Cannot approve a ${existing.status} salary record` })
+    return
+  }
+
   const record = await prisma.salaryRecord.update({ where: { id: req.params.id as string }, data: { status: 'approved' } })
   // Approval is the trigger for delivery. emailPayslip never throws, so a mail
   // outage leaves the record approved and reports the failure to the caller
@@ -249,6 +283,17 @@ router.post('/:id/email', requirePermission('salary', 'approve'), async (req: Au
 })
 
 router.patch('/:id/paid', requirePermission('salary', 'mark_paid'), async (req: AuthRequest, res) => {
+  const existing = await prisma.salaryRecord.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) { res.status(404).json({ error: 'Salary record not found' }); return }
+
+  // Paying a record that was never approved skips the sign-off the NEFT
+  // export relies on; re-paying an already-paid one would overwrite paidAt.
+  if (existing.status === 'paid') { res.json(existing); return }
+  if (existing.status !== 'approved') {
+    res.status(409).json({ error: `Cannot mark a ${existing.status} salary record as paid - it must be approved first` })
+    return
+  }
+
   const record = await prisma.salaryRecord.update({ where: { id: req.params.id as string }, data: { status: 'paid', paidAt: new Date() } })
   res.json(record)
 })

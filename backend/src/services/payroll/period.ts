@@ -83,8 +83,24 @@ export interface AttendanceSummary {
   approvedLeaveDays: number
   holidayDays: number
   weeklyOffDays: number
-  /** Total LOP: unapproved absence + the late-attendance penalty (xlsx AN). */
+  /** Total LOP: hours shortfall + the late-attendance penalty (xlsx AN). */
   lop: number
+
+  // ── Hours-based calculation ──
+  /** Standard hours per working day (AttendanceSettings.fullDayHours). */
+  standardHoursPerDay: number
+  /** Working days in the window: payable days less holidays and weekly offs. */
+  workingDays: number
+  /** Hours the employee is expected to work: workingDays x standardHoursPerDay. */
+  requiredHours: number
+  /** Hours actually worked, from the check-in/check-out trail. */
+  workedHours: number
+  /** Hours credited for approved leave, so leave does not read as a shortfall. */
+  creditedLeaveHours: number
+  /** requiredHours - (workedHours + creditedLeaveHours), never negative. */
+  shortfallHours: number
+  /** Whole days of pay lost to the shortfall: floor(shortfall / standard). */
+  hoursLopDays: number
 }
 
 /**
@@ -159,13 +175,65 @@ export async function summariseAttendance(
     }
   }
 
-  // Unapproved absence = payable days not covered by attendance, approved
-  // leave, holidays or weekly offs. Clamped at zero so an over-marked month
-  // can never produce negative LOP.
-  const accountedDays = daysPresent + approvedLeaveDays + holidayDays + weeklyOffDays
-  const daysAbsent = Math.max(0, Math.round(payableDays - accountedDays))
+  // ── Hours-based LOP (confirmed company rule) ──
+  //
+  // Pay is driven by hours worked against the hours owed, not by counting
+  // days. With an 8-hour standard and 24 working days the month owes 192
+  // hours; every whole standard-day of shortfall costs one day of pay, so an
+  // 8-hour deficit is a 1-day cut and a 16-hour deficit is a 2-day cut.
+  //
+  // Worked hours come from totalWorkingHours, which the punch route derives
+  // from the FIRST CheckIn of the day to the last CheckOut, minus breaks - an
+  // employee may punch several times, but the day opens at the first check-in.
+  const standardHoursPerDay = settings?.fullDayHours ?? 8
 
-  const lop = Math.min(payableDays, daysAbsent + lateLopDays)
+  // Hours are only owed for days that were actually tracked. A day with no
+  // attendance record at all is a gap in the data - HR has not marked it yet -
+  // and must not be read as "worked zero hours", or an unprocessed month would
+  // silently wipe out someone's salary. Explicit absences are still counted,
+  // because those rows exist and carry zero hours.
+  const trackedDays = new Set(
+    records.map((r) => r.date.toISOString().slice(0, 10))
+  ).size
+
+  // Weekly offs and holidays are payable and are not working days, so they owe
+  // no hours. Approved leave days are credited separately below.
+  const potentialWorkingDays = Math.max(0, payableDays - holidayDays - weeklyOffDays)
+  // Capped at the days actually tracked, so the shortfall can only ever reflect
+  // real recorded attendance.
+  const workingDays = Math.min(potentialWorkingDays, trackedDays + approvedLeaveDays)
+  const requiredHours = round2(workingDays * standardHoursPerDay)
+
+  // Hours come from the punch trail (first CheckIn to last CheckOut, less
+  // breaks). Records that predate hour tracking - or days HR marked present
+  // without punches - carry 0 hours; crediting them the standard day stops a
+  // missing punch from silently costing an employee a day's pay. A day
+  // explicitly marked absent or on leave is never credited this way.
+  const CREDITED_STATUSES = ['present', 'late']
+  const workedHours = round2(
+    records.reduce((sum, r) => {
+      const logged = r.totalWorkingHours ?? 0
+      if (logged > 0) return sum + logged
+      if (CREDITED_STATUSES.includes(r.status)) return sum + standardHoursPerDay
+      if (r.status === 'half_day') return sum + standardHoursPerDay / 2
+      return sum
+    }, 0)
+  )
+
+  // Approved leave is paid, so it is credited at the standard rate rather than
+  // counted as hours not worked.
+  const creditedLeaveHours = round2(approvedLeaveDays * standardHoursPerDay)
+
+  const shortfallHours = Math.max(0, round2(requiredHours - workedHours - creditedLeaveHours))
+
+  // Only whole standard-days of shortfall are deducted; a partial day carries
+  // no cut, matching "8 hours less = 1 day, 16 hours less = 2 days".
+  const hoursLopDays = standardHoursPerDay > 0 ? Math.floor(shortfallHours / standardHoursPerDay) : 0
+
+  // Reported for the breakdown view: the shortfall expressed in days.
+  const daysAbsent = standardHoursPerDay > 0 ? round2(shortfallHours / standardHoursPerDay) : 0
+
+  const lop = Math.min(payableDays, hoursLopDays + lateLopDays)
 
   return {
     daysPresent,
@@ -176,5 +244,16 @@ export async function summariseAttendance(
     holidayDays,
     weeklyOffDays,
     lop,
+    standardHoursPerDay,
+    workingDays,
+    requiredHours,
+    workedHours,
+    creditedLeaveHours,
+    shortfallHours,
+    hoursLopDays,
   }
+}
+
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100
 }

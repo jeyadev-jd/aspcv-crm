@@ -3406,6 +3406,15 @@ model PayrollRecord {
   approvedLeaveDays Float @default(0)
   holidayDays       Int   @default(0)
   weeklyOffDays     Int   @default(0)
+  /// Hours-based LOP working, snapshotted so an approved run can explain how
+  /// its deduction was reached even if settings change later.
+  standardHoursPerDay Float @default(8)
+  workingDays         Float @default(0)
+  requiredHours       Float @default(0)
+  workedHours         Float @default(0)
+  creditedLeaveHours  Float @default(0)
+  shortfallHours      Float @default(0)
+  hoursLopDays        Float @default(0)
 
   // ── Monthly earnings (xlsx AQ-AW) ──
   monthlyBasic    Float @default(0)

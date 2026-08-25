@@ -276,12 +276,34 @@ router.post('/adjustments', requirePermission('salary', 'generate'), async (req:
     return res.status(400).json({ error: 'A meaningful reason is required for a payroll adjustment' })
   }
 
+  // A non-numeric amount would land in the database as NaN and poison every
+  // downstream total (adjustmentTotal, netPay) for the whole period.
+  const numericAmount = Number(amount)
+  if (!Number.isFinite(numericAmount) || numericAmount === 0) {
+    return res.status(400).json({ error: 'Amount must be a non-zero number' })
+  }
+
+  const m = Number(month)
+  const y = Number(year)
+  if (!Number.isInteger(m) || m < 1 || m > 12 || !Number.isInteger(y)) {
+    return res.status(400).json({ error: 'A valid month and year are required' })
+  }
+
+  // The UI hides this action once the period is locked, but the endpoint is
+  // reachable directly - a closed period must not gain new adjustments.
+  const period = await prisma.payrollPeriod.findUnique({ where: { month_year: { month: m, year: y } } })
+  if (period && (period.status === 'Approved' || period.status === 'Paid')) {
+    return res.status(409).json({
+      error: 'This payroll period is already approved. Reopen it before adding adjustments.',
+    })
+  }
+
   const adjustment = await prisma.payrollAdjustment.create({
     data: {
       userId: String(userId),
-      month: Number(month),
-      year: Number(year),
-      amount: Number(amount),
+      month: m,
+      year: y,
+      amount: numericAmount,
       type: type ? String(type) : 'other',
       reason: String(reason),
       createdById: req.user!.id,
@@ -292,6 +314,22 @@ router.post('/adjustments', requirePermission('salary', 'generate'), async (req:
 })
 
 router.patch('/adjustments/:id/approve', requirePermission('salary', 'approve'), async (req: AuthRequest, res) => {
+  const existing = await prisma.payrollAdjustment.findUnique({ where: { id: req.params.id as string } })
+  if (!existing) return res.status(404).json({ error: 'Adjustment not found' })
+
+  // Re-approving would silently move approvedAt, hiding double submissions and
+  // shifting the timestamp the approved-period cut-off is measured against.
+  if (existing.approvedAt) return res.json(existing)
+
+  const period = await prisma.payrollPeriod.findUnique({
+    where: { month_year: { month: existing.month, year: existing.year } },
+  })
+  if (period && (period.status === 'Approved' || period.status === 'Paid')) {
+    return res.status(409).json({
+      error: 'This payroll period is already approved. Reopen it before approving adjustments.',
+    })
+  }
+
   const adjustment = await prisma.payrollAdjustment.update({
     where: { id: req.params.id as string },
     data: { approvedById: req.user!.id, approvedAt: new Date() },
@@ -359,9 +397,12 @@ router.post('/preview', requirePermission('salary', 'read_all'), async (req: Aut
 
   const masterPfBasic = F.masterPfBasic(masterGross, split.hra, rates)
   const masterCoPf = pfApplicable ? F.masterCoPf(masterPfBasic, rates) : 0
-  const masterForEsi = F.masterForEsi(masterGross, rates)
-  const masterEsiGross = esiApplicable ? F.masterEsiGross(masterGross, rates) : 0
-  const masterCoEsi = esiApplicable ? F.masterCoEsi(masterGross, rates) : 0
+  // Eligibility on MASTER GROSS, fixed for the employee regardless of LOP.
+  const esiEligibilityWage = masterGross
+  const esiCovered = esiApplicable && F.isEsiCovered(esiEligibilityWage, rates)
+  const masterForEsi = F.masterForEsi(esiEligibilityWage, rates)
+  const masterEsiGross = esiApplicable ? F.masterEsiGross(masterGross, esiEligibilityWage, rates) : 0
+  const masterCoEsi = esiApplicable ? F.masterCoEsi(masterGross, esiEligibilityWage, rates) : 0
   const masterCtcPm = F.masterCtcPm(masterGross, masterCoPf, masterCoEsi)
   const masterCtcPa = F.round2(masterCtcPm * 12)
   const variablePayPa = num(b.variablePayPa)
@@ -384,7 +425,7 @@ router.post('/preview', requirePermission('salary', 'read_all'), async (req: Aut
   const grossHra = F.grossMinusHra(monthlyGross, monthlyHra)
 
   const employeePf = F.employeePf(grossHra, rates, pfApplicable)
-  const employeeEsi = F.employeeEsi(monthlyGross, masterCoEsi, rates, esiApplicable)
+  const employeeEsi = F.employeeEsi(monthlyGross, esiCovered, rates, esiApplicable, daysForSalary)
   const employeeTds = b.employeeTds !== undefined ? num(b.employeeTds) : calcTDS(masterGross * 12)
   const employeePt = b.employeePt !== undefined ? num(b.employeePt) : await resolveProfessionalTax(monthlyGross)
   const employeeDeduction1 = num(b.employeeDeduction1)
@@ -399,7 +440,7 @@ router.post('/preview', requirePermission('salary', 'read_all'), async (req: Aut
   const employerPf = pfApplicable ? F.employerPf(employeePf) : 0
   const adminCharges = F.adminCharges(grossHra, rates, pfApplicable)
   const edliCharges = F.edliCharges(grossHra, rates, pfApplicable)
-  const employerEsi = F.employerEsi(monthlyGross, rates, esiApplicable)
+  const employerEsi = F.employerEsi(monthlyGross, esiCovered, rates, esiApplicable)
   const totalEmployerCost = F.totalEmployerCost({
     employeePf, employeePt, netPay, employerPf, adminCharges, edliCharges, employeeEsi, employerEsi,
   })

@@ -1,12 +1,19 @@
 import { useState, useEffect, useRef } from 'react'
-import { Save, Calculator } from 'lucide-react'
+import { Save, Calculator, RotateCcw } from 'lucide-react'
 import { usePayrollPreview, useUpdateEmployeeSalary, type PreviewResult } from '@/hooks/usePayroll'
 import { toast } from '@/lib/toast'
 
 /**
- * Spreadsheet-style salary editor. Every input recomputes the derived fields
- * through the backend on each change, so what you see while typing is exactly
- * what payroll will calculate - the arithmetic lives in one place, not two.
+ * Spreadsheet-style salary editor.
+ *
+ * Every field is a real input holding a real number. Typing in one recomputes
+ * the rest through the backend and writes the results straight into the other
+ * inputs, so what you see is what payroll will calculate - and any computed
+ * value can then be typed over.
+ *
+ * A field the user has edited by hand is "pinned": recalculation stops
+ * overwriting it, and the formulas take it as an input instead. Clearing the
+ * field (or pressing Reset) unpins it and hands it back to the formula.
  */
 
 interface Props {
@@ -22,34 +29,47 @@ interface Props {
     pfApplicable?: boolean
     esiApplicable?: boolean
   }
+  /** Day counts from the real period calculation, so the editor's monthly
+   *  figures match the breakdown shown alongside it. */
+  calendarDays?: number
+  lop?: number
   onSaved?: () => void
 }
 
-function money(n: number | null | undefined): string {
-  if (n === null || n === undefined) return '—'
-  return `₹${n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
+/** Computed fields the user may override. */
+type Overridable =
+  | 'masterBasic' | 'masterHra' | 'masterOthers'
+  | 'employeeTds' | 'employeePt'
 
-export default function SalaryModelEditor({ employeeId, initial, onSaved }: Props) {
-  const [form, setForm] = useState({
+const num = (v: string) => (v.trim() === '' ? 0 : Number(v))
+const show = (n: number | null | undefined) =>
+  n === null || n === undefined ? '' : String(Math.round(n * 100) / 100)
+
+export default function SalaryModelEditor({ employeeId, initial, calendarDays, lop, onSaved }: Props) {
+  // Inputs the user drives directly.
+  const [inputs, setInputs] = useState({
     masterGross: initial.masterGross?.toString() ?? '',
-    // Blank means "use the 50/25/25 split"; a value here overrides it.
-    masterBasic: initial.masterBasic?.toString() ?? '',
-    masterHra: initial.masterHra?.toString() ?? '',
-    masterOthers: initial.masterOthers?.toString() ?? '',
     masterSpecial1: initial.masterSpecial1?.toString() ?? '',
     masterSpecial2: initial.masterSpecial2?.toString() ?? '',
     variablePayPa: initial.variablePayPa?.toString() ?? '',
     pfApplicable: initial.pfApplicable ?? true,
     esiApplicable: initial.esiApplicable ?? true,
-    // Monthly what-if inputs — preview only, not saved on the employee.
-    calendarDays: '30',
-    lop: '0',
+    calendarDays: String(calendarDays ?? 30),
+    lop: String(lop ?? 0),
     monthlySpecial1: '',
     monthlySpecial2: '',
     employeeDeduction1: '',
     employeeDeduction2: '',
     tda: '',
+  })
+
+  // Fields the user has typed over. A key present here wins over the formula.
+  const [overrides, setOverrides] = useState<Partial<Record<Overridable, string>>>(() => {
+    const o: Partial<Record<Overridable, string>> = {}
+    if (initial.masterBasic != null) o.masterBasic = String(initial.masterBasic)
+    if (initial.masterHra != null) o.masterHra = String(initial.masterHra)
+    if (initial.masterOthers != null) o.masterOthers = String(initial.masterOthers)
+    return o
   })
 
   const [result, setResult] = useState<PreviewResult | null>(null)
@@ -61,37 +81,106 @@ export default function SalaryModelEditor({ employeeId, initial, onSaved }: Prop
   // Debounced so a burst of keystrokes issues one request, not one per letter.
   useEffect(() => {
     const t = setTimeout(() => {
-      previewRef.current.mutate(form, {
-        onSuccess: setResult,
-        onError: () => setResult(null),
-      })
+      previewRef.current.mutate(
+        {
+          ...inputs,
+          // Only send overrides that still hold a value; a cleared field falls
+          // back to the formula.
+          masterBasic: overrides.masterBasic?.trim() ? overrides.masterBasic : null,
+          masterHra: overrides.masterHra?.trim() ? overrides.masterHra : null,
+          masterOthers: overrides.masterOthers?.trim() ? overrides.masterOthers : null,
+          ...(overrides.employeeTds?.trim() ? { employeeTds: overrides.employeeTds } : {}),
+          ...(overrides.employeePt?.trim() ? { employeePt: overrides.employeePt } : {}),
+        },
+        { onSuccess: setResult, onError: () => setResult(null) }
+      )
     }, 250)
     return () => clearTimeout(t)
-  }, [form])
+  }, [inputs, overrides])
 
-  function set(key: keyof typeof form, value: string | boolean) {
-    setForm((f) => ({ ...f, [key]: value }))
+  // The period calculation resolves after the first render, so adopt its day
+  // counts when they arrive. Only fills the defaults - a value the user has
+  // already typed is left alone.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || calendarDays === undefined) return
+    seeded.current = true
+    setInputs((f) => ({
+      ...f,
+      calendarDays: f.calendarDays === '30' ? String(calendarDays) : f.calendarDays,
+      lop: f.lop === '0' ? String(lop ?? 0) : f.lop,
+    }))
+  }, [calendarDays, lop])
+
+  function setInput(key: keyof typeof inputs, value: string | boolean) {
+    setInputs((f) => ({ ...f, [key]: value }))
+  }
+
+  /** Value shown in an overridable field: the user's edit, else the computed number. */
+  function fieldValue(key: Overridable): string {
+    if (overrides[key] !== undefined) return overrides[key] as string
+    return show(result?.[key] as number | undefined)
+  }
+
+  function setOverride(key: Overridable, value: string) {
+    setOverrides((o) => {
+      if (value.trim() === '') {
+        // Cleared - hand the field back to the formula.
+        const next = { ...o }
+        delete next[key]
+        return next
+      }
+      return { ...o, [key]: value }
+    })
+  }
+
+  function resetOverrides() {
+    setOverrides({})
+    toast.success('Reverted to calculated values')
   }
 
   function onSave() {
-    const gross = Number(form.masterGross)
-    if (!Number.isFinite(gross) || gross <= 0) return toast.error('Enter a valid Master Gross')
+    // Master Gross is the sum of the components (workbook AA = SUM(U:Z)), so
+    // the calculated total is what gets stored - the seed field is only a
+    // convenience for filling an empty form.
+    const gross = result?.masterGross ?? Number(inputs.masterGross)
+    if (!Number.isFinite(gross) || gross <= 0) {
+      return toast.error('Enter Basic, HRA and Others (or a gross figure to split)')
+    }
 
-    // Blank override fields are saved as null so the 50/25/25 split keeps
-    // applying rather than freezing today's computed number onto the record.
-    const numOrNull = (v: string) => (v.trim() === '' ? null : Number(v))
+    // The components are the source of truth, so the values on screen are what
+    // gets stored - including ones the 50/25/25 seed produced. Saving those as
+    // null would leave the record unable to reproduce this exact gross.
+    const component = (k: Overridable, computed: number | undefined) => {
+      if (overrides[k]?.trim()) return Number(overrides[k])
+      return computed ?? null
+    }
+
+    // A stray override this can't parse (or the server-side reformula for a
+    // computed field returning nothing) must not save silently - it would
+    // write NaN or a negative figure straight into a field every payroll
+    // calculation for this employee reads from then on.
+    const values = {
+      masterBasic: component('masterBasic', result?.masterBasic),
+      masterHra: component('masterHra', result?.masterHra),
+      masterOthers: component('masterOthers', result?.masterOthers),
+      masterSpecial1: num(inputs.masterSpecial1),
+      masterSpecial2: num(inputs.masterSpecial2),
+      variablePayPa: num(inputs.variablePayPa),
+    }
+    for (const [k, v] of Object.entries(values)) {
+      if (v !== null && (!Number.isFinite(v) || v < 0)) {
+        return toast.error(`${k} must be a non-negative number`)
+      }
+    }
+
     save.mutate(
       {
         id: employeeId,
         masterGross: gross,
-        masterBasic: numOrNull(form.masterBasic),
-        masterHra: numOrNull(form.masterHra),
-        masterOthers: numOrNull(form.masterOthers),
-        masterSpecial1: Number(form.masterSpecial1) || 0,
-        masterSpecial2: Number(form.masterSpecial2) || 0,
-        variablePayPa: Number(form.variablePayPa) || 0,
-        pfApplicable: form.pfApplicable,
-        esiApplicable: form.esiApplicable,
+        ...values,
+        pfApplicable: inputs.pfApplicable,
+        esiApplicable: inputs.esiApplicable,
       },
       {
         onSuccess: () => { toast.success('Master salary saved'); onSaved?.() },
@@ -101,100 +190,118 @@ export default function SalaryModelEditor({ employeeId, initial, onSaved }: Prop
     )
   }
 
+  const hasOverrides = Object.keys(overrides).length > 0
+
   return (
     <div style={{ background: '#fff', border: '1px solid #F0F1F5', borderRadius: 12, padding: 16, marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ fontSize: 13, fontWeight: 700, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
           <Calculator size={15} /> Salary Model
           {preview.isPending && <span style={{ fontSize: 10, color: '#8A8FA8', fontWeight: 500 }}>calculating…</span>}
         </h2>
-        <button onClick={onSave} disabled={save.isPending}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: save.isPending ? 'default' : 'pointer', opacity: save.isPending ? 0.6 : 1 }}>
-          <Save size={13} />{save.isPending ? 'Saving…' : 'Save Master Salary'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {hasOverrides && (
+            <button onClick={resetOverrides}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#F4F5F9', color: '#6B7280', border: 'none', cursor: 'pointer' }}>
+              <RotateCcw size={12} />Reset to formula
+            </button>
+          )}
+          <button onClick={onSave} disabled={save.isPending}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, background: '#5D78FF', color: '#fff', border: 'none', cursor: save.isPending ? 'default' : 'pointer', opacity: save.isPending ? 0.6 : 1 }}>
+            <Save size={13} />{save.isPending ? 'Saving…' : 'Save Master Salary'}
+          </button>
+        </div>
       </div>
 
       <p style={{ fontSize: 11, color: '#8A8FA8', marginBottom: 14 }}>
-        Type a value and every dependent field recalculates immediately. Basic / HRA / Others
-        default to the 50 / 25 / 25 split of Master Gross — leave them blank to keep that,
-        or enter a value to override.
+        Enter Basic, HRA and Others — Master Gross is their sum, and every field below recalculates
+        as you type. Grey boxes are formula results; TDS and Professional Tax are calculated but can
+        be typed over, and clearing one hands it back to the formula.
       </p>
 
-      {/* ── Inputs ── */}
-      <SubHeading>Master Salary Inputs</SubHeading>
-      <InputGrid>
-        <Field label="Master Gross" value={form.masterGross} onChange={(v) => set('masterGross', v)} autoFocus />
-        <Field label="Master Basic" value={form.masterBasic} onChange={(v) => set('masterBasic', v)} placeholder={result ? String(result.masterBasic) : '50%'} />
-        <Field label="Master HRA" value={form.masterHra} onChange={(v) => set('masterHra', v)} placeholder={result ? String(result.masterHra) : '25%'} />
-        <Field label="Master Others" value={form.masterOthers} onChange={(v) => set('masterOthers', v)} placeholder={result ? String(result.masterOthers) : '25%'} />
-        <Field label="Special 1" value={form.masterSpecial1} onChange={(v) => set('masterSpecial1', v)} />
-        <Field label="Special 2" value={form.masterSpecial2} onChange={(v) => set('masterSpecial2', v)} />
-        <Field label="Variable Pay PA" value={form.variablePayPa} onChange={(v) => set('variablePayPa', v)} />
-        <Toggle label="PF applicable" checked={form.pfApplicable} onChange={(v) => set('pfApplicable', v)} />
-        <Toggle label="ESI applicable" checked={form.esiApplicable} onChange={(v) => set('esiApplicable', v)} />
-      </InputGrid>
+      {/* Basic / HRA / Others are the inputs and Master Gross is their sum,
+          matching the workbook where U/V/W are typed and AA is =SUM(U:Z). */}
+      <SubHeading>Master Salary — enter the components</SubHeading>
+      <Grid>
+        <Input label="Master Basic" value={fieldValue('masterBasic')} onChange={(v) => setOverride('masterBasic', v)} autoFocus primary />
+        <Input label="Master HRA" value={fieldValue('masterHra')} onChange={(v) => setOverride('masterHra', v)} primary />
+        <Input label="Master Others" value={fieldValue('masterOthers')} onChange={(v) => setOverride('masterOthers', v)} primary />
+        <Input label="Special 1" value={inputs.masterSpecial1} onChange={(v) => setInput('masterSpecial1', v)} />
+        <Input label="Special 2" value={inputs.masterSpecial2} onChange={(v) => setInput('masterSpecial2', v)} />
+        <Readonly label="Master Gross" value={show(result?.masterGross)} hint="= sum of the components" strong />
+      </Grid>
 
-      <SubHeading>Monthly Inputs (preview only — not saved on the employee)</SubHeading>
-      <InputGrid>
-        <Field label="Calendar Days" value={form.calendarDays} onChange={(v) => set('calendarDays', v)} />
-        <Field label="LOP Days" value={form.lop} onChange={(v) => set('lop', v)} />
-        <Field label="Monthly Special 1" value={form.monthlySpecial1} onChange={(v) => set('monthlySpecial1', v)} />
-        <Field label="Monthly Special 2" value={form.monthlySpecial2} onChange={(v) => set('monthlySpecial2', v)} />
-        <Field label="Deduction 1" value={form.employeeDeduction1} onChange={(v) => set('employeeDeduction1', v)} />
-        <Field label="Deduction 2" value={form.employeeDeduction2} onChange={(v) => set('employeeDeduction2', v)} />
-        <Field label="TDA" value={form.tda} onChange={(v) => set('tda', v)} />
-      </InputGrid>
+      <details style={{ marginTop: 10 }}>
+        <summary style={{ fontSize: 11, color: '#8A8FA8', cursor: 'pointer' }}>
+          Start from a gross figure instead (splits 50 / 25 / 25)
+        </summary>
+        <div style={{ marginTop: 8, maxWidth: 220 }}>
+          <Input
+            label="Master Gross (seed)"
+            hint="only used while the components above are blank"
+            value={inputs.masterGross}
+            onChange={(v) => setInput('masterGross', v)}
+          />
+        </div>
+      </details>
 
-      {/* ── Computed ── */}
-      {result && (
-        <>
-          <SubHeading>Computed — Master</SubHeading>
-          <OutGrid>
-            <Out label="Master Basic" value={money(result.masterBasic)} />
-            <Out label="Master HRA" value={money(result.masterHra)} />
-            <Out label="Master Others" value={money(result.masterOthers)} />
-            <Out label="Master Gross" value={money(result.masterGross)} strong />
-            <Out label="PF Basic" value={money(result.masterPfBasic)} hint="min(Gross − HRA, 15,000)" />
-            <Out label="Co PF" value={money(result.masterCoPf)} hint="× 12%" />
-            <Out label="For ESI" value={result.masterForEsi} />
-            <Out label="ESI Gross" value={money(result.masterEsiGross)} />
-            <Out label="Co ESI" value={money(result.masterCoEsi)} hint="× 3.25%" />
-            <Out label="CTC PM" value={money(result.masterCtcPm)} strong />
-            <Out label="CTC PA" value={money(result.masterCtcPa)} />
-            <Out label="CTC PA Fix+Vari" value={money(result.masterCtcPaTotal)} strong />
-          </OutGrid>
+      <SubHeading>Statutory — calculated</SubHeading>
+      <Grid>
+        <Readonly label="Master PF Basic" value={show(result?.masterPfBasic)} hint="min(Gross − HRA, 15,000)" />
+        <Readonly label="Master Co PF" value={show(result?.masterCoPf)} hint="× 12%" />
+        <Readonly label="For ESI" value={result?.masterForEsi ?? ''} hint="Gross > 21,000 ⇒ NO ESI" text />
+        <Readonly label="Master ESI Gross" value={show(result?.masterEsiGross)} />
+        <Readonly label="Master Co ESI" value={show(result?.masterCoEsi)} hint="× 3.25%" />
+        <Readonly label="Master CTC PM" value={show(result?.masterCtcPm)} hint="Gross + CoPF + CoESI" strong />
+        <Readonly label="Master CTC PA" value={show(result?.masterCtcPa)} hint="× 12" />
+        <Input label="Variable Pay PA" value={inputs.variablePayPa} onChange={(v) => setInput('variablePayPa', v)} />
+        <Readonly label="CTC PA Fix + Vari" value={show(result?.masterCtcPaTotal)} strong />
+      </Grid>
 
-          <SubHeading>Computed — Monthly</SubHeading>
-          <OutGrid>
-            <Out label="Days for Salary" value={String(result.daysForSalary)} />
-            <Out label="Monthly Basic" value={money(result.monthlyBasic)} />
-            <Out label="Monthly HRA" value={money(result.monthlyHra)} />
-            <Out label="Monthly Others" value={money(result.monthlyOthers)} />
-            <Out label="Monthly Gross" value={money(result.monthlyGross)} strong />
-            <Out label="Gross − HRA" value={money(result.grossHra)} hint="PF wage basis" />
-          </OutGrid>
+      <div style={{ display: 'flex', gap: 18, marginTop: 10, marginBottom: 4 }}>
+        <Toggle label="PF applicable" checked={inputs.pfApplicable} onChange={(v) => setInput('pfApplicable', v)} />
+        <Toggle label="ESI applicable" checked={inputs.esiApplicable} onChange={(v) => setInput('esiApplicable', v)} />
+      </div>
 
-          <SubHeading>Computed — Deductions & Net Pay</SubHeading>
-          <OutGrid>
-            <Out label="Employee PF" value={money(result.employeePf)} />
-            <Out label="Employee ESI" value={money(result.employeeEsi)} />
-            <Out label="TDS" value={money(result.employeeTds)} />
-            <Out label="Professional Tax" value={money(result.employeePt)} />
-            <Out label="Total Deduction" value={money(result.totalDeduction)} danger />
-            <Out label="TDA" value={money(result.tda)} />
-            <Out label="Net Pay" value={money(result.netPay)} strong success />
-          </OutGrid>
+      <SubHeading>Attendance & Salary Days</SubHeading>
+      <Grid>
+        <Input label="Calendar Days" value={inputs.calendarDays} onChange={(v) => setInput('calendarDays', v)} />
+        <Input label="LOP Days" value={inputs.lop} onChange={(v) => setInput('lop', v)} />
+        <Readonly label="Days for Salary" value={show(result?.daysForSalary)} hint="calendar − LOP" strong text />
+      </Grid>
 
-          <SubHeading>Computed — Employer Contributions</SubHeading>
-          <OutGrid>
-            <Out label="Employer PF" value={money(result.employerPf)} />
-            <Out label="Admin Charges" value={money(result.adminCharges)} />
-            <Out label="EDLI Charges" value={money(result.edliCharges)} />
-            <Out label="Employer ESI" value={money(result.employerEsi)} />
-            <Out label="Total Employer Cost" value={money(result.totalEmployerCost)} strong />
-          </OutGrid>
-        </>
-      )}
+      <SubHeading>Monthly Earnings — calculated</SubHeading>
+      <Grid>
+        <Readonly label="Monthly Basic" value={show(result?.monthlyBasic)} hint="÷ cal. days × payable" />
+        <Readonly label="Monthly HRA" value={show(result?.monthlyHra)} />
+        <Readonly label="Monthly Others" value={show(result?.monthlyOthers)} />
+        <Input label="Monthly Special 1" value={inputs.monthlySpecial1} onChange={(v) => setInput('monthlySpecial1', v)} />
+        <Input label="Monthly Special 2" value={inputs.monthlySpecial2} onChange={(v) => setInput('monthlySpecial2', v)} />
+        <Readonly label="Monthly Gross" value={show(result?.monthlyGross)} strong />
+        <Readonly label="Gross − HRA" value={show(result?.grossHra)} hint="PF wage basis" />
+      </Grid>
+
+      <SubHeading>Deductions</SubHeading>
+      <Grid>
+        <Readonly label="Employee PF" value={show(result?.employeePf)} hint="12%, flat 1,800 above ceiling" />
+        <Readonly label="Employee ESI" value={show(result?.employeeEsi)} hint="0.75% when eligible" />
+        <Input label="Employee TDS" hint="auto from CTC" value={fieldValue('employeeTds')} onChange={(v) => setOverride('employeeTds', v)} computed overridden={overrides.employeeTds !== undefined} />
+        <Input label="Professional Tax" hint="Tamil Nadu" value={fieldValue('employeePt')} onChange={(v) => setOverride('employeePt', v)} computed overridden={overrides.employeePt !== undefined} />
+        <Input label="Deduction 1" value={inputs.employeeDeduction1} onChange={(v) => setInput('employeeDeduction1', v)} />
+        <Input label="Deduction 2" value={inputs.employeeDeduction2} onChange={(v) => setInput('employeeDeduction2', v)} />
+        <Readonly label="Total Deduction" value={show(result?.totalDeduction)} strong danger />
+        <Input label="TDA" value={inputs.tda} onChange={(v) => setInput('tda', v)} />
+        <Readonly label="Net Pay" value={show(result?.netPay)} strong success />
+      </Grid>
+
+      <SubHeading>Employer Contributions — calculated</SubHeading>
+      <Grid>
+        <Readonly label="Employer PF" value={show(result?.employerPf)} />
+        <Readonly label="Admin Charges" value={show(result?.adminCharges)} hint="0.5%" />
+        <Readonly label="EDLI Charges" value={show(result?.edliCharges)} hint="0.5%" />
+        <Readonly label="Employer ESI" value={show(result?.employerEsi)} hint="3.25% below 21,000" />
+        <Readonly label="Total Employer Cost" value={show(result?.totalEmployerCost)} strong />
+      </Grid>
     </div>
   )
 }
@@ -207,58 +314,77 @@ function SubHeading({ children }: { children: React.ReactNode }) {
   )
 }
 
-function InputGrid({ children }: { children: React.ReactNode }) {
+function Grid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>{children}</div>
 }
 
-function OutGrid({ children }: { children: React.ReactNode }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10, background: '#FAFBFF', borderRadius: 8, padding: 12 }}>
-      {children}
-    </div>
-  )
-}
-
-function Field({ label, value, onChange, placeholder, autoFocus }: {
-  label: string; value: string; onChange: (v: string) => void; placeholder?: string; autoFocus?: boolean
+/**
+ * `computed` marks a field the formula fills in but the user may type over;
+ * `overridden` shows it currently holds a manual value.
+ */
+function Input({ label, value, onChange, hint, autoFocus, primary, computed, overridden }: {
+  label: string
+  value: string
+  onChange: (v: string) => void
+  hint?: string
+  autoFocus?: boolean
+  primary?: boolean
+  computed?: boolean
+  overridden?: boolean
 }) {
+  const border = overridden ? '#F59E0B' : computed ? '#93C5FD' : primary ? '#5D78FF' : '#E8E9F0'
   return (
     <label style={{ display: 'block' }}>
-      <span style={{ fontSize: 10.5, color: '#8A8FA8', display: 'block', marginBottom: 3 }}>{label}</span>
+      <span style={{ fontSize: 10.5, color: '#8A8FA8', display: 'block', marginBottom: 3 }}>
+        {label}
+        {overridden && <span style={{ color: '#F59E0B', fontWeight: 700 }}> · edited</span>}
+      </span>
       <input
         type="number"
         value={value}
         autoFocus={autoFocus}
-        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: '1px solid #E8E9F0', fontSize: 12, outline: 'none', boxSizing: 'border-box' }}
+        style={{
+          width: '100%', padding: '7px 9px', borderRadius: 7,
+          border: `1.5px solid ${border}`,
+          background: overridden ? '#FFFBEB' : '#fff',
+          fontSize: 12, fontWeight: primary ? 700 : 500,
+          outline: 'none', boxSizing: 'border-box',
+        }}
       />
+      {hint && <span style={{ fontSize: 9.5, color: '#B1B1BE', display: 'block', marginTop: 2 }}>{hint}</span>}
     </label>
+  )
+}
+
+/** Pure formula output - shown in a field-shaped box so the grid reads evenly. */
+function Readonly({ label, value, hint, strong, danger, success, text }: {
+  label: string; value: string; hint?: string; strong?: boolean; danger?: boolean; success?: boolean; text?: boolean
+}) {
+  return (
+    <div>
+      <span style={{ fontSize: 10.5, color: '#8A8FA8', display: 'block', marginBottom: 3 }}>{label}</span>
+      <div style={{
+        padding: '7px 9px', borderRadius: 7, border: '1.5px solid transparent',
+        background: '#F4F6FB',
+        fontSize: strong ? 13 : 12,
+        fontWeight: strong ? 700 : 600,
+        color: success ? '#2BC155' : danger ? '#EF4444' : '#1A1D23',
+        minHeight: 32, boxSizing: 'border-box',
+        display: 'flex', alignItems: 'center',
+      }}>
+        {value === '' ? <span style={{ color: '#C4C4CF', fontWeight: 500 }}>—</span> : text ? value : `₹${Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+      </div>
+      {hint && <span style={{ fontSize: 9.5, color: '#B1B1BE', display: 'block', marginTop: 2 }}>{hint}</span>}
+    </div>
   )
 }
 
 function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#374151', cursor: 'pointer', paddingTop: 16 }}>
+    <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ cursor: 'pointer' }} />
       {label}
     </label>
-  )
-}
-
-function Out({ label, value, hint, strong, danger, success }: {
-  label: string; value: string; hint?: string; strong?: boolean; danger?: boolean; success?: boolean
-}) {
-  return (
-    <div>
-      <div style={{ fontSize: 10, color: '#8A8FA8' }}>{label}</div>
-      <div style={{
-        fontSize: strong ? 14 : 12.5,
-        fontWeight: strong ? 700 : 600,
-        marginTop: 2,
-        color: success ? '#2BC155' : danger ? '#EF4444' : '#1A1D23',
-      }}>{value}</div>
-      {hint && <div style={{ fontSize: 9.5, color: '#B1B1BE', marginTop: 1 }}>{hint}</div>}
-    </div>
   )
 }

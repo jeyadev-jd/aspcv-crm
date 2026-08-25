@@ -45,18 +45,37 @@ export function round2(n: number): number {
 // ─── Master salary (xlsx U-AK) ───────────────────────────────────────────────
 
 /**
- * xlsx U/V/W. The sheet stores Basic/HRA/Others as values with Basic = Gross*50%
- * and HRA = Others = Gross*25%. Explicit overrides win, so a row that was
- * hand-adjusted in the workbook keeps its numbers.
+ * xlsx U/V/W are blank data-entry cells - Basic, HRA and Others are typed in
+ * per employee, and Master Gross (AA) is `=SUM(U:Z)` over them. The components
+ * drive the gross, not the other way round.
+ *
+ * The 50/25/25 ratio is only a convenience default for an employee whose
+ * components have never been entered: given a gross and no components, it
+ * seeds a starting split. Any component that IS set is used verbatim, so a row
+ * like Basic 9000 / HRA 5000 / Others 3000 sums to exactly 17000 rather than
+ * being re-derived as 8500/4250/4250.
  */
 export function splitMasterGross(
   masterGross: number,
   overrides: { basic?: number | null; hra?: number | null; others?: number | null } = {}
 ): { basic: number; hra: number; others: number } {
+  const anyComponentSet =
+    overrides.basic != null || overrides.hra != null || overrides.others != null
+
+  if (anyComponentSet) {
+    // Components are the source of truth; an unfilled one contributes nothing
+    // rather than silently reintroducing a percentage of the gross.
+    return {
+      basic: overrides.basic ?? 0,
+      hra: overrides.hra ?? 0,
+      others: overrides.others ?? 0,
+    }
+  }
+
   return {
-    basic: overrides.basic ?? round2(masterGross * 0.5),
-    hra: overrides.hra ?? round2(masterGross * 0.25),
-    others: overrides.others ?? round2(masterGross * 0.25),
+    basic: round2(masterGross * 0.5),
+    hra: round2(masterGross * 0.25),
+    others: round2(masterGross * 0.25),
   }
 }
 
@@ -82,19 +101,38 @@ export function masterCoPf(pfBasic: number, r: StatutoryRates): number {
   return round2(pfBasic * r.pfEmployerRate)
 }
 
-/** xlsx AE: =IF((AA>21000),"NO ESI","ESI") */
-export function masterForEsi(masterGross: number, r: StatutoryRates): 'ESI' | 'NO ESI' {
-  return masterGross > r.esiWageThreshold ? 'NO ESI' : 'ESI'
+/**
+ * xlsx AE: =IF((AA>21000),"NO ESI","ESI")
+ *
+ * Eligibility is decided on MASTER GROSS, matching the workbook's AA reference
+ * and the statutory rule that the wage ceiling applies to gross wages.
+ * Eligibility is a fixed property of the salary structure - a month reduced by
+ * LOP never changes it in either direction.
+ */
+export function masterForEsi(eligibilityWage: number, r: StatutoryRates): 'ESI' | 'NO ESI' {
+  return eligibilityWage > r.esiWageThreshold ? 'NO ESI' : 'ESI'
 }
 
-/** xlsx AF: =IF((AA>21000),0,AA) */
-export function masterEsiGross(masterGross: number, r: StatutoryRates): number {
-  return masterGross > r.esiWageThreshold ? 0 : round2(masterGross)
+/**
+ * xlsx AF: =IF((AA>21000),0,AA) - the master ESI wage base.
+ * Eligibility comes from the basic; the base itself stays the master gross,
+ * matching the workbook and standard practice of computing ESI on gross wages.
+ */
+export function masterEsiGross(
+  masterGross: number,
+  eligibilityWage: number,
+  r: StatutoryRates
+): number {
+  return eligibilityWage > r.esiWageThreshold ? 0 : round2(masterGross)
 }
 
-/** xlsx AG: =IF((AA>21000),0,(AA*3.25%)) */
-export function masterCoEsi(masterGross: number, r: StatutoryRates): number {
-  return masterGross > r.esiWageThreshold ? 0 : round2(masterGross * r.esiEmployerRate)
+/** xlsx AG: =IF((AA>21000),0,(AA*3.25%)) - employer share at master level. */
+export function masterCoEsi(
+  masterGross: number,
+  eligibilityWage: number,
+  r: StatutoryRates
+): number {
+  return eligibilityWage > r.esiWageThreshold ? 0 : round2(masterGross * r.esiEmployerRate)
 }
 
 /** xlsx AH: =AA+AD+AG - monthly fixed CTC. */
@@ -155,20 +193,58 @@ export function employeePf(grossHra: number, r: StatutoryRates, pfApplicable = t
 }
 
 /**
+ * ESI daily-average exemption threshold. An employee whose average daily wage
+ * falls to this or below is exempt from their own 0.75% share for the month;
+ * the employer still pays the full 3.25% so cover is maintained.
+ */
+export const ESI_DAILY_WAGE_EXEMPTION = 176
+
+/**
+ * Is the employee within the ESI scheme at all?
+ *
+ * Eligibility is decided by the FIXED (master) gross, not by what was earned in
+ * a given month:
+ *  - master above the threshold: a month reduced by LOP does NOT pull them in
+ *  - master below the threshold: they stay covered even when LOP reduces pay
+ *
+ * This is what the workbook approximates with `AG>1` in AY: AG is derived from
+ * the master gross, so it is really a master-level eligibility flag.
+ */
+export function isEsiCovered(masterEligibilityWage: number, r: StatutoryRates): boolean {
+  return masterEligibilityWage <= r.esiWageThreshold
+}
+
+/**
+ * Average daily wage for the month: earned gross over days actually paid.
+ * Used only for the exemption test below.
+ */
+export function dailyAverageWage(monthlyGross: number, daysForSalary: number): number {
+  if (daysForSalary <= 0) return 0
+  return round2(monthlyGross / daysForSalary)
+}
+
+/**
  * xlsx AY: =IF((AG>1),(AV*0.75%),0)
- * Eligibility keys off Master Co ESI (AG) being non-trivial rather than
- * re-testing the threshold - i.e. an employee whose master gross put them out
- * of ESI contributes nothing even if a low-attendance month drags the monthly
- * gross under the threshold.
+ *
+ * Employee share, 0.75% of the EARNED gross - so a month cut by LOP produces a
+ * proportionately smaller deduction rather than the full-salary figure.
+ *
+ * Waived entirely when the average daily wage falls to the exemption threshold
+ * (default 176) or below; the employer's share is unaffected by that waiver.
  */
 export function employeeEsi(
   monthlyGross: number,
-  masterCoEsiValue: number,
+  covered: boolean,
   r: StatutoryRates,
-  esiApplicable = true
+  esiApplicable = true,
+  daysForSalary = 0
 ): number {
-  if (!esiApplicable) return 0
-  return masterCoEsiValue > 1 ? round2(monthlyGross * r.esiEmployeeRate) : 0
+  if (!esiApplicable || !covered) return 0
+  if (daysForSalary > 0) {
+    const daily = dailyAverageWage(monthlyGross, daysForSalary)
+    if (daily <= ESI_DAILY_WAGE_EXEMPTION) return 0
+  }
+  return round2(monthlyGross * r.esiEmployeeRate)
 }
 
 /** xlsx BD: =SUM(AX:BC) - PF + ESI + TDS + PT + Deduction 1 + Deduction 2. */
@@ -215,15 +291,21 @@ export function edliCharges(grossHra: number, r: StatutoryRates, pfApplicable = 
 /**
  * xlsx BJ: =IF(AV<21000,AV*3.25%,0)
  *
- * Deliberately mirrors the workbook's strict `<` and its use of the *monthly*
- * gross, which differs from the master-level AG formula (`>21000` on master
- * gross). An employee at exactly 21000 monthly gross contributes 0 here but
- * would be ESI-eligible at master level - that asymmetry is the sheet's, and
- * is documented in PHASE_PAYROLL_IMPLEMENTATION.md rather than "corrected".
+ * Employer share, 3.25% of the EARNED gross. Coverage is the same master-level
+ * decision the employee side uses, so both halves of the contribution always
+ * agree on who is in the scheme.
+ *
+ * The employer pays this in full even when the employee is exempted by the
+ * daily-average rule - that waiver applies to the employee's share only.
  */
-export function employerEsi(monthlyGross: number, r: StatutoryRates, esiApplicable = true): number {
-  if (!esiApplicable) return 0
-  return monthlyGross < r.esiWageThreshold ? round2(monthlyGross * r.esiEmployerRate) : 0
+export function employerEsi(
+  monthlyGross: number,
+  covered: boolean,
+  r: StatutoryRates,
+  esiApplicable = true
+): number {
+  if (!esiApplicable || !covered) return 0
+  return round2(monthlyGross * r.esiEmployerRate)
 }
 
 /**

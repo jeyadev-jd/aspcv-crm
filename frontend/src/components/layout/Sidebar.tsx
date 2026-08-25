@@ -41,8 +41,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     items: [
       // Directory, Payroll, Salary Structure, Recruitment,
       // Onboarding and HR Settings all live as tabs inside /hr.
-      { icon: Users,      to: '/employees',  label: 'Employee Directory', permission: ['hr_user', 'read_all'] },
-      { icon: UserCircle, to: '/hr',         label: 'HR Hub' },
+      { icon: UserCircle, to: '/hr',         label: 'Employees' },
       { icon: Clock,      to: '/attendance', label: 'Attendance' },
       { icon: Calendar,   to: '/leave',      label: 'Leave' },
       { icon: Wallet,     to: '/reimbursements', label: 'Reimbursements' },

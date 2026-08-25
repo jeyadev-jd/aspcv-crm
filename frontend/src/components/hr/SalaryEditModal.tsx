@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { X } from 'lucide-react'
 import type { SalaryRecord, SalaryEditFields } from '@/hooks/useSalary'
+import { toast } from '@/lib/toast'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -50,6 +51,20 @@ export default function SalaryEditModal({
     num('lateDeduction') - num('absentDeduction') - num('otherDeduction'))
 
   function submit() {
+    // `num()` only catches NaN (falls back to 0) - Infinity and negative
+    // amounts pass straight through and would corrupt netSalary once an admin
+    // approves the correction, so they're checked explicitly here.
+    for (const k of allKeys) {
+      const raw = Number(form[k])
+      if (form[k].trim() !== '' && (!Number.isFinite(raw) || raw < 0)) {
+        toast.error(`${String(k)} must be a non-negative number`)
+        return
+      }
+    }
+    if (reason.trim().length < 3) {
+      toast.error('Enter a reason for this correction')
+      return
+    }
     const fields = Object.fromEntries(allKeys.map(k => [k, num(k)])) as SalaryEditFields
     onSubmit(fields, reason.trim())
   }

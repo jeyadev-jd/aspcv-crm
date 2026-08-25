@@ -13,6 +13,7 @@ import Onboarding from './Onboarding'
 import HRSettings from './HRSettings'
 import Performance from './Performance'
 import FnFSettlement from './FnFSettlement'
+import EmployeePayrollTab from '@/components/hr/EmployeePayrollTab'
 
 const HR_CSV_COLS: CsvColDef<CrmUser>[] = [
   { header: 'Name',            accessor: r => r.name },
@@ -90,6 +91,12 @@ const blankForm = () => ({
   dateOfBirth: '', joiningDate: '', baseSalary: '', hra: '', allowances: '',
   pfApplicable: true, uan: '', esiApplicable: true, esiNumber: '', pan: '', bankAccount: '', ifsc: '', bankName: '',
   emergencyContact: '',
+  // Employment lifecycle (Salary Model.xlsx cols L, N, O and prior experience).
+  employeeCode: '', probationDays: '', dorLetterDate: '', lastWorkingDate: '', priorExperienceMonths: '',
+  // Master salary. Basic/HRA/Others stay blank unless the 50/25/25 split is
+  // being overridden for this employee.
+  masterGross: '', masterBasic: '', masterHra: '', masterOthers: '',
+  masterSpecial1: '', masterSpecial2: '', variablePayPa: '',
 })
 
 type FormState = ReturnType<typeof blankForm>
@@ -122,7 +129,7 @@ function DirectoryTab() {
   const [filterDept, setFilterDept] = useState('')
   const [filterRole, setFilterRole] = useState('')
   const [detail, setDetail] = useState<CrmUser | null>(null)
-  const [detailTab, setDetailTab] = useState<'info' | 'performance' | 'fnf'>('info')
+  const [detailTab, setDetailTab] = useState<'info' | 'payroll' | 'performance' | 'fnf'>('info')
   const [modalMode, setModalMode] = useState<'add' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(blankForm())
   const [editId, setEditId] = useState<string | null>(null)
@@ -158,6 +165,18 @@ function DirectoryTab() {
       esiNumber: u.esiNumber ?? '',
       pan: u.pan ?? '', bankAccount: u.bankAccount ?? '', ifsc: u.ifsc ?? '', bankName: u.bankName ?? '',
       emergencyContact: u.emergencyContact ?? '',
+      employeeCode: u.employeeCode ?? '',
+      probationDays: u.probationDays != null ? String(u.probationDays) : '',
+      dorLetterDate: u.dorLetterDate ? u.dorLetterDate.slice(0, 10) : '',
+      lastWorkingDate: u.lastWorkingDate ? u.lastWorkingDate.slice(0, 10) : '',
+      priorExperienceMonths: u.priorExperienceMonths != null ? String(u.priorExperienceMonths) : '',
+      masterGross: u.masterGross != null ? String(u.masterGross) : '',
+      masterBasic: u.masterBasic != null ? String(u.masterBasic) : '',
+      masterHra: u.masterHra != null ? String(u.masterHra) : '',
+      masterOthers: u.masterOthers != null ? String(u.masterOthers) : '',
+      masterSpecial1: u.masterSpecial1 != null ? String(u.masterSpecial1) : '',
+      masterSpecial2: u.masterSpecial2 != null ? String(u.masterSpecial2) : '',
+      variablePayPa: u.variablePayPa != null ? String(u.variablePayPa) : '',
     })
     setEditId(u.id); setModalMode('edit'); setError('')
   }
@@ -181,6 +200,20 @@ function DirectoryTab() {
       ifsc: form.ifsc || undefined,
       bankName: form.bankName || undefined,
       emergencyContact: form.emergencyContact || undefined,
+      employeeCode: form.employeeCode || undefined,
+      probationDays: form.probationDays !== '' ? Number(form.probationDays) : undefined,
+      dorLetterDate: form.dorLetterDate || undefined,
+      lastWorkingDate: form.lastWorkingDate || undefined,
+      priorExperienceMonths: form.priorExperienceMonths !== '' ? Number(form.priorExperienceMonths) : undefined,
+      masterGross: form.masterGross !== '' ? Number(form.masterGross) : undefined,
+      // Sent as null (not undefined) when cleared, so wiping an override
+      // restores the 50/25/25 split instead of leaving the old value behind.
+      masterBasic: form.masterBasic !== '' ? Number(form.masterBasic) : null,
+      masterHra: form.masterHra !== '' ? Number(form.masterHra) : null,
+      masterOthers: form.masterOthers !== '' ? Number(form.masterOthers) : null,
+      masterSpecial1: form.masterSpecial1 !== '' ? Number(form.masterSpecial1) : undefined,
+      masterSpecial2: form.masterSpecial2 !== '' ? Number(form.masterSpecial2) : undefined,
+      variablePayPa: form.variablePayPa !== '' ? Number(form.variablePayPa) : undefined,
     }
     try {
       if (modalMode === 'add') {
@@ -300,9 +333,12 @@ function DirectoryTab() {
               <button onClick={() => setDetail(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#8A8FA8' }}><X size={18} /></button>
             </div>
 
-            {/* Tabs for detail panel */}
+            {/* Tabs for detail panel. Payroll is HR/admin only - it exposes
+                master salary and the full calculation breakdown. */}
             <div style={{ display: 'flex', gap: 16, borderBottom: '1px solid #E5E7EB', marginBottom: 20 }}>
-              {(['info', 'performance', 'fnf'] as const).map(t => (
+              {(['info', 'payroll', 'performance', 'fnf'] as const)
+                .filter(t => t !== 'payroll' || canManage)
+                .map(t => (
                 <button
                   key={t}
                   onClick={() => setDetailTab(t)}
@@ -313,7 +349,7 @@ function DirectoryTab() {
                     borderBottom: detailTab === t ? '2px solid #2563EB' : '2px solid transparent'
                   }}
                 >
-                  {t === 'info' ? 'Personal Info' : t === 'performance' ? 'Performance' : 'Full & Final'}
+                  {t === 'info' ? 'Personal Info' : t === 'payroll' ? 'Payroll' : t === 'performance' ? 'Performance' : 'Full & Final'}
                 </button>
               ))}
             </div>
@@ -330,13 +366,19 @@ function DirectoryTab() {
                 {/* Employment */}
                 <Section title="Employment">
                   <InfoRow icon={<Building size={13} />} label="Department" value={detail.department?.name ?? '—'} />
-              <InfoRow icon={<Calendar size={13} />} label="Joining Date" value={fmtDate(detail.joiningDate)} />
+              <InfoRow icon={<Calendar size={13} />} label="Joining Date (DOJ)" value={fmtDate(detail.joiningDate)} />
               <InfoRow icon={<Calendar size={13} />} label="Tenure" value={tenure(detail.joiningDate)} />
+              {detail.probationDays != null && <InfoRow icon={<Calendar size={13} />} label="Probation" value={`${detail.probationDays} days`} />}
+              {detail.confirmationDate && <InfoRow icon={<Calendar size={13} />} label="Confirmation (DOC)" value={fmtDate(detail.confirmationDate)} />}
+              {detail.dorLetterDate && <InfoRow icon={<Calendar size={13} />} label="DOR Letter" value={fmtDate(detail.dorLetterDate)} />}
+              {detail.lastWorkingDate && <InfoRow icon={<Calendar size={13} />} label="Last Working Day (DOL)" value={fmtDate(detail.lastWorkingDate)} />}
             </Section>
 
             {/* Salary — HR/admin only */}
             {canManage && (
               <Section title="Salary & Statutory">
+                <InfoRow icon={<Wallet size={13} />} label="Master Gross" value={detail.masterGross != null ? `₹${detail.masterGross.toLocaleString('en-IN')}` : '— (not set)'} />
+                <InfoRow icon={<Wallet size={13} />} label="Variable Pay PA" value={detail.variablePayPa ? `₹${detail.variablePayPa.toLocaleString('en-IN')}` : '—'} />
                 <InfoRow icon={<Wallet size={13} />} label="Base Salary" value={detail.baseSalary != null ? `₹${detail.baseSalary.toLocaleString('en-IN')}` : '—'} />
                 <InfoRow icon={<Wallet size={13} />} label="HRA" value={detail.hra != null ? `₹${detail.hra.toLocaleString('en-IN')}` : '—'} />
                 <InfoRow icon={<Wallet size={13} />} label="Allowances" value={detail.allowances != null ? `₹${detail.allowances.toLocaleString('en-IN')}` : '—'} />
@@ -368,6 +410,8 @@ function DirectoryTab() {
             )}
               </>
             )}
+
+            {detailTab === 'payroll' && canManage && <EmployeePayrollTab employee={detail} />}
 
             {detailTab === 'performance' && (
               <div style={{ margin: '-24px', height: 'calc(100% + 24px)' }}>
@@ -416,13 +460,34 @@ function DirectoryTab() {
               <Field label="Emergency Contact"><input value={form.emergencyContact} onChange={e => setForm(p => ({ ...p, emergencyContact: e.target.value }))} placeholder="+91..." style={fInp} /></Field>
             </div>
 
-            <GroupLabel>Dates</GroupLabel>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 14 }}>
+            <GroupLabel>Employment Lifecycle</GroupLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 14 }}>
+              <Field label="Employee Code"><input value={form.employeeCode} onChange={e => setForm(p => ({ ...p, employeeCode: e.target.value }))} style={fInp} /></Field>
               <Field label="Date of Birth"><input type="date" value={form.dateOfBirth} onChange={e => setForm(p => ({ ...p, dateOfBirth: e.target.value }))} style={fInp} /></Field>
-              <Field label="Joining Date"><input type="date" value={form.joiningDate} onChange={e => setForm(p => ({ ...p, joiningDate: e.target.value }))} style={fInp} /></Field>
+              <Field label="Joining Date (DOJ)"><input type="date" value={form.joiningDate} onChange={e => setForm(p => ({ ...p, joiningDate: e.target.value }))} style={fInp} /></Field>
+              <Field label="Probation (days)"><input type="number" value={form.probationDays} onChange={e => setForm(p => ({ ...p, probationDays: e.target.value }))} style={fInp} /></Field>
+              <Field label="DOR Letter"><input type="date" value={form.dorLetterDate} onChange={e => setForm(p => ({ ...p, dorLetterDate: e.target.value }))} style={fInp} /></Field>
+              <Field label="Last Working Day (DOL)"><input type="date" value={form.lastWorkingDate} onChange={e => setForm(p => ({ ...p, lastWorkingDate: e.target.value }))} style={fInp} /></Field>
+              <Field label="Prior Experience (months)"><input type="number" value={form.priorExperienceMonths} onChange={e => setForm(p => ({ ...p, priorExperienceMonths: e.target.value }))} style={fInp} /></Field>
             </div>
 
-            <GroupLabel>Salary</GroupLabel>
+            <GroupLabel>Master Salary (payroll engine)</GroupLabel>
+            <p style={{ fontSize: 11, color: '#8A8FA8', margin: '0 0 8px' }}>
+              Master Gross drives payroll. Basic / HRA / Others default to the 50 / 25 / 25 split —
+              leave blank to keep that, or enter a value to override. Use the Payroll tab to see
+              every figure recalculate as you type.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 14 }}>
+              <Field label="Master Gross ₹"><input type="number" value={form.masterGross} onChange={e => setForm(p => ({ ...p, masterGross: e.target.value }))} style={fInp} /></Field>
+              <Field label="Master Basic ₹ (50%)"><input type="number" placeholder="auto" value={form.masterBasic} onChange={e => setForm(p => ({ ...p, masterBasic: e.target.value }))} style={fInp} /></Field>
+              <Field label="Master HRA ₹ (25%)"><input type="number" placeholder="auto" value={form.masterHra} onChange={e => setForm(p => ({ ...p, masterHra: e.target.value }))} style={fInp} /></Field>
+              <Field label="Master Others ₹ (25%)"><input type="number" placeholder="auto" value={form.masterOthers} onChange={e => setForm(p => ({ ...p, masterOthers: e.target.value }))} style={fInp} /></Field>
+              <Field label="Special 1 ₹"><input type="number" value={form.masterSpecial1} onChange={e => setForm(p => ({ ...p, masterSpecial1: e.target.value }))} style={fInp} /></Field>
+              <Field label="Special 2 ₹"><input type="number" value={form.masterSpecial2} onChange={e => setForm(p => ({ ...p, masterSpecial2: e.target.value }))} style={fInp} /></Field>
+              <Field label="Variable Pay PA ₹"><input type="number" value={form.variablePayPa} onChange={e => setForm(p => ({ ...p, variablePayPa: e.target.value }))} style={fInp} /></Field>
+            </div>
+
+            <GroupLabel>Legacy Salary</GroupLabel>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, marginBottom: 10 }}>
               <Field label="Base Salary ₹"><input type="number" value={form.baseSalary} onChange={e => setForm(p => ({ ...p, baseSalary: e.target.value }))} style={fInp} /></Field>
               <Field label="HRA ₹"><input type="number" value={form.hra} onChange={e => setForm(p => ({ ...p, hra: e.target.value }))} style={fInp} /></Field>

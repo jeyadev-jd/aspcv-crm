@@ -31,8 +31,6 @@ import Reports from '@/pages/Reports'
 import Settings from '@/pages/Settings'
 import HR from '@/pages/HR'
 import Attendance from '@/pages/Attendance'
-import EmployeeDirectory from '@/pages/EmployeeDirectory'
-import EmployeeDetail from '@/pages/EmployeeDetail'
 import Leave from '@/pages/Leave'
 import MyProfile from '@/pages/MyProfile'
 import Help from '@/pages/Help'
@@ -123,8 +121,10 @@ export default function App() {
                 Onboarding and HR Settings are tabs inside it, not routes */}
             <Route path="/hr"               element={<HR />} />
             <Route path="/attendance"       element={<Attendance />} />
-            <Route path="/employees"        element={<PermGuard resource="hr_user" action="read_all"><EmployeeDirectory /></PermGuard>} />
-            <Route path="/employees/:id"    element={<PermGuard resource="hr_user" action="read_all"><EmployeeDetail /></PermGuard>} />
+            {/* Employee Directory is merged into the HR Hub as tabs; these
+                redirect so old links and bookmarks still land somewhere. */}
+            <Route path="/employees"        element={<Navigate to="/hr" replace />} />
+            <Route path="/employees/:id"    element={<Navigate to="/hr" replace />} />
             <Route path="/payroll"          element={<Navigate to="/hr" replace />} />
             <Route path="/salary-structure" element={<Navigate to="/hr" replace />} />
             <Route path="/hr-settings"      element={<Navigate to="/hr" replace />} />

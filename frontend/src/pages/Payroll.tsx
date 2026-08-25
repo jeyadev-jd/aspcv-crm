@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAllSalary, useGenerateSalary, useApproveSalary, useMarkSalaryPaid, useManualEditSalary } from '../hooks/useSalary'
 import { useUsers } from '../hooks/useUsers'
-import { useAuthStore } from '../lib/authStore'
+import { usePermission } from '../hooks/usePermission'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
 import { toast } from '@/lib/toast'
 import { Play, CheckCircle, DollarSign, Pencil, Download, Mail } from 'lucide-react'
@@ -11,7 +11,10 @@ import { downloadFile } from '@/lib/download'
 import { api } from '@/lib/api'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-function fmt(n: number) { return `₹${Math.round(n).toLocaleString('en-IN')}` }
+function fmt(n: number | null | undefined) {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '—'
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
+}
 
 const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
   draft:    { bg: '#FEF3C7', color: '#92400E' },
@@ -21,7 +24,6 @@ const STATUS_STYLE: Record<string, { bg: string; color: string }> = {
 }
 
 export default function Payroll() {
-  const user = useAuthStore(s => s.user)
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear] = useState(now.getFullYear())
@@ -36,8 +38,13 @@ export default function Payroll() {
   const manualEdit = useManualEditSalary()
   const [editFor, setEditFor] = useState<SalaryRecord | null>(null)
 
-  const canGenerate = user && ['SuperAdmin', 'HR'].includes(user.role)
-  const canPay = user && ['SuperAdmin', 'HR', 'Accountant'].includes(user.role)
+  // Mirror the API's own permissions instead of role names: generate/approve/
+  // mark_paid are three separate rights on the backend, and a role check would
+  // both hide actions from users who hold the permission and show buttons that
+  // only fail with a 403 to users who don't.
+  const canGenerate = usePermission('salary', 'generate')
+  const canApprove = usePermission('salary', 'approve')
+  const canPay = usePermission('salary', 'mark_paid')
 
   // Approving and paying payroll are one-way doors — an approved record feeds
   // the NEFT export, so both ask before firing.
@@ -86,7 +93,13 @@ export default function Payroll() {
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
             <button
-              onClick={() => { if (genUserId) generate.mutate({ userId: genUserId, month, year }) }}
+              onClick={() => {
+                if (!genUserId) return
+                generate.mutate({ userId: genUserId, month, year }, {
+                  onError: (e: unknown) =>
+                    toast.error((e as { response?: { data?: { error?: string } } }).response?.data?.error ?? 'Failed to generate salary slip'),
+                })
+              }}
               disabled={!genUserId || generate.isPending}
               style={{ background: '#5D78FF', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center', opacity: !genUserId ? 0.5 : 1 }}
             >
@@ -95,9 +108,19 @@ export default function Payroll() {
             <button
               onClick={async () => {
                 const eligible = users.filter(u => (u as any).baseSalary)
+                let ok = 0
+                const failures: string[] = []
                 for (const u of eligible) {
-                  try { await generate.mutateAsync({ userId: u.id, month, year }) } catch { /* skip users without salary config */ }
+                  try {
+                    await generate.mutateAsync({ userId: u.id, month, year })
+                    ok++
+                  } catch (e) {
+                    const msg = (e as { response?: { data?: { error?: string } } }).response?.data?.error
+                    failures.push(msg ? `${u.name} (${msg})` : u.name)
+                  }
                 }
+                if (failures.length === 0) toast.success(`Generated ${ok} salary slip${ok === 1 ? '' : 's'}`)
+                else toast.error(`Generated ${ok}/${eligible.length} — failed: ${failures.join(', ')}`)
               }}
               disabled={generate.isPending}
               style={{ background: '#EDE9FE', color: '#7C3AED', border: 'none', borderRadius: 8, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 6, alignItems: 'center' }}
@@ -148,14 +171,14 @@ export default function Payroll() {
           <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#FAFBFF', borderBottom: '1px solid #F0F1F5' }}>
-                {['Employee', 'Gross', 'PF', 'ESI', 'TDS', 'Late Deduction', 'Net', 'Status', 'Actions'].map(h => (
+                {['Employee', 'Gross', 'PF', 'ESI', 'TDS', 'Late Deduction', 'Absent Deduction', 'Net', 'Status', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '10px 14px', fontSize: 10, fontWeight: 600, color: '#8A8FA8', textTransform: 'uppercase', letterSpacing: 0.4, textAlign: 'left', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {records.length === 0 ? (
-                <tr><td colSpan={9} style={{ padding: 32, textAlign: 'center', color: '#8A8FA8', fontSize: 13 }}>No records. Generate salary slips first.</td></tr>
+                <tr><td colSpan={10} style={{ padding: 32, textAlign: 'center', color: '#8A8FA8', fontSize: 13 }}>No records. Generate salary slips first.</td></tr>
               ) : records.map(r => {
                 const ss = STATUS_STYLE[r.status] ?? STATUS_STYLE.draft
                 return (
@@ -171,6 +194,7 @@ export default function Payroll() {
                     <td style={{ padding: '10px 14px', fontSize: 13 }}>{fmt(r.esiEmployee)}</td>
                     <td style={{ padding: '10px 14px', fontSize: 13 }}>{fmt(r.tds)}</td>
                     <td style={{ padding: '10px 14px', fontSize: 13, color: r.lateDeduction > 0 ? '#EF4444' : '#6B7280' }}>{fmt(r.lateDeduction)}</td>
+                    <td style={{ padding: '10px 14px', fontSize: 13, color: (r.absentDeduction ?? 0) > 0 ? '#EF4444' : '#6B7280' }}>{fmt(r.absentDeduction ?? 0)}</td>
                     <td style={{ padding: '10px 14px', fontSize: 13, fontWeight: 700, color: '#2BC155' }}>{fmt(r.netSalary)}</td>
                     <td style={{ padding: '10px 14px' }}>
                       <span style={{ background: ss.bg, color: ss.color, fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 20 }}>{r.status}</span>
@@ -185,7 +209,7 @@ export default function Payroll() {
                         {r.status === 'pending' && (
                           <span style={{ fontSize: 11, color: '#B91C1C', fontWeight: 600 }}>Awaiting admin approval</span>
                         )}
-                        {r.status === 'draft' && canGenerate && (
+                        {r.status === 'draft' && canApprove && (
                           <button onClick={() => setApproveFor(r)} style={{ background: '#DBEAFE', color: '#1D4ED8', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', gap: 4, alignItems: 'center' }}>
                             <CheckCircle size={11} />Approve
                           </button>
@@ -199,7 +223,7 @@ export default function Payroll() {
                           style={{ background: '#EEF2FF', color: '#4338CA', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: busyId === r.id ? 'default' : 'pointer', opacity: busyId === r.id ? 0.6 : 1, display: 'flex', gap: 4, alignItems: 'center' }}>
                           <Download size={11} />PDF
                         </button>
-                        {canGenerate && r.status !== 'draft' && (
+                        {canApprove && r.status !== 'draft' && (
                           <button onClick={() => resendSlip(r)} disabled={busyId === r.id} title="Email this payslip to the employee again"
                             style={{ background: '#F3F4F6', color: '#374151', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: busyId === r.id ? 'default' : 'pointer', opacity: busyId === r.id ? 0.6 : 1, display: 'flex', gap: 4, alignItems: 'center' }}>
                             <Mail size={11} />Resend

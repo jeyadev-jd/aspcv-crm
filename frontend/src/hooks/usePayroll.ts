@@ -258,6 +258,9 @@ export interface PreviewInput {
   employeeDeduction1?: number | string
   employeeDeduction2?: number | string
   tda?: number | string
+  // Overrides for fields the engine would otherwise derive.
+  employeeTds?: number | string
+  employeePt?: number | string
 }
 
 export type PreviewResult = Omit<

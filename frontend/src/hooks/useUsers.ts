@@ -46,7 +46,9 @@ export interface CrmUser {
 export function useUsers(enabled = true) {
   return useQuery<CrmUser[]>({
     queryKey: ['users'],
-    queryFn: () => api.get('/users', { params: { pageSize: 1000 } }).then(r => r.data.data),
+    // pageSize alone is clamped server-side at 100; all=true is the actual
+    // bypass, or any roster past 100 employees is silently truncated.
+    queryFn: () => api.get('/users', { params: { all: true } }).then(r => r.data.data),
     staleTime: 5 * 60_000,
     enabled,
   })
